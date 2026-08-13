@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Woodlem Park | Next-Gen Portal</title>
+    <meta name="description" content="Woodlem Park School Portal — Student, Teacher, Admin and Parent dashboards with Holistic Development Hub.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <!-- ================= LOGIN PORTAL ================= -->
+    <div id="login-view" class="view-container active">
+        <main class="login-card">
+            <div class="brand-header">
+                <img src="image_35dba9.jpeg" alt="Woodlem Park" class="brand-logo">
+                <h1 class="login-title">Woodlem Portal</h1>
+                <p class="login-subtitle">Sign in to your account</p>
+            </div>
+            <div class="role-toggle-container">
+                <div class="role-toggle-slider" id="roleSlider"></div>
+                <button type="button" class="role-toggle-btn active" id="roleBtn-student" onclick="selectRole('student', 0, this)">Student</button>
+                <button type="button" class="role-toggle-btn" id="roleBtn-teacher" onclick="selectRole('teacher', 1, this)">Teacher</button>
+                <button type="button" class="role-toggle-btn" id="roleBtn-admin" onclick="selectRole('admin', 2, this)">Admin</button>
+                <button type="button" class="role-toggle-btn" id="roleBtn-parent" onclick="selectRole('parent', 3, this)">Parent</button>
+            </div>
+            <form id="login-form">
+                <input type="hidden" id="selectedRole" value="student">
+                <div class="form-group">
+                    <label class="form-label">User ID</label>
+                    <input type="text" id="username" class="form-input" placeholder="e.g. WPS-2026" required autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" id="password" class="form-input" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="btn-primary" style="width: 100%; margin-top: 8px; padding: 14px;">Secure Sign In</button>
+            </form>
+        </main>
+    </div>
+
+    <!-- ================= STUDENT DASHBOARD ================= -->
+    <div id="student-view" class="view-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-brand">
+                    <img src="image_35dba9.jpeg" alt="Woodlem Park" class="sidebar-logo">
+                </div>
+                <div class="profile-card">
+                    <div class="profile-avatar avatar-student">S</div>
+                    <div class="profile-info">
+                        <h3 id="student-name-display">Sarah Jenkins</h3>
+                        <p>Grade 12 (CBSE)</p>
+                    </div>
+                </div>
+            </div>
+            <nav class="nav-menu" id="student-nav">
+                <div class="nav-label">My Subjects</div>
+                <button class="nav-item active" onclick="switchSubject('student', 'Physics', this)">Physics</button>
+                <button class="nav-item" onclick="switchSubject('student', 'Chemistry', this)">Chemistry</button>
+                <button class="nav-item" onclick="switchSubject('student', 'Biology', this)">Biology</button>
+                <div class="nav-label">School</div>
+                <button class="nav-item" onclick="switchSubject('student', 'Holistic Development Hub', this); switchTab('student','hub', document.querySelector('#student-tabs .tab-btn[data-tab=hub]'))">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 15px; height: 15px; display: inline-block; vertical-align: text-bottom; margin-right: 8px; stroke: currentColor;"><path d="M12 22V12"/><path d="M12 12a5 5 0 0 0 5-5c0-2-2-3-5-3S7 5 7 7a5 5 0 0 0 5 5z"/><path d="M12 18a4 4 0 0 0 4-4c0-1.5-1-2.5-4-2.5S8 12.5 8 14a4 4 0 0 0 4 4z"/></svg>Holistic Hub
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <button class="logout-btn-clean" onclick="logout()">Sign Out</button>
+            </div>
+        </aside>
+        
+        <main class="main-content">
+            <header class="content-header">
+                <div class="header-top">
+                    <h1 class="page-title" id="student-page-title">Physics</h1>
+                </div>
+                <div class="tabs" id="student-tabs">
+                    <button class="tab-btn active" data-tab="tests" onclick="switchTab('student', 'tests', this)">Tests &amp; Assignments</button>
+                    <button class="tab-btn" data-tab="syllabus" onclick="switchTab('student', 'syllabus', this)">Syllabus Tracker</button>
+                    <button class="tab-btn" data-tab="awards" onclick="switchTab('student', 'awards', this)">Achievements</button>
+                    <button class="tab-btn" data-tab="hub" onclick="switchTab('student', 'hub', this)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px; display: inline-block; vertical-align: text-bottom; margin-right: 6px; stroke: currentColor;"><path d="M12 22V12"/><path d="M12 12a5 5 0 0 0 5-5c0-2-2-3-5-3S7 5 7 7a5 5 0 0 0 5 5z"/><path d="M12 18a4 4 0 0 0 4-4c0-1.5-1-2.5-4-2.5S8 12.5 8 14a4 4 0 0 0 4 4z"/></svg>Holistic Hub
+                    </button>
+                </div>
+            </header>
+            
+            <div class="content-body">
+                <!-- Student: Tests & Assignments -->
+                <div id="student-content-tests" class="tab-content active">
+                    <h3 class="section-title">Active Assessments</h3>
+                    <div class="card-list" id="student-tests-list" style="margin-bottom: 32px;"></div>
+                    <h3 class="section-title">Pending Tasks</h3>
+                    <div class="card-list" id="student-assignments-list"></div>
+                </div>
+
+                <!-- Student: Syllabus -->
+                <div id="student-content-syllabus" class="tab-content">
+                    <div class="panel-block" style="display: flex; gap: 48px; margin-bottom: 32px;">
+                        <div style="flex: 1;">
+                            <div class="progress-header">
+                                <p class="progress-label">Class Progress</p>
+                                <span class="progress-value" id="student-teacher-pct">0%</span>
+                            </div>
+                            <div class="progress-track"><div class="progress-fill fill-teacher" id="student-teacher-bar"></div></div>
+                        </div>
+                        <div style="flex: 1;">
+                            <div class="progress-header">
+                                <p class="progress-label">Personal Study</p>
+                                <span class="progress-value" id="student-self-pct">0%</span>
+                            </div>
+                            <div class="progress-track"><div class="progress-fill fill-student" id="student-self-bar"></div></div>
+                        </div>
+                    </div>
+                    <div id="student-terms-container"></div>
+                </div>
+
+                <!-- Student: Awards -->
+                <div id="student-content-awards" class="tab-content">
+                    <div class="panel-header-action">
+                        <h3 class="section-title">My Awards &amp; Certifications</h3>
+                        <button class="btn-primary" onclick="openModal('addAwardModal')">+ Add Achievement</button>
+                    </div>
+                    <div class="grid-layout" id="student-awards-list"></div>
+                </div>
+
+                <!-- Student: Holistic Development Hub -->
+                <div id="student-content-hub" class="tab-content">
+                    <div class="panel-header-action">
+                        <div>
+                            <h3 class="section-title" style="margin-bottom:4px;">Holistic Development Hub</h3>
+                            <p style="font-size:13px; color:var(--text-secondary); margin-bottom:0;">Browse school programmes, events, and opportunities. Click Register to participate.</p>
+                        </div>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <select id="student-hub-filter" class="form-input" style="width:200px; padding:10px 14px;" onchange="renderStudentHub()">
+                                <option value="">All Types</option>
+                                <option value="Counselling Appointment">Counselling</option>
+                                <option value="Club Registration">Clubs</option>
+                                <option value="Summer Programme">Summer</option>
+                                <option value="Workshop">Workshop</option>
+                                <option value="Event">Event</option>
+                                <option value="Volunteer Opportunity">Volunteer</option>
+                                <option value="Leadership Programme">Leadership</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="hub-grid" id="student-hub-list"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ================= TEACHER DASHBOARD ================= -->
+    <div id="teacher-view" class="view-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-brand">
+                    <img src="image_35dba9.jpeg" alt="Woodlem Park" class="sidebar-logo">
+                </div>
+                <div class="profile-card">
+                    <div class="profile-avatar avatar-teacher">T</div>
+                    <div class="profile-info">
+                        <h3 id="teacher-name-display">Prof. Davis</h3>
+                        <p>Science Dept.</p>
+                    </div>
+                </div>
+            </div>
+            <nav class="nav-menu" id="teacher-nav">
+                <div class="nav-label">My Classes</div>
+                <button class="nav-item active" onclick="switchSubject('teacher', 'Grade 12 - Physics (A)', this)">Grade 12 - Physics (A)</button>
+                <button class="nav-item" onclick="switchSubject('teacher', 'Grade 12 - Physics (B)', this)">Grade 12 - Physics (B)</button>
+            </nav>
+            <div class="sidebar-footer">
+                <button class="logout-btn-clean" onclick="logout()">Sign Out</button>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="content-header">
+                <div class="header-top">
+                    <h1 class="page-title" id="teacher-page-title">Grade 12 - Physics (A)</h1>
+                    <div style="display: flex; gap: 12px;">
+                        <button class="btn-secondary btn-primary" onclick="openModal('createAssignmentModal')">Add Assignment</button>
+                        <button class="btn-primary" onclick="openModal('createTestModal')">Create Test</button>
+                    </div>
+                </div>
+                <div class="tabs" id="teacher-tabs">
+                    <button class="tab-btn active" data-tab="manage" onclick="switchTab('teacher', 'manage', this)">Class Overview</button>
+                    <button class="tab-btn" data-tab="syllabus" onclick="switchTab('teacher', 'syllabus', this)">Syllabus Manager</button>
+                    <button class="tab-btn" data-tab="attendance" onclick="switchTab('teacher', 'attendance', this)">Attendance &amp; Analytics</button>
+                    <button class="tab-btn" data-tab="awards" onclick="switchTab('teacher', 'awards', this)">Awards Database</button>
+                    <button class="tab-btn" data-tab="hub" onclick="switchTab('teacher', 'hub', this)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px; display: inline-block; vertical-align: text-bottom; margin-right: 6px; stroke: currentColor;"><path d="M12 22V12"/><path d="M12 12a5 5 0 0 0 5-5c0-2-2-3-5-3S7 5 7 7a5 5 0 0 0 5 5z"/><path d="M12 18a4 4 0 0 0 4-4c0-1.5-1-2.5-4-2.5S8 12.5 8 14a4 4 0 0 0 4 4z"/></svg>Holistic Hub
+                    </button>
+                </div>
+            </header>
+            
+            <div class="content-body">
+                <!-- Teacher: Overview -->
+                <div id="teacher-content-manage" class="tab-content active">
+                    <h3 class="section-title">Active Assignments &amp; Tests</h3>
+                    <div class="card-list" id="teacher-overview-list" style="margin-bottom: 32px;"></div>
+                </div>
+
+                <!-- Teacher: Syllabus -->
+                <div id="teacher-content-syllabus" class="tab-content">
+                    <div class="panel-block" style="display: flex; gap: 48px; margin-bottom: 32px;">
+                        <div style="flex: 1;">
+                            <div class="progress-header">
+                                <p class="progress-label">Overall Syllabus Taught</p>
+                                <span class="progress-value" id="teacher-overall-pct">0%</span>
+                            </div>
+                            <div class="progress-track"><div class="progress-fill fill-teacher" id="teacher-overall-bar"></div></div>
+                        </div>
+                    </div>
+                    <div id="teacher-terms-container"></div>
+                    <button class="btn-add-minimal" onclick="openModal('addTermModal')">+ Create New Term Block</button>
+                </div>
+
+                <!-- Teacher: Attendance -->
+                <div id="teacher-content-attendance" class="tab-content">
+                    <div class="analytics-grid">
+                        <div class="stat-box">
+                            <h3 class="section-title">Class Attendance Trend</h3>
+                            <p class="stat-sub">Last 5 recorded sessions</p>
+                            <div class="chart-container" id="attendance-trend-chart"></div>
+                        </div>
+                        <div class="stat-box">
+                            <h3 class="section-title">AI Insights</h3>
+                            <p class="stat-sub">Based on historical logs</p>
+                            <div class="insight-list" id="attendance-insights"></div>
+                        </div>
+                    </div>
+
+                    <div class="panel-block">
+                        <div class="panel-header-action">
+                            <div>
+                                <h3 class="section-title" style="margin:0;">Daily Register Log</h3>
+                                <p class="stat-sub">Select any date to view or edit historical records.</p>
+                            </div>
+                            <input type="date" id="attendance-date" class="form-input" style="width: 200px; font-weight: 600;" onchange="loadAttendance()">
+                        </div>
+                        <div id="attendance-list" style="margin-bottom: 32px;"></div>
+                        <button class="btn-primary" onclick="saveAttendance()" style="width: 100%; padding: 16px;">Log &amp; Update Register</button>
+                    </div>
+
+                    <div class="panel-block" style="background: var(--surface-variant);">
+                        <div class="panel-header-action">
+                            <h4 class="section-title" style="margin:0;">Automated Daily Report</h4>
+                            <button class="btn-secondary btn-primary" onclick="copyReport()">Copy Text</button>
+                        </div>
+                        <div id="attendance-report-text" class="report-box"></div>
+                    </div>
+                </div>
+
+                <!-- Teacher: Awards -->
+                <div id="teacher-content-awards" class="tab-content">
+                    <div class="panel-block">
+                        <div class="panel-header-action">
+                            <div>
+                                <h3 class="section-title" style="margin:0;">Awards &amp; Certifications</h3>
+                                <p class="stat-sub">Search across all student achievements.</p>
+                            </div>
+                            <input type="text" id="award-search" class="form-input" style="width: 300px;" placeholder="Search student or award..." oninput="renderTeacherAwards(this.value)">
+                        </div>
+                        <div class="grid-layout" id="teacher-awards-list"></div>
+                    </div>
+                </div>
+
+                <!-- Teacher: Holistic Hub -->
+                <div id="teacher-content-hub" class="tab-content">
+                    <div class="panel-header-action">
+                        <div>
+                            <h3 class="section-title" style="margin-bottom:4px;">Holistic Development Hub</h3>
+                            <p style="font-size:13px; color:var(--text-secondary);">Create and manage school programmes, events, and opportunities.</p>
+                        </div>
+                        <button class="btn-hub btn-primary" onclick="openModal('createHubActivityModal')">+ Create Activity</button>
+                    </div>
+                    <div class="card-list" id="teacher-hub-list" style="gap:16px;"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ================= ADMIN DASHBOARD ================= -->
+    <div id="admin-view" class="view-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-brand">
+                    <img src="image_35dba9.jpeg" alt="Woodlem Park" class="sidebar-logo">
+                </div>
+                <div class="profile-card">
+                    <div class="profile-avatar avatar-admin">A</div>
+                    <div class="profile-info">
+                        <h3 id="admin-name-display">System Admin</h3>
+                        <p>IT Operations</p>
+                    </div>
+                </div>
+            </div>
+            <nav class="nav-menu" id="admin-nav">
+                <div class="nav-label">System</div>
+                <button class="nav-item active" onclick="switchSubject('admin', 'User Directory', this)">User Directory</button>
+                <button class="nav-item" onclick="switchSubject('admin', 'System Settings', this)">System Settings</button>
+            </nav>
+            <div class="sidebar-footer">
+                <button class="logout-btn-clean" onclick="logout()">Sign Out</button>
+            </div>
+        </aside>
+        
+        <main class="main-content">
+            <header class="content-header">
+                <div class="header-top">
+                    <h1 class="page-title" id="admin-page-title">User Directory</h1>
+                    <button class="btn-primary" onclick="alert('Demo: Add User functionality triggered')">+ Provision User</button>
+                </div>
+                <div class="tabs" id="admin-tabs">
+                    <button class="tab-btn active" data-tab="accounts" onclick="switchTab('admin', 'accounts', this)">Active Accounts</button>
+                    <button class="tab-btn" data-tab="documents" onclick="switchTab('admin', 'documents', this)">Document Submissions</button>
+                    <button class="tab-btn" data-tab="hub" onclick="switchTab('admin', 'hub', this)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px; display: inline-block; vertical-align: text-bottom; margin-right: 6px; stroke: currentColor;"><path d="M12 22V12"/><path d="M12 12a5 5 0 0 0 5-5c0-2-2-3-5-3S7 5 7 7a5 5 0 0 0 5 5z"/><path d="M12 18a4 4 0 0 0 4-4c0-1.5-1-2.5-4-2.5S8 12.5 8 14a4 4 0 0 0 4 4z"/></svg>Holistic Hub
+                    </button>
+                </div>
+            </header>
+            <div class="content-body">
+                <!-- Admin: Active Accounts -->
+                <div id="admin-content-accounts" class="tab-content active">
+                    <div class="panel-block">
+                        <h3 class="section-title">Registered Students</h3>
+                        <div class="card-list" id="admin-student-list"></div>
+                    </div>
+                </div>
+
+                <!-- Admin: Document Submissions -->
+                <div id="admin-content-documents" class="tab-content">
+                    <div class="panel-header-action">
+                        <div>
+                            <h3 class="section-title" style="margin-bottom:4px;">Parent Document Submissions</h3>
+                            <p style="font-size:13px; color:var(--text-secondary);">Review all uploaded documents from parents.</p>
+                        </div>
+                        <select id="admin-doc-filter" class="form-input" style="width:200px; padding:10px 14px;" onchange="renderAdminDocuments()">
+                            <option value="">All Students</option>
+                        </select>
+                    </div>
+                    <div class="card-list" id="admin-doc-list"></div>
+                </div>
+
+                <!-- Admin: Holistic Hub -->
+                <div id="admin-content-hub" class="tab-content">
+                    <div class="panel-header-action">
+                        <div>
+                            <h3 class="section-title" style="margin-bottom:4px;">Holistic Development Hub — Overview</h3>
+                            <p style="font-size:13px; color:var(--text-secondary);">All activities created by teachers with full participant rosters.</p>
+                        </div>
+                    </div>
+                    <div class="card-list" id="admin-hub-list" style="gap:16px;"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ================= PARENT DASHBOARD ================= -->
+    <div id="parent-view" class="view-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-brand">
+                    <img src="image_35dba9.jpeg" alt="Woodlem Park" class="sidebar-logo">
+                </div>
+                <div class="profile-card">
+                    <div class="profile-avatar avatar-parent">P</div>
+                    <div class="profile-info">
+                        <h3 id="parent-name-display">Mrs. Jenkins</h3>
+                        <p>Parent / Guardian</p>
+                    </div>
+                </div>
+            </div>
+            <nav class="nav-menu" id="parent-nav">
+                <div class="nav-label">My Child</div>
+                <button class="nav-item active" onclick="switchSubject('parent', 'Sarah Jenkins — Overview', this)">Sarah Jenkins</button>
+            </nav>
+            <div class="sidebar-footer">
+                <button class="logout-btn-clean" onclick="logout()">Sign Out</button>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="content-header">
+                <div class="header-top">
+                    <h1 class="page-title" id="parent-page-title">Sarah Jenkins — Overview</h1>
+                </div>
+                <div class="tabs" id="parent-tabs">
+                    <button class="tab-btn active" data-tab="progress" onclick="switchTab('parent', 'progress', this)">Academic Progress</button>
+                    <button class="tab-btn" data-tab="documents" onclick="switchTab('parent', 'documents', this)">Document Uploads</button>
+                    <button class="tab-btn" data-tab="hub" onclick="switchTab('parent', 'hub', this)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px; display: inline-block; vertical-align: text-bottom; margin-right: 6px; stroke: currentColor;"><path d="M12 22V12"/><path d="M12 12a5 5 0 0 0 5-5c0-2-2-3-5-3S7 5 7 7a5 5 0 0 0 5 5z"/><path d="M12 18a4 4 0 0 0 4-4c0-1.5-1-2.5-4-2.5S8 12.5 8 14a4 4 0 0 0 4 4z"/></svg>Holistic Hub
+                    </button>
+                </div>
+            </header>
+
+            <div class="content-body">
+                <!-- Parent: Academic Progress -->
+                <div id="parent-content-progress" class="tab-content active">
+                    <!-- Quick stat cards -->
+                    <div class="parent-stats-row">
+                        <div class="parent-stat-card">
+                            <div class="parent-stat-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 22px; height: 22px; stroke: var(--parent);"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            </div>
+                            <div>
+                                <div class="parent-stat-value" id="parent-present-count">—</div>
+                                <div class="parent-stat-label">Days Present (last 5)</div>
+                            </div>
+                        </div>
+                        <div class="parent-stat-card">
+                            <div class="parent-stat-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 22px; height: 22px; stroke: var(--primary);"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                            </div>
+                            <div>
+                                <div class="parent-stat-value" id="parent-absent-count">—</div>
+                                <div class="parent-stat-label">Absences Recorded</div>
+                            </div>
+                        </div>
+                        <div class="parent-stat-card">
+                            <div class="parent-stat-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 22px; height: 22px; stroke: var(--parent);"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                            </div>
+                            <div>
+                                <div class="parent-stat-value" id="parent-syllabus-pct">—</div>
+                                <div class="parent-stat-label">Syllabus Coverage</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Attendance detail -->
+                    <div class="panel-block">
+                        <h3 class="section-title">Attendance Log — Last 5 Sessions</h3>
+                        <div id="parent-attendance-log"></div>
+                    </div>
+
+                    <!-- Syllabus progress -->
+                    <div class="panel-block">
+                        <h3 class="section-title">Syllabus Progress</h3>
+                        <div style="display:flex; flex-direction:column; gap:24px;" id="parent-syllabus-detail"></div>
+                    </div>
+
+                    <!-- Assignments & Tests -->
+                    <div class="panel-block">
+                        <h3 class="section-title">Active Tests &amp; Assignments</h3>
+                        <div class="card-list" id="parent-tests-list"></div>
+                    </div>
+                </div>
+
+                <!-- Parent: Document Uploads -->
+                <div id="parent-content-documents" class="tab-content">
+                    <div style="margin-bottom:28px;">
+                        <h3 class="section-title" style="margin-bottom:6px;">Required Documents</h3>
+                        <p style="font-size:13px; color:var(--text-secondary);">Upload the required documents for your child's enrollment. Files are securely stored and reviewed by the school administration.</p>
+                    </div>
+                    <div class="doc-grid" id="parent-doc-grid"></div>
+                </div>
+
+                <!-- Parent: Holistic Hub -->
+                <div id="parent-content-hub" class="tab-content">
+                    <div style="margin-bottom:28px;">
+                        <h3 class="section-title" style="margin-bottom:6px;">Your Child's Activity Participation</h3>
+                        <p style="font-size:13px; color:var(--text-secondary);">View all school programmes, events, and opportunities. Registration is managed by your child from their student portal.</p>
+                    </div>
+                    <div class="hub-grid" id="parent-hub-list"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ================= MODALS ================= -->
+
+    <!-- Video Player Modal -->
+    <div class="modal-overlay" id="videoPlayerModal">
+        <div class="modal-content" style="max-width: 680px;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="video-modal-title-display">Video Preview</h2>
+                <button type="button" class="close-modal" onclick="closeVideoModal()">&times;</button>
+            </div>
+            <div class="video-modal-media" id="video-modal-media-display">
+                <!-- Populated dynamically -->
+            </div>
+            <div class="video-modal-info">
+                <h4 class="video-modal-title" id="video-modal-title-body">Activity Details</h4>
+                <p class="video-modal-desc" id="video-modal-desc-body">Description...</p>
+                <div class="video-modal-actions" id="video-modal-actions-display">
+                    <!-- Direct YouTube link button -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Award -->
+    <div class="modal-overlay" id="addAwardModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Log Achievement</h2>
+                <button type="button" class="close-modal" onclick="closeModal('addAwardModal')">&times;</button>
+            </div>
+            <form id="form-add-award">
+                <div class="form-group">
+                    <label class="form-label">Award Title</label>
+                    <input type="text" id="award-title-input" class="form-input" placeholder="e.g. National Science Fair" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Details / Description</label>
+                    <textarea id="award-desc-input" class="form-input" placeholder="Describe the achievement..." rows="3" required></textarea>
+                </div>
+                <div class="form-group" style="margin-bottom: 24px;">
+                    <label class="form-label">Attach Proof</label>
+                    <div class="file-drop">Click to browse files (JPEG, PDF)</div>
+                </div>
+                <button type="submit" class="btn-primary" style="width: 100%; padding: 14px;">Upload Achievement</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Term -->
+    <div class="modal-overlay" id="addTermModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Create Term</h2>
+                <button type="button" class="close-modal" onclick="closeModal('addTermModal')">&times;</button>
+            </div>
+            <form id="form-add-term">
+                <div class="form-group">
+                    <label class="form-label">Term Name</label>
+                    <input type="text" id="term-name-input" class="form-input" placeholder="e.g. Term 1" required>
+                </div>
+                <button type="submit" class="btn-primary" style="width: 100%; padding: 14px;">Create</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Topic -->
+    <div class="modal-overlay" id="addTopicModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Add Topic</h2>
+                <button type="button" class="close-modal" onclick="closeModal('addTopicModal')">&times;</button>
+            </div>
+            <form id="form-add-topic">
+                <div class="form-group">
+                    <label class="form-label">Select Term</label>
+                    <select id="topic-term-select" class="form-input" required></select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Topic Title</label>
+                    <input type="text" id="topic-title-input" class="form-input" required>
+                </div>
+                <button type="submit" class="btn-primary" style="width: 100%; padding: 14px;">Save</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Create Assignment -->
+    <div class="modal-overlay" id="createAssignmentModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">New Assignment</h2>
+                <button type="button" class="close-modal" onclick="closeModal('createAssignmentModal')">&times;</button>
+            </div>
+            <form id="form-create-assignment">
+                <div class="form-group">
+                    <label class="form-label">Assignment Title</label>
+                    <input type="text" id="assignment-title-input" class="form-input" required>
+                </div>
+                <button type="submit" class="btn-primary" style="width: 100%; padding: 14px;">Assign</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Create Test -->
+    <div class="modal-overlay" id="createTestModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">New Assessment</h2>
+                <button type="button" class="close-modal" onclick="closeModal('createTestModal')">&times;</button>
+            </div>
+            <form id="form-create-test">
+                <div class="form-group">
+                    <label class="form-label">Assessment Name</label>
+                    <input type="text" id="test-title-input" class="form-input" required>
+                </div>
+                <button type="submit" class="btn-primary" style="width: 100%; padding: 14px;">Publish Test</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Create Hub Activity -->
+    <div class="modal-overlay" id="createHubActivityModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Create Hub Activity</h2>
+                <button type="button" class="close-modal" onclick="closeModal('createHubActivityModal')">&times;</button>
+            </div>
+            <form id="form-create-hub">
+                <div class="form-group">
+                    <label class="form-label">Activity Title</label>
+                    <input type="text" id="hub-title-input" class="form-input" placeholder="e.g. Photography Club Registration" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Activity Type</label>
+                    <select id="hub-type-input" class="form-input" required>
+                        <option value="">Select type…</option>
+                        <option value="Counselling Appointment">Counselling Appointment</option>
+                        <option value="Club Registration">Club Registration</option>
+                        <option value="Summer Programme">Summer Programme</option>
+                        <option value="Workshop">Workshop</option>
+                        <option value="Event">Event</option>
+                        <option value="Volunteer Opportunity">Volunteer Opportunity</option>
+                        <option value="Leadership Programme">Leadership Programme</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea id="hub-desc-input" class="form-input" placeholder="Describe the programme, requirements, and what students will gain…" rows="4" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Date / Deadline</label>
+                    <input type="date" id="hub-date-input" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">YouTube Video URL (optional)</label>
+                    <input type="url" id="hub-video-input" class="form-input" placeholder="https://www.youtube.com/watch?v=...">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Attach Files / Flyer (optional)</label>
+                    <div class="file-drop" id="hub-file-drop" onclick="document.getElementById('hub-file-input').click()">Click to attach a PDF or image flyer</div>
+                    <input type="file" id="hub-file-input" class="doc-file-input" accept=".pdf,.jpg,.jpeg,.png" onchange="handleHubFileSelect(this)">
+                    <div id="hub-file-name" style="margin-top:8px;"></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Target Grades</label>
+                    <div class="checkbox-group">
+                        <label><input type="checkbox" name="hub-grade" value="Grade 10"> Grade 10</label>
+                        <label><input type="checkbox" name="hub-grade" value="Grade 11"> Grade 11</label>
+                        <label><input type="checkbox" name="hub-grade" value="Grade 12" checked> Grade 12</label>
+                    </div>
+                </div>
+                <button type="submit" class="btn-hub btn-primary" style="width: 100%; padding: 14px;">Publish Activity</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
