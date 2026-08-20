@@ -25,6 +25,8 @@ export interface UserProfile {
   admission_number?: string;
   grade?: string;
   class_letter?: string;
+  subject?: string | null;       // Teacher's subject (e.g. "English", "Math")
+  assigned_class?: string | null; // Class teacher assignment (e.g. "10-D") or null
   created_at?: string;
 }
 
@@ -69,6 +71,8 @@ export interface Achievement {
   student_id: string;
   title: string;
   description: string;
+  file_name?: string;
+  file_url?: string;
   created_at?: string;
 }
 
@@ -99,4 +103,28 @@ export interface ParentDocument {
   status: 'pending' | 'submitted';
   file_name?: string;
   uploaded_at?: string;
+}
+
+export interface AuditLogItem {
+  id: string;
+  action_type: 'CREATE_ACHIEVEMENT' | 'EDIT_ACHIEVEMENT' | 'DELETE_ACHIEVEMENT' | 'SUBMIT_ASSIGNMENT' | 'DELETE_SUBMISSION' | 'TOPIC_STUDY_UPDATE';
+  user_id: string;
+  user_name: string;
+  user_role: string;
+  target_title: string;
+  details: string;
+  created_at: string;
+}
+
+export interface SubjectClass {
+  id: string;
+  name: string; // e.g. "Physics 12-C", "AP Calculus"
+  subject: string; // e.g. "Physics"
+  class_name: string; // e.g. "12-C" or "Grade 12"
+  section?: string; // e.g. "Section C"
+  room?: string; // e.g. "Room 302"
+  teacher_id: string;
+  teacher_name: string;
+  enrolled_student_ids: string[];
+  created_at?: string;
 }

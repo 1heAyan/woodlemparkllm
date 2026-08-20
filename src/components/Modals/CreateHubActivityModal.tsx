@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { CustomSelect } from '@/components/UI/CustomSelect';
 
 interface CreateHubActivityModalProps {
   isOpen: boolean;
@@ -84,21 +85,20 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({ 
           </div>
           <div className="form-group">
             <label className="form-label">Activity Type</label>
-            <select
-              className="form-input"
+            <CustomSelect
               value={type}
-              onChange={(e) => setType(e.target.value)}
-              required
-            >
-              <option value="">Select type…</option>
-              <option value="Counselling Appointment">Counselling Appointment</option>
-              <option value="Club Registration">Club Registration</option>
-              <option value="Summer Programme">Summer Programme</option>
-              <option value="Workshop">Workshop</option>
-              <option value="Event">Event</option>
-              <option value="Volunteer Opportunity">Volunteer Opportunity</option>
-              <option value="Leadership Programme">Leadership Programme</option>
-            </select>
+              onChange={(val) => setType(val)}
+              placeholder="Select type…"
+              options={[
+                'Counselling Appointment',
+                'Club Registration',
+                'Summer Programme',
+                'Workshop',
+                'Event',
+                'Volunteer Opportunity',
+                'Leadership Programme',
+              ]}
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Description</label>
@@ -144,7 +144,7 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({ 
             </label>
             {attachedFileName && (
               <div style={{ marginTop: 8 }}>
-                <span className="doc-filename">📎 {attachedFileName}</span>
+                <span className="doc-filename">File: {attachedFileName}</span>
               </div>
             )}
           </div>

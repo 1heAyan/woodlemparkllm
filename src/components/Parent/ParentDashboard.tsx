@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import {
+  UserProfile,
   Student,
   TestItem,
   AssignmentItem,
@@ -12,6 +13,7 @@ import {
 import { getIcon } from '../Icons';
 
 interface ParentDashboardProps {
+  currentUser?: UserProfile;
   currentChild: Student;
   tests: TestItem[];
   assignments: AssignmentItem[];
@@ -35,6 +37,7 @@ const REQUIRED_DOC_TYPES = [
 ];
 
 export const ParentDashboard: React.FC<ParentDashboardProps> = ({
+  currentUser,
   currentChild,
   tests,
   assignments,
@@ -82,14 +85,18 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-header">
-          <div className="sidebar-brand">
-            <img src="/image_35dba9.jpeg" alt="Woodlem Park" className="sidebar-logo" />
+          <div className="sidebar-brand" style={{ padding: '0 4px', marginBottom: 16 }}>
+            <img src="/Jurf-Logo-1.png" alt="Woodlem Park" className="sidebar-logo" style={{ maxHeight: 42, objectFit: 'contain' }} />
           </div>
-          <div className="profile-card">
-            <div className="profile-avatar avatar-parent">P</div>
-            <div className="profile-info">
-              <h3>Mrs. Jenkins</h3>
-              <p>Parent / Guardian</p>
+          <div className="profile-card" style={{ background: '#FAF9F6', border: '1px solid var(--border-color)', borderRadius: 8, padding: '10px 12px' }}>
+            <div className="profile-avatar avatar-parent" style={{ width: 34, height: 34, fontSize: 13, fontWeight: 700 }}>
+              {(currentUser?.name || 'P').charAt(0).toUpperCase()}
+            </div>
+            <div className="profile-info" style={{ overflow: 'hidden' }}>
+              <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {currentUser?.name || 'Parent Portal'}
+              </h3>
+              <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '2px 0 0' }}>Parent / Guardian</p>
             </div>
           </div>
         </div>
@@ -198,7 +205,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                     return (
                       <div className="item-card" key={d} style={{ marginBottom: 10 }}>
                         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14 }}>
-                          📅 {d}
+                          {d}
                         </span>
                         <span style={{ fontSize: 13, fontWeight: 700, color }}>{label}</span>
                       </div>

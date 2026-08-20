@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { SyllabusTerm } from '@/lib/supabaseClient';
+import { CustomSelect } from '@/components/UI/CustomSelect';
 
 interface AddTopicModalProps {
   isOpen: boolean;
@@ -46,18 +47,14 @@ export const AddTopicModal: React.FC<AddTopicModalProps> = ({
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label className="form-label">Select Term</label>
-            <select
-              className="form-input"
+            <CustomSelect
               value={termId}
-              onChange={(e) => setTermId(e.target.value)}
-              required
-            >
-              {terms.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setTermId(val)}
+              options={terms.map((t) => ({
+                value: t.id,
+                label: t.name,
+              }))}
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Topic Title</label>

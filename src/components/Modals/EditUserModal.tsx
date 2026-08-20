@@ -2,10 +2,30 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserProfile } from '@/lib/supabaseClient';
+import { CustomSelect } from '@/components/UI/CustomSelect';
+
+const GRADES = ['10', '12'] as const;
+const SECTIONS = ['A', 'B', 'C', 'D'] as const;
+const ALL_SESSIONS = GRADES.flatMap((g) => SECTIONS.map((s) => `${g}-${s}`));
+
+const SUBJECTS = [
+  'English',
+  'Math',
+  'Physics',
+  'Chemistry',
+  'Biology',
+  'History',
+  'Geography',
+  'Computer Science',
+  'Islamic Studies',
+  'Physical Education',
+  'Art & Design',
+];
 
 interface EditUserModalProps {
   isOpen: boolean;
   user: UserProfile | null;
+  profiles: UserProfile[];
   onClose: () => void;
   onSubmit: (updatedUser: UserProfile) => void;
 }
@@ -13,6 +33,7 @@ interface EditUserModalProps {
 export const EditUserModal: React.FC<EditUserModalProps> = ({
   isOpen,
   user,
+  profiles,
   onClose,
   onSubmit,
 }) => {
@@ -21,15 +42,13 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
   const [role, setRole] = useState<'student' | 'teacher' | 'admin' | 'parent'>('student');
   const [userCode, setUserCode] = useState('');
 
-  // Grade state
-  const [gradeSelect, setGradeSelect] = useState('1');
-  const [isCustomGrade, setIsCustomGrade] = useState(false);
-  const [customGrade, setCustomGrade] = useState('');
+  // Student fields
+  const [grade, setGrade] = useState<'10' | '12'>('10');
+  const [section, setSection] = useState<'A' | 'B' | 'C' | 'D'>('A');
 
-  // Class state
-  const [classSelect, setClassSelect] = useState('A');
-  const [isCustomClass, setIsCustomClass] = useState(false);
-  const [customClass, setCustomClass] = useState('');
+  // Teacher fields
+  const [subject, setSubject] = useState('English');
+  const [assignedClass, setAssignedClass] = useState<string>('none');
 
   useEffect(() => {
     if (user) {
@@ -38,38 +57,40 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       setRole(user.role || 'student');
       setUserCode(user.user_code || user.admission_number || '');
 
-      // Parse grade
-      if (user.grade) {
-        const match = user.grade.match(/Grade\s*(\d+)/i);
-        if (match && parseInt(match[1]) >= 1 && parseInt(match[1]) <= 12) {
-          setGradeSelect(match[1]);
-          setIsCustomGrade(false);
-        } else {
-          setIsCustomGrade(true);
-          setCustomGrade(user.grade);
-        }
+      // Parse student grade — constrain to 10 or 12
+      if (user.grade === '10' || user.grade === '12') {
+        setGrade(user.grade as '10' | '12');
+      } else if (user.grade) {
+        // Legacy values: try to extract number
+        const match = user.grade.match(/(\d+)/);
+        const num = match ? parseInt(match[1]) : 0;
+        setGrade(num >= 11 ? '12' : '10');
       } else {
-        setGradeSelect('1');
-        setIsCustomGrade(false);
+        setGrade('10');
       }
 
-      // Parse class letter
-      if (user.class_letter) {
-        if (/^[A-L]$/i.test(user.class_letter)) {
-          setClassSelect(user.class_letter.toUpperCase());
-          setIsCustomClass(false);
-        } else {
-          setIsCustomClass(true);
-          setCustomClass(user.class_letter);
-        }
-      } else {
-        setClassSelect('A');
-        setIsCustomClass(false);
-      }
+      // Parse section — constrain to A-D
+      const rawSection = (user.class_letter || '').toUpperCase();
+      setSection((['A', 'B', 'C', 'D'] as const).includes(rawSection as any)
+        ? (rawSection as 'A' | 'B' | 'C' | 'D')
+        : 'A');
+
+      // Teacher subject
+      setSubject(user.subject || 'English');
+
+      // Teacher class assignment
+      setAssignedClass(user.assigned_class || 'none');
     }
   }, [user]);
 
   if (!isOpen || !user) return null;
+
+  // Sessions taken by OTHER teachers (exclude this teacher's own current assignment)
+  const takenSessions = new Set(
+    profiles
+      .filter((p) => p.role === 'teacher' && p.assigned_class && p.id !== user.id)
+      .map((p) => p.assigned_class as string)
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,14 +101,6 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       cleanEmail = `${cleanEmail}@woodlempark.ae`;
     }
 
-    const finalGrade = role === 'student'
-      ? (isCustomGrade ? (customGrade.trim() || 'Grade 1') : `Grade ${gradeSelect}`)
-      : undefined;
-
-    const finalClass = role === 'student'
-      ? (isCustomClass ? (customClass.trim().toUpperCase() || 'A') : classSelect)
-      : undefined;
-
     onSubmit({
       ...user,
       name: name.trim(),
@@ -95,13 +108,13 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       role,
       user_code: userCode.trim(),
       admission_number: userCode.trim(),
-      grade: finalGrade,
-      class_letter: finalClass,
+      grade: role === 'student' ? grade : undefined,
+      class_letter: role === 'student' ? section : undefined,
+      subject: role === 'teacher' ? subject : null,
+      assigned_class: role === 'teacher' && assignedClass !== 'none' ? assignedClass : null,
     });
     onClose();
   };
-
-  const classLetterOptions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
 
   return (
     <div className="modal-overlay active" onClick={onClose}>
@@ -110,21 +123,24 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
           <h2 className="modal-title">Edit User Account</h2>
           <button type="button" className="close-modal" onClick={onClose}>&times;</button>
         </div>
+
         <form onSubmit={handleSubmit}>
+          {/* Role */}
           <div className="form-group">
             <label className="form-label">Role</label>
-            <select
-              className="form-input"
+            <CustomSelect
               value={role}
-              onChange={(e) => setRole(e.target.value as any)}
-              required
-            >
-              <option value="student">Student</option>
-              <option value="teacher">Teacher</option>
-              <option value="parent">Parent</option>
-              <option value="admin">Admin</option>
-            </select>
+              onChange={(val) => setRole(val as any)}
+              options={[
+                { value: 'student', label: 'Student' },
+                { value: 'teacher', label: 'Teacher' },
+                { value: 'parent', label: 'Parent' },
+                { value: 'admin', label: 'Admin' },
+              ]}
+            />
           </div>
+
+          {/* Full Name */}
           <div className="form-group">
             <label className="form-label">Full Name</label>
             <input
@@ -135,6 +151,8 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
               required
             />
           </div>
+
+          {/* Email */}
           <div className="form-group">
             <label className="form-label">Email Address</label>
             <input
@@ -145,6 +163,8 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
               required
             />
           </div>
+
+          {/* Admission Number */}
           <div className="form-group">
             <label className="form-label">Admission Number / Reg. Code</label>
             <input
@@ -155,83 +175,138 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
               placeholder="e.g. WPS-2026"
             />
           </div>
+
+          {/* ── STUDENT FIELDS ── */}
           {role === 'student' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              {/* Grade Selector / Custom */}
+            <div
+              style={{
+                background: 'var(--bg-secondary, #F8FAFC)',
+                border: '1px solid var(--neutral-light, #E2E8F0)',
+                borderRadius: 10,
+                padding: '16px',
+                marginTop: 4,
+              }}
+            >
+              <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Class Assignment
+              </p>
+
+              {/* Grade toggle */}
               <div className="form-group">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <label className="form-label" style={{ margin: 0 }}>Grade (1 - 12)</label>
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomGrade(!isCustomGrade)}
-                    style={{ background: 'none', border: 'none', color: '#2563EB', fontSize: 11, cursor: 'pointer', textDecoration: 'underline' }}
-                  >
-                    {isCustomGrade ? 'Select from list' : '+ Write custom'}
-                  </button>
+                <label className="form-label">Grade</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {GRADES.map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => setGrade(g)}
+                      style={{
+                        flex: 1,
+                        padding: '10px 0',
+                        borderRadius: 8,
+                        border: grade === g ? '2px solid #4F46E5' : '1.5px solid #CBD5E1',
+                        background: grade === g ? '#EEF2FF' : '#fff',
+                        color: grade === g ? '#4F46E5' : '#64748B',
+                        fontWeight: 700,
+                        fontSize: 14,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      Grade {g}
+                    </button>
+                  ))}
                 </div>
-                {isCustomGrade ? (
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. Grade 10-CBSE"
-                    value={customGrade}
-                    onChange={(e) => setCustomGrade(e.target.value)}
-                    required
-                  />
-                ) : (
-                  <select
-                    className="form-input"
-                    value={gradeSelect}
-                    onChange={(e) => setGradeSelect(e.target.value)}
-                    required
-                  >
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map((g) => (
-                      <option key={g} value={g}>
-                        Grade {g}
-                      </option>
-                    ))}
-                  </select>
-                )}
               </div>
 
-              {/* Class Selector / Custom */}
-              <div className="form-group">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <label className="form-label" style={{ margin: 0 }}>Class / Section</label>
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomClass(!isCustomClass)}
-                    style={{ background: 'none', border: 'none', color: '#2563EB', fontSize: 11, cursor: 'pointer', textDecoration: 'underline' }}
-                  >
-                    {isCustomClass ? 'Select letter' : '+ Write custom'}
-                  </button>
+              {/* Section buttons */}
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Section</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {SECTIONS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setSection(s)}
+                      style={{
+                        flex: 1,
+                        padding: '10px 0',
+                        borderRadius: 8,
+                        border: section === s ? '2px solid #4F46E5' : '1.5px solid #CBD5E1',
+                        background: section === s ? '#EEF2FF' : '#fff',
+                        color: section === s ? '#4F46E5' : '#64748B',
+                        fontWeight: 700,
+                        fontSize: 14,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))}
                 </div>
-                {isCustomClass ? (
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. A1 or Blue"
-                    value={customClass}
-                    onChange={(e) => setCustomClass(e.target.value)}
-                    required
-                  />
-                ) : (
-                  <select
-                    className="form-input"
-                    value={classSelect}
-                    onChange={(e) => setClassSelect(e.target.value)}
-                    required
-                  >
-                    {classLetterOptions.map((letter) => (
-                      <option key={letter} value={letter}>
-                        Class {letter}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                <p style={{ fontSize: 12, color: '#64748B', marginTop: 8 }}>
+                  Assigning to: <strong>Grade {grade} — Section {section}</strong>
+                </p>
               </div>
             </div>
           )}
+
+          {/* ── TEACHER FIELDS ── */}
+          {role === 'teacher' && (
+            <div
+              style={{
+                background: 'var(--bg-secondary, #F8FAFC)',
+                border: '1px solid var(--neutral-light, #E2E8F0)',
+                borderRadius: 10,
+                padding: '16px',
+                marginTop: 4,
+              }}
+            >
+              <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Teacher Details
+              </p>
+
+              {/* Subject (required) */}
+              <div className="form-group">
+                <label className="form-label">Subject <span style={{ color: '#EF4444' }}>*</span></label>
+                <CustomSelect
+                  value={subject}
+                  onChange={(val) => setSubject(val)}
+                  options={SUBJECTS}
+                />
+              </div>
+
+              {/* Class Teacher Assignment (optional) */}
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">
+                  Class Teacher Assignment
+                  <span style={{ fontSize: 11, color: '#64748B', fontWeight: 400, marginLeft: 6 }}>(optional)</span>
+                </label>
+                <CustomSelect
+                  value={assignedClass}
+                  onChange={(val) => setAssignedClass(val)}
+                  options={[
+                    { value: 'none', label: '— None (Subject Teacher Only) —' },
+                    ...ALL_SESSIONS.map((session) => {
+                      const isTaken = takenSessions.has(session);
+                      return {
+                        value: session,
+                        label: `Grade ${session.split('-')[0]} — Section ${session.split('-')[1]}${isTaken ? ' (Taken)' : ''}`,
+                        disabled: isTaken,
+                      };
+                    }),
+                  ]}
+                />
+                <p style={{ fontSize: 12, color: '#64748B', marginTop: 6 }}>
+                  {assignedClass === 'none'
+                    ? 'This teacher will be a subject teacher with no class ownership.'
+                    : `This teacher will be the Class Teacher of Grade ${assignedClass.split('-')[0]} — Section ${assignedClass.split('-')[1]}.`}
+                </p>
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
             <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={onClose}>
               Cancel

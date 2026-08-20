@@ -1,26 +1,43 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Achievement } from '@/lib/supabaseClient';
 
-interface AddAwardModalProps {
+interface EditAchievementModalProps {
   isOpen: boolean;
+  achievement: Achievement | null;
   onClose: () => void;
-  onSubmit: (title: string, desc: string, fileName?: string, fileDataUrl?: string) => void;
+  onSubmit: (id: string, title: string, desc: string, fileName?: string, fileDataUrl?: string) => void;
 }
 
-export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, onSubmit }) => {
+export const EditAchievementModal: React.FC<EditAchievementModalProps> = ({
+  isOpen,
+  achievement,
+  onClose,
+  onSubmit,
+}) => {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
+  const [fileName, setFileName] = useState('');
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (achievement) {
+      setTitle(achievement.title || '');
+      setDesc(achievement.description || '');
+      setFileName(achievement.file_name || '');
+      setAttachedFile(null);
+    }
+  }, [achievement]);
+
+  if (!isOpen || !achievement) return null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setAttachedFile(e.target.files[0]);
+      setFileName(e.target.files[0].name);
     }
   };
 
@@ -39,15 +56,15 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       setAttachedFile(e.dataTransfer.files[0]);
+      setFileName(e.dataTransfer.files[0].name);
     }
   };
 
   const handleRemoveFile = (e: React.MouseEvent) => {
     e.stopPropagation();
     setAttachedFile(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    setFileName('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -55,55 +72,42 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
     if (!title.trim()) return;
 
     if (attachedFile) {
-      setIsProcessing(true);
       const reader = new FileReader();
       reader.onload = () => {
-        setIsProcessing(false);
         const dataUrl = reader.result as string;
-        onSubmit(title.trim(), desc.trim(), attachedFile.name, dataUrl);
-        setTitle('');
-        setDesc('');
-        setAttachedFile(null);
+        onSubmit(achievement.id, title.trim(), desc.trim(), attachedFile.name, dataUrl);
         onClose();
       };
       reader.onerror = () => {
-        setIsProcessing(false);
-        onSubmit(title.trim(), desc.trim(), attachedFile.name);
-        setTitle('');
-        setDesc('');
-        setAttachedFile(null);
+        onSubmit(achievement.id, title.trim(), desc.trim(), attachedFile.name, undefined);
         onClose();
       };
       reader.readAsDataURL(attachedFile);
     } else {
-      onSubmit(title.trim(), desc.trim(), undefined, undefined);
-      setTitle('');
-      setDesc('');
-      setAttachedFile(null);
+      onSubmit(achievement.id, title.trim(), desc.trim(), fileName || undefined, achievement.file_url);
       onClose();
     }
-  };
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   return (
     <div className="modal-overlay active" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2 className="modal-title">Log Achievement &amp; Certificate</h2>
+          <div>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Modify Record
+            </span>
+            <h2 className="modal-title" style={{ marginTop: 2 }}>Edit Achievement</h2>
+          </div>
           <button type="button" className="close-modal" onClick={onClose}>&times;</button>
         </div>
+
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label className="form-label">Award / Distinction Title</label>
             <input
               type="text"
               className="form-input"
-              placeholder="e.g. National Science Olympiad - 1st Place"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               required
@@ -114,7 +118,6 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
             <label className="form-label">Details / Description</label>
             <textarea
               className="form-input"
-              placeholder="Describe the recognition, event date, and achievements..."
               rows={3}
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
@@ -122,9 +125,8 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
             />
           </div>
 
-          {/* Functional File Upload Dropzone */}
           <div className="form-group" style={{ marginBottom: 24 }}>
-            <label className="form-label">Attach Proof / Certificate</label>
+            <label className="form-label">Attached Certificate / Proof</label>
             <input
               type="file"
               ref={fileInputRef}
@@ -133,7 +135,7 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
               onChange={handleFileChange}
             />
 
-            {!attachedFile ? (
+            {!fileName && !attachedFile ? (
               <div
                 className="file-drop"
                 onClick={() => fileInputRef.current?.click()}
@@ -143,18 +145,17 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
                 style={{
                   border: isDragging ? '1.5px dashed #2C6E6A' : '1px dashed var(--border-color)',
                   background: isDragging ? '#F0F6F5' : 'var(--neutral-bg)',
-                  padding: '22px 16px',
+                  padding: '20px 16px',
                   borderRadius: 8,
                   textAlign: 'center',
                   cursor: 'pointer',
-                  transition: 'all 0.15s ease',
                 }}
               >
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--neutral-dark)' }}>
-                  Click to browse or drag &amp; drop document
+                  Click to upload new certificate proof
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-                  Supports PDF, JPEG, PNG, or Word documents (up to 10 MB)
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 3 }}>
+                  PDF, JPEG, PNG, or Word documents
                 </div>
               </div>
             ) : (
@@ -189,10 +190,10 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
                   </div>
                   <div style={{ overflow: 'hidden' }}>
                     <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {attachedFile.name}
+                      {attachedFile ? attachedFile.name : fileName}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                      {formatFileSize(attachedFile.size)} · Ready to upload
+                      {attachedFile ? 'Newly chosen file' : 'Current attached certificate'}
                     </div>
                   </div>
                 </div>
@@ -211,7 +212,7 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
                       cursor: 'pointer',
                     }}
                   >
-                    Change
+                    Replace
                   </button>
                   <button
                     type="button"
@@ -235,7 +236,7 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
           </div>
 
           <button type="submit" className="btn-primary" style={{ width: '100%', padding: 14 }}>
-            Upload Achievement
+            Save Changes
           </button>
         </form>
       </div>

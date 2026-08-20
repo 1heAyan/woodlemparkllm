@@ -2,6 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
+import { CustomSelect } from '@/components/UI/CustomSelect';
 
 export interface BulkUserRow {
   name: string;
@@ -81,13 +82,12 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
           let rawGrade = getVal('grade', 'class grade', 'year');
           let rawClassLetter = getVal('class', 'section', 'class letter', 'class_letter');
 
-          // Email prefix normalization to @woodlempark.ae
+          // Email prefix normalization (if domain missing, append @woodlempark.ae)
           if (rawEmail) {
             if (!rawEmail.includes('@')) {
               rawEmail = `${rawEmail.trim()}@woodlempark.ae`;
-            } else if (!rawEmail.endsWith('@woodlempark.ae')) {
-              const prefix = rawEmail.split('@')[0];
-              rawEmail = `${prefix.trim()}@woodlempark.ae`;
+            } else {
+              rawEmail = rawEmail.trim();
             }
           }
 
@@ -97,21 +97,22 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             role = rawRoleStr as any;
           }
 
-          // Grade normalization (1-12)
+          // Grade normalization (e.g. 10 or 12)
           if (rawGrade) {
             const digitMatch = rawGrade.match(/\d+/);
             if (digitMatch) {
-              rawGrade = `Grade ${digitMatch[0]}`;
+              rawGrade = digitMatch[0];
             }
           } else if (role === 'student') {
-            rawGrade = 'Grade 1';
+            rawGrade = '10';
           }
 
-          // Class letter normalization (A, B, C...)
-          if (!rawClassLetter && role === 'student') {
+          // Class letter normalization (A, B, C, D)
+          if (rawClassLetter) {
+            const letterMatch = rawClassLetter.match(/[a-zA-Z]/);
+            rawClassLetter = letterMatch ? letterMatch[0].toUpperCase() : 'A';
+          } else if (role === 'student') {
             rawClassLetter = 'A';
-          } else if (rawClassLetter) {
-            rawClassLetter = rawClassLetter.toUpperCase();
           }
 
           // Admission code fallback if missing
@@ -237,21 +238,22 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
         <div style={{ marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <label className="form-label" style={{ margin: 0, fontWeight: 600 }}>Default Role for File:</label>
-            <select
-              className="form-input"
-              style={{ width: 140, padding: '8px 12px' }}
-              value={defaultRole}
-              onChange={(e) => {
-                const newRole = e.target.value as any;
-                setDefaultRole(newRole);
-                if (file) processExcelFile(file, newRole);
-              }}
-            >
-              <option value="student">Student</option>
-              <option value="teacher">Teacher</option>
-              <option value="parent">Parent</option>
-              <option value="admin">Admin</option>
-            </select>
+            <div style={{ width: 140 }}>
+              <CustomSelect
+                value={defaultRole}
+                onChange={(val) => {
+                  const newRole = val as any;
+                  setDefaultRole(newRole);
+                  if (file) processExcelFile(file, newRole);
+                }}
+                options={[
+                  { value: 'student', label: 'Student' },
+                  { value: 'teacher', label: 'Teacher' },
+                  { value: 'parent', label: 'Parent' },
+                  { value: 'admin', label: 'Admin' },
+                ]}
+              />
+            </div>
           </div>
 
           <button
@@ -260,7 +262,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             onClick={handleDownloadSample}
             style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
           >
-            📥 Download Sample Excel Template
+            Download Sample Excel Template
           </button>
         </div>
 
@@ -284,7 +286,6 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             style={{ display: 'none' }}
             onChange={handleFileChange}
           />
-          <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
           <h4 style={{ margin: '0 0 4px', fontSize: 15, color: 'var(--neutral-dark)' }}>
             {file ? file.name : 'Click to select or drag & drop Excel / CSV sheet'}
           </h4>
@@ -304,7 +305,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
               marginBottom: 16,
             }}
           >
-            ⚠️ {errorMessage}
+            {errorMessage}
           </div>
         )}
 
@@ -344,9 +345,9 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
                       <td style={{ padding: '8px 12px' }}>{row.role === 'student' ? `${row.grade || 'Grade 1'} (${row.classLetter || 'A'})` : 'N/A'}</td>
                       <td style={{ padding: '8px 12px' }}>
                         {row.isValid ? (
-                          <span style={{ color: '#16A34A', fontWeight: 600 }}>✓ Ready</span>
+                          <span style={{ color: '#16A34A', fontWeight: 600 }}>Ready</span>
                         ) : (
-                          <span style={{ color: '#DC2626', fontWeight: 600 }}>❌ {row.error}</span>
+                          <span style={{ color: '#DC2626', fontWeight: 600 }}>{row.error}</span>
                         )}
                       </td>
                     </tr>
@@ -368,7 +369,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             onClick={handleSubmit}
             style={{ padding: '12px 24px' }}
           >
-            {isProcessing ? 'Provisioning Accounts…' : `🚀 Import ${validCount} Users`}
+            {isProcessing ? 'Provisioning Accounts…' : `Import ${validCount} Users`}
           </button>
         </div>
       </div>

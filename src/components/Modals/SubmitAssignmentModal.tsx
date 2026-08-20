@@ -1,22 +1,27 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
+import { AssignmentItem } from '@/lib/supabaseClient';
 
-interface AddAwardModalProps {
+interface SubmitAssignmentModalProps {
   isOpen: boolean;
+  assignment: AssignmentItem | null;
   onClose: () => void;
-  onSubmit: (title: string, desc: string, fileName?: string, fileDataUrl?: string) => void;
+  onSubmit: (assignmentId: string, fileName: string, notes?: string) => void;
 }
 
-export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, onSubmit }) => {
-  const [title, setTitle] = useState('');
-  const [desc, setDesc] = useState('');
+export const SubmitAssignmentModal: React.FC<SubmitAssignmentModalProps> = ({
+  isOpen,
+  assignment,
+  onClose,
+  onSubmit,
+}) => {
+  const [notes, setNotes] = useState('');
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  if (!isOpen) return null;
+  if (!isOpen || !assignment) return null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -42,46 +47,13 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
     }
   };
 
-  const handleRemoveFile = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setAttachedFile(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
-
-    if (attachedFile) {
-      setIsProcessing(true);
-      const reader = new FileReader();
-      reader.onload = () => {
-        setIsProcessing(false);
-        const dataUrl = reader.result as string;
-        onSubmit(title.trim(), desc.trim(), attachedFile.name, dataUrl);
-        setTitle('');
-        setDesc('');
-        setAttachedFile(null);
-        onClose();
-      };
-      reader.onerror = () => {
-        setIsProcessing(false);
-        onSubmit(title.trim(), desc.trim(), attachedFile.name);
-        setTitle('');
-        setDesc('');
-        setAttachedFile(null);
-        onClose();
-      };
-      reader.readAsDataURL(attachedFile);
-    } else {
-      onSubmit(title.trim(), desc.trim(), undefined, undefined);
-      setTitle('');
-      setDesc('');
-      setAttachedFile(null);
-      onClose();
-    }
+    const fileName = attachedFile ? attachedFile.name : 'Completed_Assignment.pdf';
+    onSubmit(assignment.id, fileName, notes.trim());
+    setNotes('');
+    setAttachedFile(null);
+    onClose();
   };
 
   const formatFileSize = (bytes: number) => {
@@ -94,42 +66,23 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
     <div className="modal-overlay active" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2 className="modal-title">Log Achievement &amp; Certificate</h2>
+          <div>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Assignment Submission
+            </span>
+            <h2 className="modal-title" style={{ marginTop: 2 }}>{assignment.title}</h2>
+          </div>
           <button type="button" className="close-modal" onClick={onClose}>&times;</button>
         </div>
+
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label className="form-label">Award / Distinction Title</label>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="e.g. National Science Olympiad - 1st Place"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Details / Description</label>
-            <textarea
-              className="form-input"
-              placeholder="Describe the recognition, event date, and achievements..."
-              rows={3}
-              value={desc}
-              onChange={(e) => setDesc(e.target.value)}
-              required
-            />
-          </div>
-
-          {/* Functional File Upload Dropzone */}
-          <div className="form-group" style={{ marginBottom: 24 }}>
-            <label className="form-label">Attach Proof / Certificate</label>
+            <label className="form-label">Submission Document / Homework File</label>
             <input
               type="file"
               ref={fileInputRef}
               style={{ display: 'none' }}
-              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.zip"
               onChange={handleFileChange}
             />
 
@@ -143,7 +96,7 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
                 style={{
                   border: isDragging ? '1.5px dashed #2C6E6A' : '1px dashed var(--border-color)',
                   background: isDragging ? '#F0F6F5' : 'var(--neutral-bg)',
-                  padding: '22px 16px',
+                  padding: '24px 16px',
                   borderRadius: 8,
                   textAlign: 'center',
                   cursor: 'pointer',
@@ -151,10 +104,10 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
                 }}
               >
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--neutral-dark)' }}>
-                  Click to browse or drag &amp; drop document
+                  Click to select file or drag &amp; drop here
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-                  Supports PDF, JPEG, PNG, or Word documents (up to 10 MB)
+                  Supports PDF, Word Documents, JPG/PNG scans, or ZIP archives
                 </div>
               </div>
             ) : (
@@ -185,14 +138,14 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
                       flexShrink: 0,
                     }}
                   >
-                    DOC
+                    PDF
                   </div>
                   <div style={{ overflow: 'hidden' }}>
                     <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {attachedFile.name}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                      {formatFileSize(attachedFile.size)} · Ready to upload
+                      {formatFileSize(attachedFile.size)} · Ready to submit
                     </div>
                   </div>
                 </div>
@@ -215,7 +168,11 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
                   </button>
                   <button
                     type="button"
-                    onClick={handleRemoveFile}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAttachedFile(null);
+                      if (fileInputRef.current) fileInputRef.current.value = '';
+                    }}
                     style={{
                       padding: '4px 8px',
                       fontSize: 11,
@@ -234,8 +191,19 @@ export const AddAwardModal: React.FC<AddAwardModalProps> = ({ isOpen, onClose, o
             )}
           </div>
 
+          <div className="form-group" style={{ marginBottom: 20 }}>
+            <label className="form-label">Student Remarks / Notes for Teacher (Optional)</label>
+            <textarea
+              className="form-input"
+              placeholder="e.g. Please find my complete problem set solutions attached. Questions 4 & 5 include full workings."
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+
           <button type="submit" className="btn-primary" style={{ width: '100%', padding: 14 }}>
-            Upload Achievement
+            Submit Assignment to Teacher
           </button>
         </form>
       </div>
