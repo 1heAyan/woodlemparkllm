@@ -37,11 +37,22 @@ export interface Student {
   grade?: string;
 }
 
+export interface TestQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  correct: string;
+  points?: number;
+}
+
 export interface TestItem {
   id: string;
   title: string;
   class_name?: string;
   created_at?: string;
+  questions?: TestQuestion[];
+  duration_minutes?: number;
+  total_marks?: number;
 }
 
 export interface AssignmentItem {
@@ -128,3 +139,49 @@ export interface SubjectClass {
   enrolled_student_ids: string[];
   created_at?: string;
 }
+
+export type ResourceType = 'pdf' | 'slides' | 'doc' | 'worksheet' | 'link' | 'video' | 'other';
+
+export interface ClassResource {
+  id: string;
+  class_id: string;
+  teacher_id: string;
+  teacher_name: string;
+  title: string;
+  description?: string;
+  resource_type: ResourceType;
+  file_name?: string;
+  file_url?: string;
+  file_size?: string;
+  external_link?: string;
+  topic_tag?: string;
+  created_at?: string;
+}
+
+export interface ClassBroadcast {
+  id: string;
+  class_id: string;
+  teacher_id: string;
+  teacher_name: string;
+  title: string;
+  content: string;
+  is_pinned?: boolean;
+  priority?: 'normal' | 'important' | 'urgent';
+  tagged_resource_ids?: string[];
+  created_at?: string;
+}
+
+export interface SupportTicket {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  user_role: string;
+  category: string;
+  subject: string;
+  message: string;
+  priority: 'normal' | 'high' | 'urgent';
+  status: 'open' | 'in_progress' | 'resolved';
+  created_at: string;
+}
+

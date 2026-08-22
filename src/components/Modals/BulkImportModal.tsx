@@ -19,7 +19,7 @@ export interface BulkUserRow {
 interface BulkImportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onBulkSubmit: (users: BulkUserRow[]) => Promise<void>;
+  onBulkSubmit: (users: BulkUserRow[], onProgress?: (current: number, total: number) => void) => Promise<void>;
 }
 
 export const BulkImportModal: React.FC<BulkImportModalProps> = ({
@@ -31,6 +31,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
   const [parsedRows, setParsedRows] = useState<BulkUserRow[]>([]);
   const [defaultRole, setDefaultRole] = useState<'student' | 'teacher' | 'parent' | 'admin'>('student');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -62,27 +63,103 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
         }
 
         const rows: BulkUserRow[] = rawJson.map((row, idx) => {
-          // Normalize column headers case-insensitively
-          const getVal = (...keys: string[]) => {
-            for (const key of keys) {
-              const matchedKey = Object.keys(row).find(
-                (k) => k.trim().toLowerCase() === key.toLowerCase()
-              );
-              if (matchedKey && row[matchedKey] !== undefined && row[matchedKey] !== '') {
-                return String(row[matchedKey]).trim();
+          const keys = Object.keys(row);
+
+          // Fuzzy case-insensitive column finder
+          const getVal = (...patterns: string[]): string => {
+            for (const pat of patterns) {
+              const cleanPat = pat.toLowerCase().replace(/[^a-z0-9]/g, '');
+              const matchedKey = keys.find((k) => {
+                const cleanK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+                return cleanK === cleanPat || cleanK.includes(cleanPat) || cleanK.startsWith(cleanPat);
+              });
+              if (matchedKey && row[matchedKey] !== undefined && row[matchedKey] !== null) {
+                const val = String(row[matchedKey]).trim();
+                if (val !== '') return val;
               }
             }
             return '';
           };
 
-          const rawName = getVal('name', 'full name', 'student name', 'user name');
-          let rawEmail = getVal('email', 'email prefix', 'username', 'email address');
-          let rawRoleStr = getVal('role', 'user role', 'type').toLowerCase();
-          const rawCode = getVal('admission number', 'admission no', 'admission_number', 'user code', 'reg no', 'id', 'user_code');
-          let rawGrade = getVal('grade', 'class grade', 'year');
-          let rawClassLetter = getVal('class', 'section', 'class letter', 'class_letter');
+          // 1. Name
+          const rawName = getVal('fullname', 'fullname', 'studentname', 'username', 'name', 'student', 'pupil', 'teachername', 'firstname');
 
-          // Email prefix normalization (if domain missing, append @woodlempark.ae)
+          // 2. Email
+          let rawEmail = getVal('emailaddress', 'emailid', 'emailprefix', 'email', 'useremail', 'username', 'mail', 'account');
+
+          // 3. Role
+          const rawRoleStr = getVal('role', 'userrole', 'accounttype', 'type', 'category', 'designation').toLowerCase();
+          let role: 'student' | 'teacher' | 'parent' | 'admin' = fallbackRole;
+          if (rawRoleStr.includes('student') || rawRoleStr.includes('pupil')) role = 'student';
+          else if (rawRoleStr.includes('teacher') || rawRoleStr.includes('staff') || rawRoleStr.includes('faculty')) role = 'teacher';
+          else if (rawRoleStr.includes('parent') || rawRoleStr.includes('guardian')) role = 'parent';
+          else if (rawRoleStr.includes('admin') || rawRoleStr.includes('principal') || rawRoleStr.includes('manager')) role = 'admin';
+
+          // 4. Admission / ID
+          const rawCode = getVal('admissionnumber', 'admissionno', 'admno', 'admission_number', 'studentid', 'id', 'employeeid', 'empid', 'regno', 'usercode', 'code');
+
+          // 5. Grade & Class columns
+          const rawGradeCol = getVal('grade', 'classgrade', 'year', 'standard', 'std', 'cohort', 'level', 'gr', 'gradelevel');
+          const rawSecCol = getVal('section', 'classletter', 'sec', 'division', 'div', 'class_letter', 'room');
+          const rawComboCol = getVal('gradeclass', 'class', 'classsection', 'classsec', 'classname');
+
+          // Grade extractor helper (looks for 9, 10, 11, 12)
+          const extractGradeNumber = (str: string): string => {
+            if (!str) return '';
+            const match = str.match(/\b(12|11|10|9)\b/) ||
+                          str.match(/(?:grade|gr|g|year|std|standard|class|level)[\s.-]*(12|11|10|9)/i) ||
+                          str.match(/(12|11|10|9)(?:th|st|nd|rd)?/i);
+            return match ? match[1] : '';
+          };
+
+          // Section letter extractor helper (looks for A-Z)
+          const extractSectionLetter = (str: string): string => {
+            if (!str) return '';
+            const match = str.match(/(?:sec|section|div|division|class)?[\s.-]*\b([a-zA-Z])\b/i) ||
+                          str.match(/[\(\[\-_\s]([a-zA-Z])[\)\]]?$/) ||
+                          str.match(/\d+[\s.-]*([a-zA-Z])/);
+            return match ? match[1].toUpperCase() : '';
+          };
+
+          let finalGrade = '';
+          let finalSection = '';
+
+          // Strategy A: Check Grade column
+          if (rawGradeCol) {
+            finalGrade = extractGradeNumber(rawGradeCol);
+            const maybeSec = extractSectionLetter(rawGradeCol);
+            if (maybeSec && !finalSection) finalSection = maybeSec;
+          }
+
+          // Strategy B: Check Section column
+          if (rawSecCol) {
+            finalSection = extractSectionLetter(rawSecCol);
+            if (!finalGrade) finalGrade = extractGradeNumber(rawSecCol);
+          }
+
+          // Strategy C: Check Combo Class/Grade column
+          if (rawComboCol) {
+            if (!finalGrade) finalGrade = extractGradeNumber(rawComboCol);
+            if (!finalSection) finalSection = extractSectionLetter(rawComboCol);
+          }
+
+          // Strategy D: Check email prefix for grade clues (e.g. aarav.sharma.g9@woodlempark.ae or user_g11@)
+          if (!finalGrade && rawEmail) {
+            const emailMatch = rawEmail.match(/[._-]g(9|10|11|12)[._@-]/i) ||
+                               rawEmail.match(/grade(9|10|11|12)/i) ||
+                               rawEmail.match(/student(9|10|11|12)/i);
+            if (emailMatch) {
+              finalGrade = emailMatch[1];
+            }
+          }
+
+          // Default values for student
+          if (role === 'student') {
+            if (!finalGrade) finalGrade = '9';
+            if (!finalSection) finalSection = 'A';
+          }
+
+          // Email prefix normalization
           if (rawEmail) {
             if (!rawEmail.includes('@')) {
               rawEmail = `${rawEmail.trim()}@woodlempark.ae`;
@@ -91,32 +168,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             }
           }
 
-          // Role normalization
-          let role: 'student' | 'teacher' | 'parent' | 'admin' = fallbackRole;
-          if (['student', 'teacher', 'parent', 'admin'].includes(rawRoleStr)) {
-            role = rawRoleStr as any;
-          }
-
-          // Grade normalization (e.g. 10 or 12)
-          if (rawGrade) {
-            const digitMatch = rawGrade.match(/\d+/);
-            if (digitMatch) {
-              rawGrade = digitMatch[0];
-            }
-          } else if (role === 'student') {
-            rawGrade = '10';
-          }
-
-          // Class letter normalization (A, B, C, D)
-          if (rawClassLetter) {
-            const letterMatch = rawClassLetter.match(/[a-zA-Z]/);
-            rawClassLetter = letterMatch ? letterMatch[0].toUpperCase() : 'A';
-          } else if (role === 'student') {
-            rawClassLetter = 'A';
-          }
-
-          // Admission code fallback if missing
-          const finalCode = rawCode || `WPS-${1000 + idx}`;
+          const finalCode = rawCode || (role === 'student' ? `WPS-${1000 + idx}` : `EMP-${100 + idx}`);
 
           let isValid = true;
           let error = '';
@@ -126,7 +178,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             error = 'Missing name';
           } else if (!rawEmail) {
             isValid = false;
-            error = 'Missing email prefix';
+            error = 'Missing email';
           }
 
           return {
@@ -134,8 +186,8 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             email: rawEmail.toLowerCase(),
             role,
             userCode: finalCode,
-            grade: rawGrade,
-            classLetter: rawClassLetter,
+            grade: finalGrade || undefined,
+            classLetter: finalSection || undefined,
             password: 'woodlem123',
             isValid,
             error,
@@ -156,36 +208,36 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
   const handleDownloadSample = () => {
     const sampleData = [
       {
-        'Full Name': 'Alexander Smith',
-        'Email Prefix': 'alexander.s',
+        'Full Name': 'Aarav Sharma',
+        'Email Address': 'aarav.sharma.g9@woodlempark.ae',
         'Role': 'student',
-        'Admission Number': 'WPS-202601',
-        'Grade': '10',
-        'Class': 'A',
+        'Admission Number': 'WPS-1001',
+        'Grade': '9',
+        'Section': 'A',
       },
       {
         'Full Name': 'Fatima Al-Mansoori',
-        'Email Prefix': 'fatima.m',
+        'Email Address': 'fatima.m.g10@woodlempark.ae',
         'Role': 'student',
-        'Admission Number': 'WPS-202602',
-        'Grade': '11',
-        'Class': 'B',
+        'Admission Number': 'WPS-1002',
+        'Grade': '10',
+        'Section': 'B',
       },
       {
         'Full Name': 'Robert Taylor',
-        'Email Prefix': 'robert.t',
+        'Email Address': 'robert.taylor@woodlempark.ae',
         'Role': 'teacher',
-        'Admission Number': 'TCH-104',
+        'Admission Number': 'EMP-201',
         'Grade': '',
-        'Class': '',
+        'Section': '',
       },
       {
         'Full Name': 'Mariam Abdullah',
-        'Email Prefix': 'mariam.a',
+        'Email Address': 'mariam.abdullah@woodlempark.ae',
         'Role': 'parent',
-        'Admission Number': 'PRN-302',
+        'Admission Number': 'PRN-301',
         'Grade': '',
-        'Class': '',
+        'Section': '',
       },
     ];
 
@@ -199,20 +251,25 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
     e.preventDefault();
     const validRows = parsedRows.filter((r) => r.isValid);
     if (validRows.length === 0) {
-      alert('No valid rows found to import.');
+      alert('No valid student or staff records found in the spreadsheet to import.');
       return;
     }
 
     setIsProcessing(true);
+    setProgress({ current: 0, total: validRows.length });
+
     try {
-      await onBulkSubmit(validRows);
+      await onBulkSubmit(validRows, (current, total) => {
+        setProgress({ current, total });
+      });
       setFile(null);
       setParsedRows([]);
       onClose();
     } catch (err: any) {
-      alert(`Bulk import error: ${err.message}`);
+      alert('Unable to import user records. Please check the spreadsheet format and try again.');
     } finally {
       setIsProcessing(false);
+      setProgress(null);
     }
   };
 
@@ -222,7 +279,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
     <div className="modal-overlay active" onClick={onClose}>
       <div
         className="modal-content"
-        style={{ maxWidth: 850, width: '90%' }}
+        style={{ maxWidth: 880, width: '92%' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
@@ -309,8 +366,28 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
           </div>
         )}
 
+        {/* Progress Bar when processing */}
+        {isProcessing && progress && (
+          <div style={{ marginBottom: 20, padding: 14, background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: '#166534', marginBottom: 6 }}>
+              <span>Provisioning User Accounts...</span>
+              <span>{progress.current} / {progress.total} Completed</span>
+            </div>
+            <div style={{ width: '100%', height: 8, background: '#DCFCE7', borderRadius: 4, overflow: 'hidden' }}>
+              <div
+                style={{
+                  width: `${(progress.current / Math.max(progress.total, 1)) * 100}%`,
+                  height: '100%',
+                  background: '#16A34A',
+                  transition: 'width 0.2s ease',
+                }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Preview Table */}
-        {parsedRows.length > 0 && (
+        {parsedRows.length > 0 && !isProcessing && (
           <div style={{ marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span style={{ fontSize: 14, fontWeight: 600 }}>
@@ -342,7 +419,15 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
                       <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: '#2563EB' }}>{row.email || '—'}</td>
                       <td style={{ padding: '8px 12px', textTransform: 'capitalize' }}>{row.role}</td>
                       <td style={{ padding: '8px 12px' }}>{row.userCode}</td>
-                      <td style={{ padding: '8px 12px' }}>{row.role === 'student' ? `${row.grade || 'Grade 1'} (${row.classLetter || 'A'})` : 'N/A'}</td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {row.role === 'student' ? (
+                          <span style={{ fontWeight: 600, color: '#1E293B' }}>
+                            Grade {row.grade || '9'} ({row.classLetter || 'A'})
+                          </span>
+                        ) : (
+                          'N/A'
+                        )}
+                      </td>
                       <td style={{ padding: '8px 12px' }}>
                         {row.isValid ? (
                           <span style={{ color: '#16A34A', fontWeight: 600 }}>Ready</span>

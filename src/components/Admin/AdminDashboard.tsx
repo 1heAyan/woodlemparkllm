@@ -3,6 +3,8 @@
 import React, { useState, useMemo } from 'react';
 import { UserProfile, ParentDocument, HubActivity } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { SettingsView } from '@/components/Shared/SettingsView';
+import { SupportView } from '@/components/Shared/SupportView';
 
 interface AdminDashboardProps {
   currentUser: UserProfile;
@@ -17,9 +19,10 @@ interface AdminDashboardProps {
   onRefreshData?: () => void;
 }
 
-type AdminTab = 'overview' | 'directory' | 'classes' | 'documents' | 'hub' | 'system';
+type AdminTab = 'overview' | 'directory' | 'classes' | 'documents' | 'hub' | 'settings' | 'support' | 'system';
 
-const ALL_CLASSES = ['10-A', '10-B', '10-C', '10-D', '12-A', '12-B', '12-C', '12-D'] as const;
+const VALID_GRADES = ['9', '10', '11', '12'] as const;
+const BASE_SECTIONS = ['A', 'B', 'C', 'D'] as const;
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   currentUser,
@@ -46,6 +49,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const teachers = useMemo(() => profiles.filter((p) => p.role === 'teacher'), [profiles]);
   const parents = useMemo(() => profiles.filter((p) => p.role === 'parent'), [profiles]);
   const admins = useMemo(() => profiles.filter((p) => p.role === 'admin'), [profiles]);
+
+  // Dynamic list of all active or standard classes (Grades 9-12, Sections A-Z)
+  const activeClassList = useMemo(() => {
+    const classSet = new Set<string>();
+    // Add base 9-A..D, 10-A..D, 11-A..D, 12-A..D
+    VALID_GRADES.forEach((g) => {
+      BASE_SECTIONS.forEach((s) => classSet.add(`${g}-${s}`));
+    });
+
+    // Add any student cohorts that exist in database
+    students.forEach((st) => {
+      const g = (st.grade || '').replace(/[^0-9]/g, '');
+      const s = (st.class_letter || '').toUpperCase().trim();
+      if (VALID_GRADES.includes(g as any) && s) {
+        classSet.add(`${g}-${s}`);
+      }
+    });
+
+    // Add any teacher assigned class cohorts
+    teachers.forEach((t) => {
+      if (t.assigned_class && t.assigned_class !== 'none') {
+        classSet.add(t.assigned_class);
+      }
+    });
+
+    return Array.from(classSet).sort((a, b) => {
+      const [ga, sa] = a.split('-');
+      const [gb, sb] = b.split('-');
+      if (parseInt(ga) !== parseInt(gb)) return parseInt(ga) - parseInt(gb);
+      return sa.localeCompare(sb);
+    });
+  }, [students, teachers]);
 
   // Filtered profiles for User Directory
   const filteredProfiles = useMemo(() => {
@@ -98,7 +133,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (p.role === 'teacher') {
       const parts: string[] = [];
       if (p.subject) parts.push(p.subject);
-      if (p.assigned_class) parts.push(`Class Teacher (${p.assigned_class})`);
+      const homeroom =
+        p.assigned_class ||
+        (p.grade && p.class_letter
+          ? `${p.grade.replace(/[^0-9]/g, '')}-${p.class_letter.toUpperCase()}`
+          : null);
+      if (homeroom && homeroom !== 'none') {
+        const cleanHomeroom = homeroom.replace(/^Grade\s*/i, '');
+        parts.push(`Class Teacher (${cleanHomeroom})`);
+      }
       return parts.length > 0 ? parts.join(' | ') : 'Faculty';
     }
     if (p.role === 'parent') return 'Parent / Guardian';
@@ -350,7 +393,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           <div style={{ padding: '10px 12px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-            {ALL_CLASSES.map((cls) => {
+            {activeClassList.map((cls) => {
               const [g, s] = cls.split('-');
               const count = students.filter((st) => {
                 const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
@@ -406,10 +449,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
             {[
               { title: 'User Directory Management', desc: `${profiles.length} total profiles registered`, tab: 'directory' as const },
-              { title: 'Section Roster & Class Teachers', desc: `${ALL_CLASSES.length} active cohorts`, tab: 'classes' as const },
+              { title: 'Section Roster & Class Teachers', desc: `${activeClassList.length} active cohorts`, tab: 'classes' as const },
               { title: 'Parent Clearance & Documents', desc: `${parentDocuments.length} files submitted`, tab: 'documents' as const },
               { title: 'Holistic Development Hub', desc: `${hubActivities.length} published programs`, tab: 'hub' as const },
-              { title: 'System Environment & Database', desc: 'Supabase PostgreSQL Cloud', tab: 'system' as const },
+              { title: 'System Environment & Diagnostics', desc: 'Secure Cloud Platform', tab: 'system' as const },
             ].map((item) => (
               <div
                 key={item.title}
@@ -573,7 +616,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               buttonStyle={{ padding: '4px 8px', fontSize: 11.5 }}
               options={[
                 { value: 'all', label: 'All Sections' },
-                ...ALL_CLASSES.map((c) => ({ value: c, label: `Section ${c}` })),
+                ...activeClassList.map((c) => ({ value: c, label: `Section ${c}` })),
               ]}
             />
           </div>
@@ -721,6 +764,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </td>
                   <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button
+                      onClick={() => setActiveTab('settings')}
+                      style={{
+                        padding: '3px 8px',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        border: '1px solid #C7E4D8',
+                        borderRadius: 4,
+                        background: '#EAF3EF',
+                        color: '#2D6E5D',
+                        cursor: 'pointer',
+                        marginRight: 4,
+                      }}
+                      title="Manage / Reset User Password"
+                    >
+                      Reset Password
+                    </button>
+                    <button
                       onClick={() => onEditUser(p)}
                       style={{
                         padding: '3px 8px',
@@ -773,15 +833,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <div>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>Class Sections & Class Teachers</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>Class Sections &amp; Class Teachers</span>
             <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
-              Woodlem Park active section distribution for Grades 10 & 12
+              Woodlem Park active section distribution for Grades 9-12
             </p>
           </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-          {ALL_CLASSES.map((cls) => {
+          {activeClassList.map((cls) => {
             const [g, s] = cls.split('-');
             const classStudents = students.filter((st) => {
               const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
@@ -1100,13 +1160,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 16px' }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 8 }}>
-          System & Database Diagnostics
+          System &amp; Cloud Network Status
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
           <div style={{ border: '1px solid var(--border-color)', borderRadius: 6, padding: '10px 12px', background: '#FAF9F6' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Database Backend</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#2C6E6A', marginTop: 3 }}>Connected (Supabase Cloud)</div>
-            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>PostgreSQL Realtime Engine</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Cloud Sync Status</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#2C6E6A', marginTop: 3 }}>Active &amp; Connected</div>
+            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>Realtime School Network</div>
           </div>
           <div style={{ border: '1px solid var(--border-color)', borderRadius: 6, padding: '10px 12px', background: '#FAF9F6' }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Current Operator</div>
@@ -1116,7 +1176,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div style={{ border: '1px solid var(--border-color)', borderRadius: 6, padding: '10px 12px', background: '#FAF9F6' }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Institution</div>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)', marginTop: 3 }}>Woodlem Park School</div>
-            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>Curriculum: Grades 10 & 12</div>
+            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>Curriculum: Grades 9-12</div>
           </div>
         </div>
       </div>
@@ -1126,9 +1186,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const tabs: { id: AdminTab; label: string; count?: number }[] = [
     { id: 'overview', label: 'OVERVIEW' },
     { id: 'directory', label: 'USER DIRECTORY', count: profiles.length },
-    { id: 'classes', label: 'CLASSES & SECTIONS', count: ALL_CLASSES.length },
+    { id: 'classes', label: 'CLASSES & SECTIONS', count: activeClassList.length },
     { id: 'documents', label: 'DOCUMENTS', count: parentDocuments.length },
     { id: 'hub', label: 'HOLISTIC HUB', count: hubActivities.length },
+    { id: 'settings', label: 'SETTINGS & PASSWORDS' },
+    { id: 'support', label: 'HELP & SUPPORT' },
     { id: 'system', label: 'SYSTEM DIAGNOSTICS' },
   ];
 
@@ -1319,6 +1381,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {activeTab === 'classes' && renderClasses()}
           {activeTab === 'documents' && renderDocuments()}
           {activeTab === 'hub' && renderHub()}
+          {activeTab === 'settings' && (
+            <SettingsView currentUser={currentUser} profiles={profiles} onRefreshData={onRefreshData} />
+          )}
+          {activeTab === 'support' && (
+            <SupportView currentUser={currentUser} />
+          )}
           {activeTab === 'system' && renderSystem()}
         </div>
       </main>

@@ -11,6 +11,8 @@ import {
   HubActivity,
 } from '@/lib/supabaseClient';
 import { getIcon } from '../Icons';
+import { SettingsView } from '@/components/Shared/SettingsView';
+import { SupportView } from '@/components/Shared/SupportView';
 
 interface ParentDashboardProps {
   currentUser?: UserProfile;
@@ -50,7 +52,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   onOpenVideoModal,
   onSignOut,
 }) => {
-  const [activeTab, setActiveTab] = useState<'progress' | 'documents' | 'hub'>('progress');
+  const [activeTab, setActiveTab] = useState<'progress' | 'documents' | 'hub' | 'settings' | 'support'>('progress');
 
   // Attendance stats for child
   const dates = Object.keys(attendance).sort().slice(-5);
@@ -101,9 +103,38 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           </div>
         </div>
         <nav className="nav-menu">
-          <div className="nav-label">My Child</div>
-          <button className="nav-item active">
+          <div className="nav-label">MY STUDENT</div>
+          <button
+            className={`nav-item ${activeTab === 'progress' ? 'active' : ''}`}
+            onClick={() => setActiveTab('progress')}
+          >
             {currentChild.name}
+          </button>
+
+          <div className="nav-label" style={{ marginTop: 14 }}>PORTAL SERVICES</div>
+          <button
+            className={`nav-item ${activeTab === 'documents' ? 'active' : ''}`}
+            onClick={() => setActiveTab('documents')}
+          >
+            Clearance Documents
+          </button>
+          <button
+            className={`nav-item ${activeTab === 'hub' ? 'active' : ''}`}
+            onClick={() => setActiveTab('hub')}
+          >
+            Holistic Hub Activities
+          </button>
+          <button
+            className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
+            onClick={() => setActiveTab('settings')}
+          >
+            Settings &amp; Passwords
+          </button>
+          <button
+            className={`nav-item ${activeTab === 'support' ? 'active' : ''}`}
+            onClick={() => setActiveTab('support')}
+          >
+            Help &amp; Support
           </button>
         </nav>
         <div className="sidebar-footer">
@@ -127,7 +158,13 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
               Document Uploads
             </button>
             <button className={`tab-btn ${activeTab === 'hub' ? 'active' : ''}`} onClick={() => setActiveTab('hub')}>
-              {getIcon('plant')} Holistic Hub
+              Holistic Hub
+            </button>
+            <button className={`tab-btn ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
+              Settings &amp; Passwords
+            </button>
+            <button className={`tab-btn ${activeTab === 'support' ? 'active' : ''}`} onClick={() => setActiveTab('support')}>
+              Help &amp; Support
             </button>
           </div>
         </header>
@@ -409,6 +446,16 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                 )}
               </div>
             </div>
+          )}
+
+          {/* Settings Tab */}
+          {activeTab === 'settings' && currentUser && (
+            <SettingsView currentUser={currentUser} />
+          )}
+
+          {/* Support Tab */}
+          {activeTab === 'support' && currentUser && (
+            <SupportView currentUser={currentUser} />
           )}
         </div>
       </main>

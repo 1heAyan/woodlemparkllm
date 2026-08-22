@@ -3,7 +3,13 @@
 import React, { useState, useEffect } from 'react';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 
-const ALL_SECTIONS = ['10-A', '10-B', '10-C', '10-D', '12-A', '12-B', '12-C', '12-D', 'All Classes'] as const;
+const ALL_SECTIONS = [
+  '9-A', '9-B', '9-C', '9-D',
+  '10-A', '10-B', '10-C', '10-D',
+  '11-A', '11-B', '11-C', '11-D',
+  '12-A', '12-B', '12-C', '12-D',
+  'All Classes',
+] as const;
 
 interface CreateAssignmentModalProps {
   isOpen: boolean;
@@ -74,7 +80,7 @@ export const CreateAssignmentModal: React.FC<CreateAssignmentModalProps> = ({
                   textAlign: 'center',
                 }}
               >
-                📄 Homework Assignment
+                Homework Assignment
               </button>
               <button
                 type="button"
@@ -91,7 +97,7 @@ export const CreateAssignmentModal: React.FC<CreateAssignmentModalProps> = ({
                   textAlign: 'center',
                 }}
               >
-                📝 Online Assessment
+                Online Assessment
               </button>
             </div>
           </div>

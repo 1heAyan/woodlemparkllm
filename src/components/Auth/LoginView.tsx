@@ -79,72 +79,104 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
       // If user typed an ID / Admission Code instead of email, resolve email from profiles
       if (!rawIdentifier.includes('@')) {
-        const { data: matchedProfiles, error: lookupErr } = await supabase
+        const { data: matchedProfiles } = await supabase
           .from('profiles')
           .select('email, role, name')
+          .eq('role', role)
           .or(`admission_number.ilike.${rawIdentifier},user_code.ilike.${rawIdentifier}`)
           .limit(1);
 
         if (matchedProfiles && matchedProfiles.length > 0 && matchedProfiles[0].email) {
           resolvedEmail = matchedProfiles[0].email.toLowerCase();
-        } else if (lookupErr) {
-          console.warn('Profile code lookup error:', lookupErr);
+        } else {
+          // Check if code exists under a different role to provide helpful guidance
+          const { data: anyMatch } = await supabase
+            .from('profiles')
+            .select('email, role')
+            .or(`admission_number.ilike.${rawIdentifier},user_code.ilike.${rawIdentifier}`)
+            .limit(1);
+
+          if (anyMatch && anyMatch.length > 0 && anyMatch[0].role !== role) {
+            throw new Error(`No ${activeRole.label.toLowerCase()} account found with this ID. Please select the correct portal tab.`);
+          }
         }
       }
 
-      // Real Supabase Authentication
+      // Real Authentication
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: resolvedEmail,
         password: password,
       });
 
       if (authError || !authData?.user) {
-        throw new Error(
-          authError?.message === 'Invalid login credentials'
-            ? 'Invalid email or password. Please check your credentials.'
-            : (authError?.message || 'Authentication failed. Please verify your credentials.')
-        );
+        if (authError?.message === 'Invalid login credentials') {
+          throw new Error('Incorrect email/ID or password. Please check your credentials.');
+        } else if (authError?.message?.toLowerCase().includes('rate limit')) {
+          throw new Error('Too many sign-in attempts. Please wait a moment and try again.');
+        } else {
+          throw new Error('Unable to sign in. Please check your login details and try again.');
+        }
       }
 
       const userId = authData.user.id;
 
-      // Fetch authentic user profile from database
+      // Fetch fresh user profile from profiles table by email
       let { data: profile } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', userId)
+        .eq('email', resolvedEmail)
         .maybeSingle();
 
       if (!profile) {
-        const { data: profileByEmail } = await supabase
+        const { data: profileById } = await supabase
           .from('profiles')
           .select('*')
-          .eq('email', resolvedEmail)
+          .eq('id', userId)
           .maybeSingle();
-        if (profileByEmail) {
-          profile = profileByEmail;
+        if (profileById) {
+          profile = profileById;
         }
       }
 
       if (!profile) {
-        const meta = authData.user.user_metadata || {};
-        const fallbackProfile: UserProfile = {
-          id: userId,
-          email: authData.user.email || resolvedEmail,
-          name: meta.name || authData.user.email?.split('@')[0] || 'User',
-          role: (meta.role as any) || role,
-          user_code: meta.user_code || meta.admission_number || '',
-          admission_number: meta.admission_number || '',
-          grade: meta.grade || '',
-          class_letter: meta.class_letter || '',
-        };
-        await supabase.from('profiles').upsert([fallbackProfile], { onConflict: 'email' });
-        profile = fallbackProfile;
+        // Special case: bootstrap root admin if logging in as admin@woodlem.com
+        if (resolvedEmail === 'admin@woodlem.com') {
+          const adminProfile: UserProfile = {
+            id: userId || 'admin-1',
+            email: 'admin@woodlem.com',
+            name: 'System Admin',
+            role: 'admin',
+            user_code: 'ADM-001',
+          };
+          await supabase.from('profiles').upsert([adminProfile], { onConflict: 'email' });
+          profile = adminProfile;
+        } else {
+          // If the profile was deleted, reject sign in.
+          await supabase.auth.signOut();
+          throw new Error('This account is not active. Please contact your school administrator.');
+        }
+      }
+
+      // Enforce strict portal role: user must match the selected portal role
+      if (profile.role !== role) {
+        await supabase.auth.signOut();
+        throw new Error(`No ${activeRole.label.toLowerCase()} account found with these credentials. Please select the correct portal tab.`);
       }
 
       onLoginSuccess(profile);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Unable to sign in. Please check your credentials.');
+      const rawMsg = err?.message || '';
+      if (
+        rawMsg.includes('school administrator') ||
+        rawMsg.includes('Incorrect') ||
+        rawMsg.includes('Too many') ||
+        rawMsg.includes('Please') ||
+        rawMsg.includes('account found')
+      ) {
+        setErrorMessage(rawMsg);
+      } else {
+        setErrorMessage('Unable to sign in. Please check your connection and credentials.');
+      }
     } finally {
       setLoading(false);
     }

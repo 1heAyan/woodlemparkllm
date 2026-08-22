@@ -10,6 +10,9 @@ import {
   HubActivity,
   AuditLogItem,
   SubjectClass,
+  ClassResource,
+  ClassBroadcast,
+  ResourceType,
 } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { ManageClassStudentsModal } from '../Modals/ManageClassStudentsModal';
@@ -17,6 +20,8 @@ import { ReviewTestResultsModal, TestResultRecord } from '../Modals/ReviewTestRe
 import { GradeAssignmentModal, AssignmentSubmissionRecord } from '../Modals/GradeAssignmentModal';
 import { ViewFileModal } from '../Modals/ViewFileModal';
 import { EditSubjectClassModal } from '../Modals/EditSubjectClassModal';
+import { SettingsView } from '@/components/Shared/SettingsView';
+import { SupportView } from '@/components/Shared/SupportView';
 
 interface TeacherDashboardProps {
   currentUser: UserProfile;
@@ -29,8 +34,32 @@ interface TeacherDashboardProps {
   hubActivities: HubActivity[];
   auditLogs?: AuditLogItem[];
   subjectClasses: SubjectClass[];
+  classResources?: ClassResource[];
+  classBroadcasts?: ClassBroadcast[];
   testResults?: Record<string, TestResultRecord>;
   assignmentSubmissions?: Record<string, AssignmentSubmissionRecord>;
+  onCreateResource?: (resourceData: {
+    class_id: string;
+    title: string;
+    description?: string;
+    resource_type: ResourceType;
+    file_name?: string;
+    file_url?: string;
+    file_size?: string;
+    external_link?: string;
+    topic_tag?: string;
+  }) => void;
+  onDeleteResource?: (resourceId: string) => void;
+  onCreateBroadcast?: (broadcastData: {
+    class_id: string;
+    title: string;
+    content: string;
+    is_pinned?: boolean;
+    priority?: 'normal' | 'important' | 'urgent';
+    tagged_resource_ids?: string[];
+  }) => void;
+  onDeleteBroadcast?: (broadcastId: string) => void;
+  onTogglePinBroadcast?: (broadcastId: string) => void;
   onOpenCreateClassModal: () => void;
   onUpdateSubjectClass: (
     classId: string,
@@ -73,8 +102,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   hubActivities,
   auditLogs = [],
   subjectClasses,
+  classResources = [],
+  classBroadcasts = [],
   testResults = {},
   assignmentSubmissions = {},
+  onCreateResource,
+  onDeleteResource,
+  onCreateBroadcast,
+  onDeleteBroadcast,
+  onTogglePinBroadcast,
   onOpenCreateClassModal,
   onUpdateSubjectClass,
   onDeleteSubjectClass,
@@ -99,11 +135,36 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [isEditClassModalOpen, setIsEditClassModalOpen] = useState(false);
   const [selectedReviewTest, setSelectedReviewTest] = useState<TestItem | null>(null);
   const [selectedGradeAssignment, setSelectedGradeAssignment] = useState<AssignmentItem | null>(null);
-  // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'audit' | 'hub'
-  const [activeNavMode, setActiveNavMode] = useState<'class' | 'homeroom_attendance' | 'homeroom_awards' | 'audit' | 'hub'>('class');
+  // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'audit' | 'hub' | 'settings' | 'support'
+  const [activeNavMode, setActiveNavMode] = useState<'class' | 'homeroom_attendance' | 'homeroom_awards' | 'audit' | 'hub' | 'settings' | 'support'>('class');
 
-  // Sub-tabs inside a subject classroom
-  const [classSubTab, setClassSubTab] = useState<'tasks' | 'syllabus'>('tasks');
+  // Sub-tabs inside a subject classroom: 'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'roster'
+  const [classSubTab, setClassSubTab] = useState<'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'roster'>('broadcasts');
+
+  // Broadcasts Composer State (Full-Page Inline)
+  const [broadcastTitle, setBroadcastTitle] = useState('');
+  const [broadcastContent, setBroadcastContent] = useState('');
+  const [broadcastPriority, setBroadcastPriority] = useState<'normal' | 'important' | 'urgent'>('normal');
+  const [broadcastIsPinned, setBroadcastIsPinned] = useState(false);
+  const [broadcastTaggedResourceIds, setBroadcastTaggedResourceIds] = useState<string[]>([]);
+  const [isPostingBroadcast, setIsPostingBroadcast] = useState(false);
+
+  // Resource Uploader State (Full-Page Inline)
+  const [isResourceFormExpanded, setIsResourceFormExpanded] = useState(false);
+  const [resTitle, setResTitle] = useState('');
+  const [resDesc, setResDesc] = useState('');
+  const [resType, setResType] = useState<ResourceType>('pdf');
+  const [resFileName, setResFileName] = useState('');
+  const [resFileDataUrl, setResFileDataUrl] = useState('');
+  const [resFileSize, setResFileSize] = useState('');
+  const [resExternalLink, setResExternalLink] = useState('');
+  const [resTopicTag, setResTopicTag] = useState('');
+  const [resSearchQuery, setResSearchQuery] = useState('');
+  const [resTypeFilter, setResTypeFilter] = useState<'all' | ResourceType>('all');
+  const [isUploadingResource, setIsUploadingResource] = useState(false);
+
+  // General Resource preview modal
+  const [previewingResource, setPreviewingResource] = useState<ClassResource | null>(null);
 
   // Sub-tabs inside Homeroom Attendance: 'mark' (Take Daily Roll Call) vs 'history' (Full Attendance Register & History)
   const [attendanceViewMode, setAttendanceViewMode] = useState<'mark' | 'history'>('history');
@@ -226,7 +287,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   const handleSaveAttendanceClick = async () => {
     if (homeroomStudents.length === 0) {
-      alert('No students found in homeroom to save.');
+      alert('No students found in this homeroom to record attendance.');
       return;
     }
     const toSave: Record<string, string> = {};
@@ -234,7 +295,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       toSave[st.id] = dailyRecords[st.id] || 'present';
     });
     onSaveAttendance(selectedDate, toSave);
-    setSaveFeedback(`✓ Attendance for ${selectedDate} saved successfully (${homeroomStudents.length} students).`);
+    setSaveFeedback(`Attendance for ${selectedDate} saved successfully (${homeroomStudents.length} students).`);
     setTimeout(() => setSaveFeedback(''), 4000);
   };
 
@@ -254,6 +315,144 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       return a.class_name.includes(activeClassObj.class_name) || a.class_name.includes(activeClassObj.name);
     });
   }, [assignments, activeClassObj]);
+
+  // Filter resources & broadcasts for active subject class
+  const thisClassResources = useMemo(() => {
+    if (!selectedClassId) return [];
+    return classResources.filter((r) => r.class_id === selectedClassId);
+  }, [classResources, selectedClassId]);
+
+  const thisClassBroadcasts = useMemo(() => {
+    if (!selectedClassId) return [];
+    return classBroadcasts
+      .filter((b) => b.class_id === selectedClassId)
+      .sort((a, b) => {
+        if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
+        return new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime();
+      });
+  }, [classBroadcasts, selectedClassId]);
+
+  const filteredThisClassResources = useMemo(() => {
+    return thisClassResources.filter((r) => {
+      if (resTypeFilter !== 'all' && r.resource_type !== resTypeFilter) return false;
+      if (resSearchQuery.trim()) {
+        const q = resSearchQuery.toLowerCase();
+        const matchesTitle = r.title.toLowerCase().includes(q);
+        const matchesDesc = (r.description || '').toLowerCase().includes(q);
+        const matchesTag = (r.topic_tag || '').toLowerCase().includes(q);
+        const matchesFile = (r.file_name || '').toLowerCase().includes(q);
+        return matchesTitle || matchesDesc || matchesTag || matchesFile;
+      }
+      return true;
+    });
+  }, [thisClassResources, resTypeFilter, resSearchQuery]);
+
+  // Handle Resource Upload (Inline Full-Page)
+  const handleResourceFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setResFileName(file.name);
+    const sizeKB = file.size / 1024;
+    const formattedSize = sizeKB > 1024 ? `${(sizeKB / 1024).toFixed(1)} MB` : `${Math.round(sizeKB)} KB`;
+    setResFileSize(formattedSize);
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext === 'pdf') setResType('pdf');
+    else if (['ppt', 'pptx', 'key'].includes(ext || '')) setResType('slides');
+    else if (['doc', 'docx', 'txt', 'rtf'].includes(ext || '')) setResType('doc');
+    else if (['xls', 'xlsx', 'csv'].includes(ext || '')) setResType('worksheet');
+
+    const reader = new FileReader();
+    reader.onload = (loadEvt) => {
+      setResFileDataUrl((loadEvt.target?.result as string) || '');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveResource = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resTitle.trim()) {
+      alert('Please enter a title for the learning resource.');
+      return;
+    }
+    if (!selectedClassId) {
+      alert('Please select a classroom first.');
+      return;
+    }
+    if (['link', 'video'].includes(resType) && !resExternalLink.trim()) {
+      alert('Please enter a valid web link (URL).');
+      return;
+    }
+
+    if (onCreateResource) {
+      setIsUploadingResource(true);
+      onCreateResource({
+        class_id: selectedClassId,
+        title: resTitle.trim(),
+        description: resDesc.trim(),
+        resource_type: resType,
+        file_name: resFileName || (resType === 'link' ? 'External Web Link' : 'Study Resource File'),
+        file_url: resFileDataUrl || resExternalLink,
+        file_size: resFileSize,
+        external_link: resExternalLink.trim(),
+        topic_tag: resTopicTag.trim(),
+      });
+      setTimeout(() => {
+        setIsUploadingResource(false);
+        setResTitle('');
+        setResDesc('');
+        setResFileName('');
+        setResFileDataUrl('');
+        setResFileSize('');
+        setResExternalLink('');
+        setResTopicTag('');
+        setIsResourceFormExpanded(false);
+      }, 250);
+    }
+  };
+
+  // Handle Broadcast Message Post (Inline Full-Page)
+  const handlePostBroadcast = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!broadcastTitle.trim()) {
+      alert('Please enter an announcement title.');
+      return;
+    }
+    if (!broadcastContent.trim()) {
+      alert('Please enter message content for the announcement.');
+      return;
+    }
+    if (!selectedClassId) {
+      alert('Please select a classroom first.');
+      return;
+    }
+
+    if (onCreateBroadcast) {
+      setIsPostingBroadcast(true);
+      onCreateBroadcast({
+        class_id: selectedClassId,
+        title: broadcastTitle.trim(),
+        content: broadcastContent.trim(),
+        is_pinned: broadcastIsPinned,
+        priority: broadcastPriority,
+        tagged_resource_ids: broadcastTaggedResourceIds,
+      });
+      setTimeout(() => {
+        setIsPostingBroadcast(false);
+        setBroadcastTitle('');
+        setBroadcastContent('');
+        setBroadcastPriority('normal');
+        setBroadcastIsPinned(false);
+        setBroadcastTaggedResourceIds([]);
+      }, 250);
+    }
+  };
+
+  const toggleTagResource = (resId: string) => {
+    setBroadcastTaggedResourceIds((prev) =>
+      prev.includes(resId) ? prev.filter((id) => id !== resId) : [...prev, resId]
+    );
+  };
 
   // Attendance report generator for Homeroom Today
   let presentCount = 0;
@@ -729,9 +928,28 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           <button
             className={`nav-item ${activeNavMode === 'hub' ? 'active' : ''}`}
             onClick={() => setActiveNavMode('hub')}
-            style={{ padding: '8px 12px', fontSize: 12.5, borderRadius: 6 }}
+            style={{ padding: '8px 12px', fontSize: 12.5, borderRadius: 6, marginBottom: 2 }}
           >
             Holistic Hub Programs
+          </button>
+
+          {/* 4. ACCOUNT & HELP */}
+          <div className="nav-label" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', marginTop: 16 }}>
+            ACCOUNT &amp; SUPPORT
+          </div>
+          <button
+            className={`nav-item ${activeNavMode === 'settings' ? 'active' : ''}`}
+            onClick={() => setActiveNavMode('settings')}
+            style={{ padding: '8px 12px', fontSize: 12.5, borderRadius: 6, marginBottom: 2 }}
+          >
+            Settings &amp; Passwords
+          </button>
+          <button
+            className={`nav-item ${activeNavMode === 'support' ? 'active' : ''}`}
+            onClick={() => setActiveNavMode('support')}
+            style={{ padding: '8px 12px', fontSize: 12.5, borderRadius: 6 }}
+          >
+            Help &amp; Support
           </button>
         </nav>
 
@@ -748,17 +966,55 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         {activeNavMode === 'class' && (
           <>
             <header className="content-header">
-              <div className="header-top">
+              <div className="header-top" style={{ alignItems: 'flex-start' }}>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#2C6E6A', letterSpacing: '0.06em' }}>
-                    SUBJECT CLASSROOM · {currentUser.subject || 'FACULTY'}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', textTransform: 'uppercase' }}>
+                      {activeClassObj?.subject || currentUser.subject || 'Faculty'}
+                    </span>
+                    {activeClassObj && (
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                        Target: {activeClassObj.class_name} {activeClassObj.room ? `| ${activeClassObj.room}` : ''}
+                      </span>
+                    )}
                   </div>
-                  <h1 className="page-title" style={{ margin: '2px 0 0' }}>
+                  <h1 className="page-title" style={{ margin: 0 }}>
                     {activeClassObj ? activeClassObj.name : 'No Class Selected'}
                   </h1>
                 </div>
 
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {activeClassObj && (
+                    <>
+                      <button
+                        onClick={() => setIsEditClassModalOpen(true)}
+                        className="btn-secondary"
+                        style={{ padding: '7px 12px', fontSize: 12 }}
+                        title="Edit class details"
+                      >
+                        Edit Class
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Delete subject class "${activeClassObj.name}"?`)) {
+                            onDeleteSubjectClass(activeClassObj.id);
+                          }
+                        }}
+                        style={{
+                          padding: '7px 12px',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          background: '#FDF1F0',
+                          border: '1px solid #F5C6CB',
+                          color: '#A83B38',
+                          borderRadius: 6,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
                   <button
                     className="btn-secondary"
                     onClick={onOpenCreateClassModal}
@@ -770,37 +1026,59 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     <button
                       className="btn-primary"
                       onClick={() => onOpenCreateAssignmentModal(`${activeClassObj.name} (${activeClassObj.class_name})`)}
-                      style={{ padding: '7px 16px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
+                      style={{ padding: '7px 16px', fontSize: 12 }}
                     >
-                      <span>+</span> Create Assignment
+                      + Create Assignment
                     </button>
                   )}
                 </div>
               </div>
 
-              {/* ONLY SUBJECT CLASS TABS: Classroom & Tasks + Syllabus */}
               <div className="tabs">
+                <button
+                  className={`tab-btn ${classSubTab === 'broadcasts' ? 'active' : ''}`}
+                  onClick={() => setClassSubTab('broadcasts')}
+                >
+                  Stream
+                  <span className="tab-count">{thisClassBroadcasts.length}</span>
+                </button>
+                <button
+                  className={`tab-btn ${classSubTab === 'resources' ? 'active' : ''}`}
+                  onClick={() => setClassSubTab('resources')}
+                >
+                  Resources
+                  <span className="tab-count">{thisClassResources.length}</span>
+                </button>
                 <button
                   className={`tab-btn ${classSubTab === 'tasks' ? 'active' : ''}`}
                   onClick={() => setClassSubTab('tasks')}
                 >
-                  Classroom &amp; Tasks ({classTests.length + classAssignments.length})
+                  Assessments
+                  <span className="tab-count">{classTests.length + classAssignments.length}</span>
                 </button>
                 <button
                   className={`tab-btn ${classSubTab === 'syllabus' ? 'active' : ''}`}
                   onClick={() => setClassSubTab('syllabus')}
                 >
-                  Syllabus Coverage ({overallPct}%)
+                  Syllabus
+                  <span className="tab-count">{overallPct}%</span>
+                </button>
+                <button
+                  className={`tab-btn ${classSubTab === 'roster' ? 'active' : ''}`}
+                  onClick={() => setClassSubTab('roster')}
+                >
+                  Students
+                  <span className="tab-count">{classStudents.length}</span>
                 </button>
               </div>
             </header>
 
-            <div className="content-body" style={{ padding: '24px 32px' }}>
+            <div className="content-body" style={{ padding: '28px 32px' }}>
               {!activeClassObj ? (
                 <div className="panel-block" style={{ padding: '48px 24px', textAlign: 'center' }}>
                   <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px' }}>No Subject Class Selected</h3>
                   <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', maxWidth: 400, margin: '0 auto 16px' }}>
-                    Create your subject classroom to enroll students and publish assignments.
+                    Create your subject classroom to enroll students, upload study materials, and broadcast announcements.
                   </p>
                   <button className="btn-primary" onClick={onOpenCreateClassModal} style={{ padding: '8px 20px', fontSize: 12.5 }}>
                     + Create Subject Class
@@ -808,8 +1086,424 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 </div>
               ) : (
                 <>
-                  {classSubTab === 'tasks' && (
+                  {/* SUBTAB 1: STREAM & BROADCASTS */}
+                  {classSubTab === 'broadcasts' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                      {/* INLINE BROADCAST COMPOSER (Full-Page Card) */}
+                      <div
+                        style={{
+                          background: '#FFFFFF',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 10,
+                          padding: '20px 24px',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                        }}
+                      >
+                        <div style={{ marginBottom: 14 }}>
+                          <h4 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                            Post Announcement to {activeClassObj.name}
+                          </h4>
+                          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                            Broadcast notices, instructions, and homework updates to all enrolled students with tagged resources.
+                          </p>
+                        </div>
+
+                        <form onSubmit={handlePostBroadcast}>
+                          {/* Announcement Title */}
+                          <div style={{ marginBottom: 12 }}>
+                            <input
+                              type="text"
+                              className="form-input"
+                              placeholder="Announcement Title (e.g., Physics Lab Session & Revision Materials)"
+                              value={broadcastTitle}
+                              onChange={(e) => setBroadcastTitle(e.target.value)}
+                              style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '9px 12px' }}
+                            />
+                          </div>
+
+                          {/* Announcement Message Body */}
+                          <div style={{ marginBottom: 14 }}>
+                            <textarea
+                              className="form-input"
+                              rows={3}
+                              placeholder="Write announcement details, guidelines, or homework instructions for the class..."
+                              value={broadcastContent}
+                              onChange={(e) => setBroadcastContent(e.target.value)}
+                              style={{ width: '100%', fontSize: 12.5, lineHeight: 1.5, padding: '10px 12px', resize: 'vertical' }}
+                            />
+                          </div>
+
+                          {/* Control Strip: Priority, Pin, and Resource Tagging */}
+                          <div
+                            style={{
+                              background: '#FAF9F6',
+                              border: '1px solid #EAE8E3',
+                              borderRadius: 8,
+                              padding: '12px 16px',
+                              marginBottom: 16,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 12,
+                            }}
+                          >
+                            {/* Priority & Pin Controls */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                  Priority:
+                                </span>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  {(['normal', 'important', 'urgent'] as const).map((pri) => (
+                                    <button
+                                      key={pri}
+                                      type="button"
+                                      onClick={() => setBroadcastPriority(pri)}
+                                      style={{
+                                        padding: '4px 10px',
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        borderRadius: 4,
+                                        border: broadcastPriority === pri ? '1px solid transparent' : '1px solid #DDD',
+                                        background:
+                                          broadcastPriority === pri
+                                            ? pri === 'urgent'
+                                              ? '#A83B38'
+                                              : pri === 'important'
+                                              ? '#B86E14'
+                                              : '#2C6E6A'
+                                            : '#FFFFFF',
+                                        color: broadcastPriority === pri ? '#FFFFFF' : 'var(--neutral-dark)',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      {pri === 'urgent' ? 'Urgent' : pri === 'important' ? 'Important' : 'Standard'}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--neutral-dark)' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={broadcastIsPinned}
+                                  onChange={(e) => setBroadcastIsPinned(e.target.checked)}
+                                  style={{ accentColor: '#2C6E6A', cursor: 'pointer' }}
+                                />
+                                Pin to Top of Class Stream
+                              </label>
+                            </div>
+
+                            {/* Resource Tagging Chips */}
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                  Tag / Attach Uploaded Resources ({broadcastTaggedResourceIds.length} tagged):
+                                </span>
+                                {thisClassResources.length > 0 && (
+                                  <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                    Click any resource below to attach it to this announcement
+                                  </span>
+                                )}
+                              </div>
+
+                              {thisClassResources.length === 0 ? (
+                                <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: 0, fontStyle: 'italic' }}>
+                                  No resources uploaded for this class yet. Switch to the <strong>Resources Hub</strong> tab to upload course materials and study sheets.
+                                </p>
+                              ) : (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                  {thisClassResources.map((res) => {
+                                    const isTagged = broadcastTaggedResourceIds.includes(res.id);
+                                    return (
+                                      <button
+                                        key={res.id}
+                                        type="button"
+                                        onClick={() => toggleTagResource(res.id)}
+                                        style={{
+                                          padding: '4px 10px',
+                                          fontSize: 11.5,
+                                          fontWeight: 600,
+                                          borderRadius: 4,
+                                          border: isTagged ? '1.5px solid #2C6E6A' : '1px solid #D8D6D0',
+                                          background: isTagged ? '#EAF3EF' : '#FFFFFF',
+                                          color: isTagged ? '#20554E' : '#555',
+                                          cursor: 'pointer',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: 6,
+                                          transition: 'all 0.15s ease',
+                                        }}
+                                      >
+                                        <span style={{ fontSize: 9.5, fontWeight: 800, padding: '1px 4px', borderRadius: 3, background: isTagged ? '#2C6E6A' : '#EEE', color: isTagged ? '#FFF' : '#666' }}>
+                                          {res.resource_type.toUpperCase()}
+                                        </span>
+                                        <span>{res.title}</span>
+                                        <span style={{ fontWeight: 800, marginLeft: 2 }}>{isTagged ? '✓' : '+'}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Submit Bar */}
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            {(broadcastTitle || broadcastContent || broadcastTaggedResourceIds.length > 0) && (
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => {
+                                  setBroadcastTitle('');
+                                  setBroadcastContent('');
+                                  setBroadcastPriority('normal');
+                                  setBroadcastIsPinned(false);
+                                  setBroadcastTaggedResourceIds([]);
+                                }}
+                                style={{ padding: '7px 14px', fontSize: 12 }}
+                              >
+                                Clear
+                              </button>
+                            )}
+                            <button
+                              type="submit"
+                              className="btn-primary"
+                              disabled={isPostingBroadcast}
+                              style={{ padding: '8px 20px', fontSize: 12.5 }}
+                            >
+                              Post Announcement
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+
+                      {/* ANNOUNCEMENTS STREAM FEED */}
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                          <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                            Class Stream ({thisClassBroadcasts.length} Broadcasts)
+                          </h4>
+                          <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                            Visible to all students in {activeClassObj.name}
+                          </span>
+                        </div>
+
+                        {thisClassBroadcasts.length === 0 ? (
+                          <div className="panel-block" style={{ padding: '36px 24px', textAlign: 'center' }}>
+                            <h4 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px', color: 'var(--neutral-dark)' }}>
+                              No Broadcasts Posted Yet
+                            </h4>
+                            <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 auto', maxWidth: 380 }}>
+                              Use the composer above to broadcast instructions, homework updates, and share study materials directly with your students.
+                            </p>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                            {thisClassBroadcasts.map((bcast) => {
+                              const taggedResources = (bcast.tagged_resource_ids || [])
+                                .map((id) => classResources.find((r) => r.id === id))
+                                .filter(Boolean) as ClassResource[];
+
+                              const borderAccent =
+                                bcast.priority === 'urgent'
+                                  ? '#A83B38'
+                                  : bcast.priority === 'important'
+                                  ? '#B86E14'
+                                  : '#2C6E6A';
+
+                              return (
+                                <div
+                                  key={bcast.id}
+                                  style={{
+                                    background: '#FFFFFF',
+                                    border: '1px solid var(--border-color)',
+                                    borderLeft: `4px solid ${borderAccent}`,
+                                    borderRadius: 8,
+                                    padding: '18px 22px',
+                                    boxShadow: '0 1px 4px rgba(0,0,0,0.02)',
+                                  }}
+                                >
+                                  {/* Top Meta Bar */}
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                      <div
+                                        style={{
+                                          width: 28,
+                                          height: 28,
+                                          borderRadius: '50%',
+                                          background: '#2C6E6A',
+                                          color: '#FFFFFF',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          fontSize: 12,
+                                          fontWeight: 700,
+                                        }}
+                                      >
+                                        {(bcast.teacher_name || currentUser.name).charAt(0)}
+                                      </div>
+                                      <div>
+                                        <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                          {bcast.teacher_name || currentUser.name}
+                                          <span style={{ fontSize: 10, fontWeight: 600, color: '#2C6E6A', background: '#EAF3EF', padding: '1px 5px', borderRadius: 3, marginLeft: 6 }}>
+                                            Teacher
+                                          </span>
+                                        </div>
+                                        <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                          {bcast.created_at ? new Date(bcast.created_at).toLocaleString() : 'Recent'}
+                                        </div>
+                                      </div>
+
+                                      {/* Badges */}
+                                      {bcast.is_pinned && (
+                                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#FBF6F0', color: '#B37D4A', border: '1px solid #F0DFCE' }}>
+                                          PINNED NOTICE
+                                        </span>
+                                      )}
+                                      {bcast.priority === 'urgent' && (
+                                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#FDF1F0', color: '#A83B38', border: '1px solid #F5C6CB' }}>
+                                          URGENT
+                                        </span>
+                                      )}
+                                      {bcast.priority === 'important' && (
+                                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#FFF8E6', color: '#B86E14', border: '1px solid #FFE0A3' }}>
+                                          IMPORTANT
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Action buttons */}
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                      {onTogglePinBroadcast && (
+                                        <button
+                                          type="button"
+                                          onClick={() => onTogglePinBroadcast(bcast.id)}
+                                          title={bcast.is_pinned ? 'Unpin announcement' : 'Pin to top'}
+                                          style={{
+                                            padding: '3px 8px',
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                            border: '1px solid var(--border-color)',
+                                            borderRadius: 4,
+                                            background: '#FFFFFF',
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          {bcast.is_pinned ? 'Unpin' : 'Pin'}
+                                        </button>
+                                      )}
+                                      {onDeleteBroadcast && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (confirm(`Delete announcement "${bcast.title}"?`)) {
+                                              onDeleteBroadcast(bcast.id);
+                                            }
+                                          }}
+                                          title="Delete announcement"
+                                          style={{
+                                            padding: '3px 8px',
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                            border: '1px solid #F5C6CB',
+                                            borderRadius: 4,
+                                            background: '#FDF1F0',
+                                            color: '#A83B38',
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          Delete
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Title & Body */}
+                                  <h4 style={{ margin: '4px 0 8px', fontSize: 14.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                    {bcast.title}
+                                  </h4>
+                                  <div style={{ fontSize: 13, color: '#3E3D3A', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                                    {bcast.content}
+                                  </div>
+
+                                  {/* Tagged Learning Resources */}
+                                  {taggedResources.length > 0 && (
+                                    <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #EAE8E3' }}>
+                                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 8 }}>
+                                        Attached Learning Resources ({taggedResources.length})
+                                      </div>
+                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
+                                        {taggedResources.map((res) => {
+                                          return (
+                                            <div
+                                              key={res.id}
+                                              style={{
+                                                background: '#F8F9FA',
+                                                border: '1px solid #E2E4E8',
+                                                borderRadius: 6,
+                                                padding: '10px 12px',
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                gap: 8,
+                                              }}
+                                            >
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+                                                <span style={{ fontSize: 9.5, fontWeight: 800, padding: '3px 6px', borderRadius: 4, background: '#2C6E6A', color: '#FFFFFF' }}>
+                                                  {res.resource_type.toUpperCase()}
+                                                </span>
+                                                <div style={{ overflow: 'hidden' }}>
+                                                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                                    {res.title}
+                                                  </div>
+                                                  <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
+                                                    {res.file_size ? `${res.file_size}` : 'Resource'}
+                                                  </div>
+                                                </div>
+                                              </div>
+
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  if (res.external_link && !res.file_url) {
+                                                    window.open(res.external_link, '_blank');
+                                                  } else {
+                                                    setPreviewingResource(res);
+                                                  }
+                                                }}
+                                                style={{
+                                                  padding: '4px 9px',
+                                                  fontSize: 11,
+                                                  fontWeight: 700,
+                                                  background: '#2C6E6A',
+                                                  color: '#FFFFFF',
+                                                  border: 'none',
+                                                  borderRadius: 4,
+                                                  cursor: 'pointer',
+                                                  whiteSpace: 'nowrap',
+                                                }}
+                                              >
+                                                {res.external_link && !res.file_url ? 'Open ↗' : 'View'}
+                                              </button>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SUBTAB 2: RESOURCES HUB (Full-Page Inline Resource Management) */}
+                  {classSubTab === 'resources' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                      {/* Top Action & Search Bar */}
                       <div
                         style={{
                           background: '#FFFFFF',
@@ -824,58 +1518,414 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         }}
                       >
                         <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', textTransform: 'uppercase' }}>
-                              {activeClassObj.subject || 'Subject'}
-                            </span>
-                            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                              Target: {activeClassObj.class_name} {activeClassObj.room ? `| ${activeClassObj.room}` : ''}
-                            </span>
-                          </div>
-                          <h3 style={{ fontSize: 16, fontWeight: 700, margin: '4px 0 0', color: 'var(--neutral-dark)' }}>
-                            {activeClassObj.name}
-                          </h3>
+                          <h4 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                            Classroom Learning Resources Library
+                          </h4>
+                          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                            Upload PDF lecture slides, revision sheets, worksheets, and reference URLs for {activeClassObj.name}.
+                          </p>
                         </div>
 
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <button
-                            onClick={() => setIsEditClassModalOpen(true)}
-                            className="btn-secondary"
-                            style={{ padding: '6px 12px', fontSize: 11.5, display: 'flex', alignItems: 'center', gap: 4 }}
-                            title="Edit class name, subject, grade, or room"
-                          >
-                            <span>✏️</span> Edit Class
-                          </button>
-                          <button
-                            onClick={() => setIsManageStudentsOpen(true)}
-                            className="btn-secondary"
-                            style={{ padding: '6px 12px', fontSize: 11.5, display: 'flex', alignItems: 'center', gap: 4 }}
-                            title="Enroll or remove students"
-                          >
-                            <span>👥</span> Manage Students
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (confirm(`Delete subject class "${activeClassObj.name}"?`)) {
-                                onDeleteSubjectClass(activeClassObj.id);
-                              }
-                            }}
-                            style={{
-                              padding: '6px 12px',
-                              fontSize: 11.5,
-                              fontWeight: 600,
-                              background: '#FDF1F0',
-                              border: '1px solid #F5C6CB',
-                              color: '#A83B38',
-                              borderRadius: 4,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Delete Class
-                          </button>
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          onClick={() => setIsResourceFormExpanded(!isResourceFormExpanded)}
+                          style={{ padding: '8px 16px', fontSize: 12.5 }}
+                        >
+                          {isResourceFormExpanded ? '✕ Close Form' : '+ Upload New Resource'}
+                        </button>
+                      </div>
+
+                      {/* INLINE RESOURCE UPLOAD FORM (Full-Page Card) */}
+                      {isResourceFormExpanded && (
+                        <div
+                          style={{
+                            background: '#FFFFFF',
+                            border: '1.5px solid #2C6E6A',
+                            borderRadius: 10,
+                            padding: '22px 26px',
+                            boxShadow: '0 4px 14px rgba(44,110,106,0.08)',
+                          }}
+                        >
+                          <div style={{ marginBottom: 16 }}>
+                            <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                              Add New Learning Material for {activeClassObj.name}
+                            </h4>
+                            <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                              Students enrolled in this classroom can immediately view, tag, and download these materials.
+                            </p>
+                          </div>
+
+                          <form onSubmit={handleSaveResource}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginBottom: 14 }}>
+                              {/* Resource Title */}
+                              <div>
+                                <label className="form-label" style={{ fontWeight: 700, fontSize: 12 }}>
+                                  Resource Title *
+                                </label>
+                                <input
+                                  type="text"
+                                  className="form-input"
+                                  placeholder="e.g. Chapter 4 Notes & Formula Cheat Sheet"
+                                  value={resTitle}
+                                  onChange={(e) => setResTitle(e.target.value)}
+                                  required
+                                />
+                              </div>
+
+                              {/* Topic Tag */}
+                              <div>
+                                <label className="form-label" style={{ fontWeight: 700, fontSize: 12 }}>
+                                  Curriculum / Unit Tag (Optional)
+                                </label>
+                                <input
+                                  type="text"
+                                  className="form-input"
+                                  placeholder="e.g. Unit 3: Thermodynamics, Lab Prep"
+                                  value={resTopicTag}
+                                  onChange={(e) => setResTopicTag(e.target.value)}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Resource Type Selector */}
+                            <div style={{ marginBottom: 14 }}>
+                              <label className="form-label" style={{ fontWeight: 700, fontSize: 12 }}>
+                                Resource Type
+                              </label>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                {[
+                                  { id: 'pdf', label: 'PDF Document' },
+                                  { id: 'slides', label: 'Slide Deck' },
+                                  { id: 'worksheet', label: 'Worksheet' },
+                                  { id: 'doc', label: 'Document' },
+                                  { id: 'link', label: 'Web Link' },
+                                  { id: 'video', label: 'Video Lecture' },
+                                ].map((t) => (
+                                  <button
+                                    key={t.id}
+                                    type="button"
+                                    onClick={() => setResType(t.id as any)}
+                                    style={{
+                                      padding: '6px 12px',
+                                      fontSize: 12,
+                                      fontWeight: 600,
+                                      borderRadius: 6,
+                                      border: resType === t.id ? '1.5px solid #2C6E6A' : '1px solid #DDD',
+                                      background: resType === t.id ? '#EAF3EF' : '#FFFFFF',
+                                      color: resType === t.id ? '#20554E' : 'var(--neutral-dark)',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    {t.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Description / Instructions */}
+                            <div style={{ marginBottom: 14 }}>
+                              <label className="form-label" style={{ fontWeight: 700, fontSize: 12 }}>
+                                Description / Student Instructions (Optional)
+                              </label>
+                              <textarea
+                                className="form-input"
+                                rows={2}
+                                placeholder="Add any study guidance, homework reminders, or syllabus references..."
+                                value={resDesc}
+                                onChange={(e) => setResDesc(e.target.value)}
+                                style={{ width: '100%', fontSize: 12 }}
+                              />
+                            </div>
+
+                            {/* File Upload OR Link Input */}
+                            {['link', 'video'].includes(resType) ? (
+                              <div style={{ marginBottom: 18 }}>
+                                <label className="form-label" style={{ fontWeight: 700, fontSize: 12 }}>
+                                  External URL / Google Drive / Video Link *
+                                </label>
+                                <input
+                                  type="url"
+                                  className="form-input"
+                                  placeholder="https://drive.google.com/... or https://youtube.com/..."
+                                  value={resExternalLink}
+                                  onChange={(e) => setResExternalLink(e.target.value)}
+                                  required
+                                />
+                              </div>
+                            ) : (
+                              <div style={{ marginBottom: 18 }}>
+                                <label className="form-label" style={{ fontWeight: 700, fontSize: 12 }}>
+                                  Select File to Upload
+                                </label>
+                                <div
+                                  style={{
+                                    border: '2px dashed #CCD3D5',
+                                    borderRadius: 8,
+                                    padding: '16px 20px',
+                                    textAlign: 'center',
+                                    background: '#FAFBFB',
+                                    cursor: 'pointer',
+                                  }}
+                                  onClick={() => document.getElementById('resFileInput')?.click()}
+                                >
+                                  <input
+                                    id="resFileInput"
+                                    type="file"
+                                    style={{ display: 'none' }}
+                                    onChange={handleResourceFileChange}
+                                    accept=".pdf,.ppt,.pptx,.key,.doc,.docx,.xls,.xlsx,.csv,.txt,.rtf,.png,.jpg,.jpeg,.zip"
+                                  />
+                                  {resFileName ? (
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                                      <span style={{ fontSize: 13, fontWeight: 700, color: '#2C6E6A' }}>{resFileName}</span>
+                                      <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>({resFileSize})</span>
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      <p style={{ margin: '4px 0 2px', fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                                        Click to choose file (PDF, PPT, Word, Excel, Images, ZIP)
+                                      </p>
+                                      <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                        Stored securely for instant viewing and downloading by enrolled students.
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Submit buttons */}
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => setIsResourceFormExpanded(false)}
+                                style={{ padding: '8px 16px', fontSize: 12 }}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="submit"
+                                className="btn-primary"
+                                disabled={isUploadingResource}
+                                style={{ padding: '8px 20px', fontSize: 12.5 }}
+                              >
+                                Upload &amp; Share with Class
+                              </button>
+                            </div>
+                          </form>
+                        </div>
+                      )}
+
+                      {/* Search & Filter Bar */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                        {/* Search Input */}
+                        <div style={{ flex: '1 1 240px', minWidth: 220 }}>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="Search resources by title, topic tag, or file name..."
+                            value={resSearchQuery}
+                            onChange={(e) => setResSearchQuery(e.target.value)}
+                            style={{ width: '100%', fontSize: 12, padding: '7px 12px' }}
+                          />
+                        </div>
+
+                        {/* Type Filter Pills */}
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {[
+                            { id: 'all', label: `All (${thisClassResources.length})` },
+                            { id: 'pdf', label: `PDFs (${thisClassResources.filter((r) => r.resource_type === 'pdf').length})` },
+                            { id: 'slides', label: `Slides (${thisClassResources.filter((r) => r.resource_type === 'slides').length})` },
+                            { id: 'worksheet', label: `Worksheets (${thisClassResources.filter((r) => r.resource_type === 'worksheet').length})` },
+                            { id: 'link', label: `Links (${thisClassResources.filter((r) => r.resource_type === 'link').length})` },
+                          ].map((pill) => (
+                            <button
+                              key={pill.id}
+                              type="button"
+                              onClick={() => setResTypeFilter(pill.id as any)}
+                              style={{
+                                padding: '4px 10px',
+                                fontSize: 11,
+                                fontWeight: 600,
+                                borderRadius: 4,
+                                border: resTypeFilter === pill.id ? '1px solid #2C6E6A' : '1px solid var(--border-color)',
+                                background: resTypeFilter === pill.id ? '#2C6E6A' : '#FFFFFF',
+                                color: resTypeFilter === pill.id ? '#FFFFFF' : 'var(--neutral-dark)',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {pill.label}
+                            </button>
+                          ))}
                         </div>
                       </div>
 
+                      {/* RESOURCES GRID */}
+                      {filteredThisClassResources.length === 0 ? (
+                        <div className="panel-block" style={{ padding: '36px 24px', textAlign: 'center' }}>
+                          <h4 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px', color: 'var(--neutral-dark)' }}>
+                            No Resources Found
+                          </h4>
+                          <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 auto 12px', maxWidth: 360 }}>
+                            {thisClassResources.length === 0
+                              ? 'No learning materials uploaded for this classroom yet. Click "+ Upload New Resource" above to add course materials.'
+                              : 'No resources match your search filter.'}
+                          </p>
+                          {thisClassResources.length === 0 && (
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              onClick={() => setIsResourceFormExpanded(true)}
+                              style={{ padding: '7px 16px', fontSize: 12 }}
+                            >
+                              + Upload First Resource
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
+                          {filteredThisClassResources.map((res) => {
+                            const typeBg =
+                              res.resource_type === 'pdf'
+                                ? '#FDF1F0'
+                                : res.resource_type === 'slides'
+                                ? '#FFF8E6'
+                                : res.resource_type === 'video'
+                                ? '#F3EFFA'
+                                : res.resource_type === 'link'
+                                ? '#EAF3EF'
+                                : '#F0F4F4';
+
+                            const typeColor =
+                              res.resource_type === 'pdf'
+                                ? '#A83B38'
+                                : res.resource_type === 'slides'
+                                ? '#B86E14'
+                                : res.resource_type === 'video'
+                                ? '#6B42A8'
+                                : res.resource_type === 'link'
+                                ? '#2D6E5D'
+                                : '#2C6E6A';
+
+                            return (
+                              <div
+                                key={res.id}
+                                style={{
+                                  background: '#FFFFFF',
+                                  border: '1px solid var(--border-color)',
+                                  borderRadius: 8,
+                                  padding: '16px',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  justifyContent: 'space-between',
+                                  boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                                }}
+                              >
+                                <div>
+                                  {/* Top Badge & Tag */}
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                    <span
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: 800,
+                                        padding: '2px 7px',
+                                        borderRadius: 4,
+                                        background: typeBg,
+                                        color: typeColor,
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.04em',
+                                      }}
+                                    >
+                                      {res.resource_type}
+                                    </span>
+                                    {res.topic_tag && (
+                                      <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-secondary)', background: '#F5F4F0', padding: '1px 6px', borderRadius: 3 }}>
+                                        {res.topic_tag}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Title */}
+                                  <h4 style={{ margin: '0 0 6px', fontSize: 13.5, fontWeight: 700, color: 'var(--neutral-dark)', lineHeight: 1.3 }}>
+                                    {res.title}
+                                  </h4>
+
+                                  {/* Description */}
+                                  {res.description && (
+                                    <p style={{ margin: '0 0 10px', fontSize: 11.5, color: '#65635E', lineHeight: 1.45 }}>
+                                      {res.description}
+                                    </p>
+                                  )}
+
+                                  {/* File metadata */}
+                                  <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginBottom: 12 }}>
+                                    {res.file_name && <span>{res.file_name}</span>}
+                                    {res.file_size && <span> · {res.file_size}</span>}
+                                    {res.created_at && <span> · {new Date(res.created_at).toLocaleDateString()}</span>}
+                                  </div>
+                                </div>
+
+                                {/* Actions */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTop: '1px solid #F0EFEA' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (res.external_link && !res.file_url) {
+                                        window.open(res.external_link, '_blank');
+                                      } else {
+                                        setPreviewingResource(res);
+                                      }
+                                    }}
+                                    style={{
+                                      padding: '4px 10px',
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      background: '#2C6E6A',
+                                      color: '#FFFFFF',
+                                      border: 'none',
+                                      borderRadius: 4,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    {res.external_link && !res.file_url ? 'Open Link ↗' : 'View / Download'}
+                                  </button>
+
+                                  {onDeleteResource && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (confirm(`Delete learning resource "${res.title}"?`)) {
+                                          onDeleteResource(res.id);
+                                        }
+                                      }}
+                                      style={{
+                                        padding: '4px 8px',
+                                        fontSize: 10.5,
+                                        fontWeight: 600,
+                                        background: '#FDF1F0',
+                                        border: '1px solid #F5C6CB',
+                                        color: '#A83B38',
+                                        borderRadius: 4,
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      Delete
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* SUBTAB 3: 📝 TASKS & ASSESSMENTS (Tests & Assignments) */}
+                  {classSubTab === 'tasks' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                       {/* Class Stats */}
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
                         <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 16px' }}>
@@ -921,28 +1971,47 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           ) : (
                             <>
                               {classTests.map((test) => {
-                                const completedCount = classStudents.filter((st) => testResults[`${test.id}_${st.id}`]).length;
+                                const submissionsForTest = Object.entries(testResults)
+                                  .filter(([key]) => key.startsWith(`${test.id}_`))
+                                  .map(([_, rec]) => rec);
+                                const count = submissionsForTest.length;
+
                                 return (
-                                  <div className="item-card" key={test.id} style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <div className="item-card" key={test.id} style={{ padding: '12px 16px' }}>
                                     <div className="item-info">
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                        <span className="badge badge-test" style={{ fontSize: 9.5, margin: 0 }}>
-                                          Assessment · {test.class_name || activeClassObj.class_name}
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                        <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 5px', borderRadius: 3, background: '#F0F4F4', color: '#2C6E6A' }}>
+                                          ASSESSMENT
                                         </span>
-                                        <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8' }}>
-                                          {completedCount} of {classStudents.length} Completed
-                                        </span>
+                                        {test.class_name && (
+                                          <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                            {test.class_name}
+                                          </span>
+                                        )}
                                       </div>
-                                      <h4 style={{ fontSize: 14, margin: 0 }}>{test.title}</h4>
+                                      <div className="item-title" style={{ fontSize: 13, fontWeight: 700 }}>
+                                        {test.title}
+                                      </div>
+                                      <div className="item-meta">
+                                        Published · {count} {count === 1 ? 'submission' : 'submissions'}
+                                      </div>
                                     </div>
-                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                    <div className="item-actions" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                                       <button
                                         type="button"
                                         onClick={() => setSelectedReviewTest(test)}
-                                        className="btn-secondary btn-primary"
-                                        style={{ padding: '6px 14px', fontSize: 12 }}
+                                        style={{
+                                          padding: '5px 12px',
+                                          fontSize: 11,
+                                          fontWeight: 700,
+                                          background: count > 0 ? '#2C6E6A' : '#FFFFFF',
+                                          color: count > 0 ? '#FFFFFF' : 'var(--neutral-dark)',
+                                          border: '1px solid ' + (count > 0 ? '#2C6E6A' : 'var(--border-color)'),
+                                          borderRadius: 4,
+                                          cursor: 'pointer',
+                                        }}
                                       >
-                                        Review Results ({completedCount})
+                                        Review Results ({count})
                                       </button>
                                       <button
                                         type="button"
@@ -970,32 +2039,47 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                               })}
 
                               {classAssignments.map((ass) => {
-                                const submittedCount = classStudents.filter((st) => assignmentSubmissions[`${ass.id}_${st.id}`]).length;
-                                const gradedCount = classStudents.filter((st) => assignmentSubmissions[`${ass.id}_${st.id}`]?.grade).length;
+                                const subsForAss = Object.entries(assignmentSubmissions)
+                                  .filter(([key]) => key.startsWith(`${ass.id}_`))
+                                  .map(([_, rec]) => rec);
+                                const count = subsForAss.length;
+
                                 return (
-                                  <div className="item-card" key={ass.id} style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <div className="item-card" key={ass.id} style={{ padding: '12px 16px' }}>
                                     <div className="item-info">
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                        <span
-                                          className="badge badge-test"
-                                          style={{ background: 'var(--secondary-light)', color: 'var(--secondary)', fontSize: 9.5, margin: 0 }}
-                                        >
-                                          Assignment · {ass.class_name || activeClassObj.class_name}
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                        <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 5px', borderRadius: 3, background: '#FBF6F0', color: '#B37D4A' }}>
+                                          ASSIGNMENT
                                         </span>
-                                        <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: '#FAF9F6', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
-                                          {submittedCount} / {classStudents.length} Submitted {gradedCount > 0 ? `· ${gradedCount} Graded` : ''}
-                                        </span>
+                                        {ass.class_name && (
+                                          <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                            {ass.class_name}
+                                          </span>
+                                        )}
                                       </div>
-                                      <h4 style={{ fontSize: 14, margin: 0 }}>{ass.title}</h4>
+                                      <div className="item-title" style={{ fontSize: 13, fontWeight: 700 }}>
+                                        {ass.title}
+                                      </div>
+                                      <div className="item-meta">
+                                        Published · {count} {count === 1 ? 'submission' : 'submissions'}
+                                      </div>
                                     </div>
-                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                    <div className="item-actions" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                                       <button
                                         type="button"
                                         onClick={() => setSelectedGradeAssignment(ass)}
-                                        className="btn-secondary btn-primary"
-                                        style={{ padding: '6px 14px', fontSize: 12 }}
+                                        style={{
+                                          padding: '5px 12px',
+                                          fontSize: 11,
+                                          fontWeight: 700,
+                                          background: count > 0 ? '#B37D4A' : '#FFFFFF',
+                                          color: count > 0 ? '#FFFFFF' : 'var(--neutral-dark)',
+                                          border: '1px solid ' + (count > 0 ? '#B37D4A' : 'var(--border-color)'),
+                                          borderRadius: 4,
+                                          cursor: 'pointer',
+                                        }}
                                       >
-                                        Grade Submissions ({submittedCount})
+                                        Grade Homework ({count})
                                       </button>
                                       <button
                                         type="button"
@@ -1025,105 +2109,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           )}
                         </div>
                       </div>
-
-                      {/* Enrolled Roster */}
-                      <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-                        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#FDFCFB' }}>
-                          <div>
-                            <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                              Enrolled Student Roster ({classStudents.length} Students)
-                            </span>
-                            <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 8 }}>
-                              {activeClassObj.name}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setIsManageStudentsOpen(true)}
-                            style={{
-                              padding: '5px 12px',
-                              fontSize: 11.5,
-                              fontWeight: 700,
-                              background: '#2C6E6A',
-                              color: '#FFFFFF',
-                              border: 'none',
-                              borderRadius: 4,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            + Add / Manage Students
-                          </button>
-                        </div>
-
-                        {classStudents.length === 0 ? (
-                          <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-                            <p style={{ margin: '0 0 10px' }}>No students currently enrolled in this classroom.</p>
-                            <button
-                              type="button"
-                              onClick={() => setIsManageStudentsOpen(true)}
-                              className="btn-primary"
-                              style={{ padding: '6px 14px', fontSize: 12 }}
-                            >
-                              + Enroll Students Now
-                            </button>
-                          </div>
-                        ) : (
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                            <thead>
-                              <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10, textTransform: 'uppercase' }}>
-                                <th style={{ textAlign: 'left', padding: '8px 12px', width: 36 }}>#</th>
-                                <th style={{ textAlign: 'left', padding: '8px 12px' }}>Student Name</th>
-                                <th style={{ textAlign: 'left', padding: '8px 12px' }}>Admission No.</th>
-                                <th style={{ textAlign: 'left', padding: '8px 12px' }}>Grade / Section</th>
-                                <th style={{ textAlign: 'left', padding: '8px 12px' }}>Email Address</th>
-                                <th style={{ textAlign: 'right', padding: '8px 12px', width: 90 }}>Action</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {classStudents.map((st, idx) => {
-                                const g = (st.grade || '').replace(/[^0-9]/g, '');
-                                const s = (st.class_letter || '').toUpperCase().trim();
-                                return (
-                                  <tr key={st.id} style={{ borderBottom: '1px solid #ECEAE5' }}>
-                                    <td style={{ padding: '8px 12px', color: '#9E9B95' }}>{idx + 1}</td>
-                                    <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--neutral-dark)' }}>{st.name}</td>
-                                    <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 11 }}>{st.admission_number || st.user_code || '—'}</td>
-                                    <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>Grade {g}-{s}</td>
-                                    <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>{st.email}</td>
-                                    <td style={{ textAlign: 'right', padding: '8px 12px' }}>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (confirm(`Remove "${st.name}" from ${activeClassObj.name}?`)) {
-                                            const currentIds = activeClassObj.enrolled_student_ids || [];
-                                            const updated = currentIds.filter((id) => id !== st.id && id !== st.email);
-                                            onUpdateClassEnrollment(activeClassObj.id, updated);
-                                          }
-                                        }}
-                                        style={{
-                                          padding: '2px 7px',
-                                          fontSize: 10.5,
-                                          fontWeight: 600,
-                                          background: '#FDF1F0',
-                                          border: '1px solid #F5C6CB',
-                                          color: '#A83B38',
-                                          borderRadius: 4,
-                                          cursor: 'pointer',
-                                        }}
-                                      >
-                                        Remove
-                                      </button>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        )}
-                      </div>
                     </div>
                   )}
 
+                  {/* SUBTAB 4: 📖 SYLLABUS COVERAGE */}
                   {classSubTab === 'syllabus' && (
                     <div>
                       <div className="panel-block" style={{ padding: '20px 24px', marginBottom: 20 }}>
@@ -1225,6 +2214,124 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           </div>
                         ))
                       )}
+                    </div>
+                  )}
+
+                  {/* SUBTAB 5: 👥 STUDENT ROSTER (Full-Page Inline Management) */}
+                  {classSubTab === 'roster' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                      <div
+                        style={{
+                          background: '#FFFFFF',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 8,
+                          padding: '16px 20px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: 10,
+                        }}
+                      >
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                            Enrolled Student Roster ({classStudents.length} Students)
+                          </h4>
+                          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                            Students who have active access to this classroom, its broadcasts, resources, and assessments.
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          onClick={() => setIsManageStudentsOpen(true)}
+                          style={{ padding: '6px 14px', fontSize: 12 }}
+                        >
+                          ⚙️ Quick Manage Roster
+                        </button>
+                      </div>
+
+                      <div className="panel-block" style={{ padding: 0, overflow: 'hidden' }}>
+                        {classStudents.length === 0 ? (
+                          <div style={{ padding: '36px 20px', textAlign: 'center' }}>
+                            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 10px' }}>
+                              No students enrolled in this subject classroom yet.
+                            </p>
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              onClick={() => setIsManageStudentsOpen(true)}
+                              style={{ padding: '6px 14px', fontSize: 12 }}
+                            >
+                              + Enroll Students Now
+                            </button>
+                          </div>
+                        ) : (
+                          <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ background: '#F8F9FA', borderBottom: '1px solid var(--border-color)' }}>
+                                <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                  STUDENT NAME
+                                </th>
+                                <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                  ADMISSION / CODE
+                                </th>
+                                <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                  HOMEROOM
+                                </th>
+                                <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                  EMAIL
+                                </th>
+                                <th style={{ textAlign: 'right', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                  ACTIONS
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {classStudents.map((st, idx) => (
+                                <tr key={st.id || idx} style={{ borderBottom: '1px solid #F0EFEA' }}>
+                                  <td style={{ padding: '10px 16px', fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                    {st.name}
+                                  </td>
+                                  <td style={{ padding: '10px 16px', fontSize: 12, color: '#65635E' }}>
+                                    {st.admission_number || st.user_code || '—'}
+                                  </td>
+                                  <td style={{ padding: '10px 16px', fontSize: 12, color: '#65635E' }}>
+                                    Grade {st.grade || '—'}{st.class_letter ? `-${st.class_letter}` : ''}
+                                  </td>
+                                  <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-secondary)' }}>
+                                    {st.email || '—'}
+                                  </td>
+                                  <td style={{ padding: '10px 16px', textAlign: 'right' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const remainingIds = (activeClassObj.enrolled_student_ids || []).filter(
+                                          (id) => id !== st.id && id !== st.email
+                                        );
+                                        onUpdateClassEnrollment(activeClassObj.id, remainingIds);
+                                      }}
+                                      style={{
+                                        padding: '3px 8px',
+                                        fontSize: 10.5,
+                                        fontWeight: 600,
+                                        background: '#FDF1F0',
+                                        border: '1px solid #F5C6CB',
+                                        color: '#A83B38',
+                                        borderRadius: 4,
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      Remove
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
                     </div>
                   )}
                 </>
@@ -2430,6 +3537,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             </div>
           </>
         )}
+
+        {/* VIEW 6: SETTINGS & PASSWORD RESET */}
+        {activeNavMode === 'settings' && (
+          <div style={{ padding: '24px 32px' }}>
+            <SettingsView currentUser={currentUser} profiles={profiles} />
+          </div>
+        )}
+
+        {/* VIEW 7: HELP & SUPPORT */}
+        {activeNavMode === 'support' && (
+          <div style={{ padding: '24px 32px' }}>
+            <SupportView currentUser={currentUser} />
+          </div>
+        )}
       </main>
 
       {/* MANAGE CLASS ENROLLMENT MODAL */}
@@ -2463,16 +3584,19 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         onClose={() => setSelectedGradeAssignment(null)}
       />
 
-      {/* VIEW CERTIFICATE / AWARD FILE MODAL */}
+      {/* VIEW CERTIFICATE / AWARD / RESOURCE FILE MODAL */}
       <ViewFileModal
-        isOpen={!!viewingAwardFile}
-        fileName={viewingAwardFile?.fileName || ''}
-        fileUrl={viewingAwardFile?.fileUrl}
-        studentName={viewingAwardFile?.studentName}
-        title={viewingAwardFile?.title}
-        description={viewingAwardFile?.description}
-        submissionDate={viewingAwardFile?.submissionDate}
-        onClose={() => setViewingAwardFile(null)}
+        isOpen={!!viewingAwardFile || !!previewingResource}
+        fileName={previewingResource?.file_name || viewingAwardFile?.fileName || ''}
+        fileUrl={previewingResource?.file_url || previewingResource?.external_link || viewingAwardFile?.fileUrl}
+        studentName={previewingResource?.teacher_name || viewingAwardFile?.studentName}
+        title={previewingResource?.title || viewingAwardFile?.title}
+        description={previewingResource?.description || viewingAwardFile?.description}
+        submissionDate={previewingResource?.created_at ? new Date(previewingResource.created_at).toLocaleDateString() : viewingAwardFile?.submissionDate}
+        onClose={() => {
+          setViewingAwardFile(null);
+          setPreviewingResource(null);
+        }}
       />
 
       {/* EDIT SUBJECT CLASSROOM MODAL */}

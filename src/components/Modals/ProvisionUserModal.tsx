@@ -4,9 +4,8 @@ import React, { useState } from 'react';
 import { UserProfile } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 
-const GRADES = ['10', '12'] as const;
-const SECTIONS = ['A', 'B', 'C', 'D'] as const;
-const ALL_SESSIONS = GRADES.flatMap((g) => SECTIONS.map((s) => `${g}-${s}`));
+const GRADES = ['9', '10', '11', '12'] as const;
+const SECTIONS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)); // A through Z
 
 const SUBJECTS = [
   'English',
@@ -42,7 +41,6 @@ interface ProvisionUserModalProps {
 
 export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
   isOpen,
-  profiles,
   onClose,
   onSubmit,
 }) => {
@@ -52,22 +50,15 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
   const [role, setRole] = useState<'student' | 'teacher' | 'parent' | 'admin'>('student');
   const [admissionNumber, setAdmissionNumber] = useState('');
 
-  // Student fields
-  const [grade, setGrade] = useState<'10' | '12'>('10');
-  const [section, setSection] = useState<'A' | 'B' | 'C' | 'D'>('A');
+  // Student & Teacher Grade & Section fields
+  const [grade, setGrade] = useState<'9' | '10' | '11' | '12'>('12');
+  const [section, setSection] = useState<string>('A');
 
-  // Teacher fields
+  // Teacher specific fields
   const [subject, setSubject] = useState('English');
-  const [assignedClass, setAssignedClass] = useState<string>('none');
+  const [isClassTeacher, setIsClassTeacher] = useState(false);
 
   if (!isOpen) return null;
-
-  // Sessions taken by other teachers
-  const takenSessions = new Set(
-    profiles
-      .filter((p) => p.role === 'teacher' && p.assigned_class)
-      .map((p) => p.assigned_class as string)
-  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,6 +76,10 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
     const finalAdmissionNo =
       admissionNumber.trim() || `WPS-${Math.floor(100000 + Math.random() * 900000)}`;
 
+    const assignedClassStr = role === 'teacher' && isClassTeacher ? `${grade}-${section}` : null;
+    const finalGrade = role === 'student' ? grade : (role === 'teacher' && isClassTeacher ? grade : undefined);
+    const finalSection = role === 'student' ? section : (role === 'teacher' && isClassTeacher ? section : undefined);
+
     onSubmit({
       name: name.trim(),
       email: fullEmail,
@@ -92,10 +87,10 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
       role,
       userCode: finalAdmissionNo,
       admissionNumber: finalAdmissionNo,
-      grade: role === 'student' ? grade : undefined,
-      classLetter: role === 'student' ? section : undefined,
+      grade: finalGrade,
+      classLetter: finalSection,
       subject: role === 'teacher' ? subject : null,
-      assignedClass: role === 'teacher' && assignedClass !== 'none' ? assignedClass : null,
+      assignedClass: assignedClassStr,
     });
 
     // Reset
@@ -104,10 +99,10 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
     setPassword('woodlem123');
     setRole('student');
     setAdmissionNumber('');
-    setGrade('10');
+    setGrade('12');
     setSection('A');
     setSubject('English');
-    setAssignedClass('none');
+    setIsClassTeacher(false);
     onClose();
   };
 
@@ -160,23 +155,22 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
               <input
                 type="text"
                 className="form-input"
-                style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
                 placeholder="e.g. sarah.j"
                 value={emailPrefix}
                 onChange={(e) => setEmailPrefix(e.target.value)}
+                style={{ borderRadius: '6px 0 0 6px', flex: 1 }}
                 required
               />
               <span
                 style={{
-                  background: '#EEF2FF',
-                  border: '1px solid var(--neutral-light, #CBD5E1)',
+                  background: 'var(--neutral-subtle, #F1F5F9)',
+                  border: '1px solid var(--border-color)',
                   borderLeft: 'none',
-                  padding: '12px 14px',
-                  borderTopRightRadius: 8,
-                  borderBottomRightRadius: 8,
+                  padding: '10px 12px',
+                  borderRadius: '0 6px 6px 0',
                   fontSize: 13,
+                  color: 'var(--text-secondary)',
                   fontWeight: 600,
-                  color: '#4F46E5',
                   whiteSpace: 'nowrap',
                 }}
               >
@@ -187,34 +181,34 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
 
           {/* Password */}
           <div className="form-group">
-            <label className="form-label">Account Password</label>
+            <label className="form-label">Initial Password</label>
             <input
               type="text"
               className="form-input"
-              placeholder="Default: woodlem123"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={6}
             />
-            <span style={{ fontSize: 11, color: '#64748B', marginTop: 4, display: 'block' }}>
-              Standard default initial password: <code>woodlem123</code>
-            </span>
+            <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+              Default recommended password is <strong>woodlem123</strong>.
+            </p>
           </div>
 
           {/* Admission Number */}
           <div className="form-group">
-            <label className="form-label">Admission Number / Reg. Code</label>
+            <label className="form-label">
+              {role === 'student' ? 'Admission Number' : role === 'teacher' ? 'Employee Code' : 'User Reference ID'}
+            </label>
             <input
               type="text"
               className="form-input"
-              placeholder="e.g. 10452 or WPS-2026"
+              placeholder={role === 'student' ? 'e.g. WPS-104829' : 'e.g. EMP-204'}
               value={admissionNumber}
               onChange={(e) => setAdmissionNumber(e.target.value)}
             />
           </div>
 
-          {/* ── STUDENT FIELDS ── */}
+          {/* ── STUDENT COHORT FIELDS ── */}
           {role === 'student' && (
             <div
               style={{
@@ -226,7 +220,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
               }}
             >
               <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Class Assignment
+                Class Assignment (Grades 9–12)
               </p>
 
               {/* Grade toggle */}
@@ -242,11 +236,11 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
                         flex: 1,
                         padding: '10px 0',
                         borderRadius: 8,
-                        border: grade === g ? '2px solid #4F46E5' : '1.5px solid #CBD5E1',
-                        background: grade === g ? '#EEF2FF' : '#fff',
-                        color: grade === g ? '#4F46E5' : '#64748B',
+                        border: grade === g ? '2px solid #2C6E6A' : '1.5px solid #CBD5E1',
+                        background: grade === g ? '#EAF3EF' : '#fff',
+                        color: grade === g ? '#20554E' : '#64748B',
                         fontWeight: 700,
-                        fontSize: 14,
+                        fontSize: 13,
                         cursor: 'pointer',
                         transition: 'all 0.15s',
                       }}
@@ -259,32 +253,17 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
 
               {/* Section dropdown */}
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Section</label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {SECTIONS.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setSection(s)}
-                      style={{
-                        flex: 1,
-                        padding: '10px 0',
-                        borderRadius: 8,
-                        border: section === s ? '2px solid #4F46E5' : '1.5px solid #CBD5E1',
-                        background: section === s ? '#EEF2FF' : '#fff',
-                        color: section === s ? '#4F46E5' : '#64748B',
-                        fontWeight: 700,
-                        fontSize: 14,
-                        cursor: 'pointer',
-                        transition: 'all 0.15s',
-                      }}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
+                <label className="form-label">Section (A through Z)</label>
+                <CustomSelect
+                  value={section}
+                  onChange={(val) => setSection(val)}
+                  options={SECTIONS.map((s) => ({
+                    value: s,
+                    label: `Section ${s}`,
+                  }))}
+                />
                 <p style={{ fontSize: 12, color: '#64748B', marginTop: 8 }}>
-                  Assigning to: <strong>Grade {grade} — Section {section}</strong>
+                  Assigning student to: <strong>Grade {grade} — Section {section}</strong>
                 </p>
               </div>
             </div>
@@ -302,12 +281,12 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
               }}
             >
               <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Teacher Details
+                Teacher Details &amp; Class Assignment
               </p>
 
-              {/* Subject (required) */}
+              {/* Subject */}
               <div className="form-group">
-                <label className="form-label">Subject <span style={{ color: '#EF4444' }}>*</span></label>
+                <label className="form-label">Teaching Discipline / Subject <span style={{ color: '#EF4444' }}>*</span></label>
                 <CustomSelect
                   value={subject}
                   onChange={(val) => setSubject(val)}
@@ -315,32 +294,63 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
                 />
               </div>
 
-              {/* Class Teacher Assignment (optional) */}
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">
-                  Class Teacher Assignment
-                  <span style={{ fontSize: 11, color: '#64748B', fontWeight: 400, marginLeft: 6 }}>(optional)</span>
+              {/* Class Teacher Toggle */}
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #E2E8F0' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                  <input
+                    type="checkbox"
+                    checked={isClassTeacher}
+                    onChange={(e) => setIsClassTeacher(e.target.checked)}
+                    style={{ width: 18, height: 18, accentColor: '#2C6E6A', cursor: 'pointer' }}
+                  />
+                  <span>Assign as Homeroom Class Teacher</span>
                 </label>
-                <CustomSelect
-                  value={assignedClass}
-                  onChange={(val) => setAssignedClass(val)}
-                  options={[
-                    { value: 'none', label: '— None (Subject Teacher Only) —' },
-                    ...ALL_SESSIONS.map((session) => {
-                      const isTaken = takenSessions.has(session);
-                      return {
-                        value: session,
-                        label: `Grade ${session.split('-')[0]} — Section ${session.split('-')[1]}${isTaken ? ' (Taken)' : ''}`,
-                        disabled: isTaken,
-                      };
-                    }),
-                  ]}
-                />
-                <p style={{ fontSize: 12, color: '#64748B', marginTop: 6 }}>
-                  {assignedClass === 'none'
-                    ? 'This teacher will be a subject teacher with no class ownership.'
-                    : `This teacher will be the Class Teacher of Grade ${assignedClass.split('-')[0]} — Section ${assignedClass.split('-')[1]}.`}
-                </p>
+
+                {isClassTeacher && (
+                  <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12, padding: '12px', background: '#FFFFFF', borderRadius: 8, border: '1px solid #E2E8F0' }}>
+                    <div>
+                      <label className="form-label" style={{ fontSize: 12 }}>Homeroom Grade</label>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {GRADES.map((g) => (
+                          <button
+                            key={g}
+                            type="button"
+                            onClick={() => setGrade(g)}
+                            style={{
+                              flex: 1,
+                              padding: '8px 0',
+                              borderRadius: 6,
+                              border: grade === g ? '2px solid #2C6E6A' : '1px solid #CBD5E1',
+                              background: grade === g ? '#EAF3EF' : '#FFFFFF',
+                              color: grade === g ? '#20554E' : '#64748B',
+                              fontWeight: 700,
+                              fontSize: 12.5,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Grade {g}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="form-label" style={{ fontSize: 12 }}>Homeroom Section (A–Z)</label>
+                      <CustomSelect
+                        value={section}
+                        onChange={(val) => setSection(val)}
+                        options={SECTIONS.map((s) => ({
+                          value: s,
+                          label: `Section ${s}`,
+                        }))}
+                      />
+                    </div>
+
+                    <p style={{ fontSize: 12, color: '#2C6E6A', fontWeight: 600, margin: 0 }}>
+                      Class Teacher of: <strong>Grade {grade} — Section {section}</strong>
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}

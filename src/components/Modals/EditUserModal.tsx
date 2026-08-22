@@ -4,9 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { UserProfile } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 
-const GRADES = ['10', '12'] as const;
-const SECTIONS = ['A', 'B', 'C', 'D'] as const;
-const ALL_SESSIONS = GRADES.flatMap((g) => SECTIONS.map((s) => `${g}-${s}`));
+const GRADES = ['9', '10', '11', '12'] as const;
+const SECTIONS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)); // A through Z
 
 const SUBJECTS = [
   'English',
@@ -33,7 +32,6 @@ interface EditUserModalProps {
 export const EditUserModal: React.FC<EditUserModalProps> = ({
   isOpen,
   user,
-  profiles,
   onClose,
   onSubmit,
 }) => {
@@ -42,13 +40,13 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
   const [role, setRole] = useState<'student' | 'teacher' | 'admin' | 'parent'>('student');
   const [userCode, setUserCode] = useState('');
 
-  // Student fields
-  const [grade, setGrade] = useState<'10' | '12'>('10');
-  const [section, setSection] = useState<'A' | 'B' | 'C' | 'D'>('A');
+  // Student & Teacher Grade & Section
+  const [grade, setGrade] = useState<'9' | '10' | '11' | '12'>('12');
+  const [section, setSection] = useState<string>('A');
 
-  // Teacher fields
+  // Teacher specific fields
   const [subject, setSubject] = useState('English');
-  const [assignedClass, setAssignedClass] = useState<string>('none');
+  const [isClassTeacher, setIsClassTeacher] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -57,40 +55,32 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       setRole(user.role || 'student');
       setUserCode(user.user_code || user.admission_number || '');
 
-      // Parse student grade — constrain to 10 or 12
-      if (user.grade === '10' || user.grade === '12') {
-        setGrade(user.grade as '10' | '12');
+      // Parse grade (9, 10, 11, 12)
+      let parsedGrade: '9' | '10' | '11' | '12' = '12';
+      let parsedSection = 'A';
+
+      if (user.assigned_class && user.assigned_class.includes('-')) {
+        const parts = user.assigned_class.split('-');
+        const g = parts[0].replace(/[^0-9]/g, '');
+        if (['9', '10', '11', '12'].includes(g)) parsedGrade = g as any;
+        if (parts[1]) parsedSection = parts[1].toUpperCase().trim();
+        setIsClassTeacher(true);
       } else if (user.grade) {
-        // Legacy values: try to extract number
-        const match = user.grade.match(/(\d+)/);
-        const num = match ? parseInt(match[1]) : 0;
-        setGrade(num >= 11 ? '12' : '10');
+        const cleanG = user.grade.replace(/[^0-9]/g, '');
+        if (['9', '10', '11', '12'].includes(cleanG)) parsedGrade = cleanG as any;
+        if (user.class_letter) parsedSection = user.class_letter.toUpperCase().trim();
+        setIsClassTeacher(user.role === 'teacher' && !!user.assigned_class);
       } else {
-        setGrade('10');
+        setIsClassTeacher(false);
       }
 
-      // Parse section — constrain to A-D
-      const rawSection = (user.class_letter || '').toUpperCase();
-      setSection((['A', 'B', 'C', 'D'] as const).includes(rawSection as any)
-        ? (rawSection as 'A' | 'B' | 'C' | 'D')
-        : 'A');
-
-      // Teacher subject
+      setGrade(parsedGrade);
+      setSection(SECTIONS.includes(parsedSection) ? parsedSection : 'A');
       setSubject(user.subject || 'English');
-
-      // Teacher class assignment
-      setAssignedClass(user.assigned_class || 'none');
     }
   }, [user]);
 
   if (!isOpen || !user) return null;
-
-  // Sessions taken by OTHER teachers (exclude this teacher's own current assignment)
-  const takenSessions = new Set(
-    profiles
-      .filter((p) => p.role === 'teacher' && p.assigned_class && p.id !== user.id)
-      .map((p) => p.assigned_class as string)
-  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,6 +91,10 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       cleanEmail = `${cleanEmail}@woodlempark.ae`;
     }
 
+    const assignedClassStr = role === 'teacher' && isClassTeacher ? `${grade}-${section}` : null;
+    const finalGrade = role === 'student' ? grade : (role === 'teacher' && isClassTeacher ? grade : '');
+    const finalSection = role === 'student' ? section : (role === 'teacher' && isClassTeacher ? section : '');
+
     onSubmit({
       ...user,
       name: name.trim(),
@@ -108,10 +102,10 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       role,
       user_code: userCode.trim(),
       admission_number: userCode.trim(),
-      grade: role === 'student' ? grade : undefined,
-      class_letter: role === 'student' ? section : undefined,
+      grade: finalGrade,
+      class_letter: finalSection,
       subject: role === 'teacher' ? subject : null,
-      assigned_class: role === 'teacher' && assignedClass !== 'none' ? assignedClass : null,
+      assigned_class: assignedClassStr,
     });
     onClose();
   };
@@ -120,7 +114,12 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
     <div className="modal-overlay active" onClick={onClose}>
       <div className="modal-content" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2 className="modal-title">Edit User Account</h2>
+          <div>
+            <h2 className="modal-title">Edit User Account</h2>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
+              Update profile details, role, and academic cohort mappings.
+            </p>
+          </div>
           <button type="button" className="close-modal" onClick={onClose}>&times;</button>
         </div>
 
@@ -164,19 +163,21 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
             />
           </div>
 
-          {/* Admission Number */}
+          {/* User Code / Admission Number */}
           <div className="form-group">
-            <label className="form-label">Admission Number / Reg. Code</label>
+            <label className="form-label">
+              {role === 'student' ? 'Admission Number' : role === 'teacher' ? 'Employee Code' : 'User Reference Code'}
+            </label>
             <input
               type="text"
               className="form-input"
               value={userCode}
               onChange={(e) => setUserCode(e.target.value)}
-              placeholder="e.g. WPS-2026"
+              required
             />
           </div>
 
-          {/* ── STUDENT FIELDS ── */}
+          {/* ── STUDENT COHORT FIELDS ── */}
           {role === 'student' && (
             <div
               style={{
@@ -188,7 +189,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
               }}
             >
               <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Class Assignment
+                Student Class Assignment (Grades 9–12)
               </p>
 
               {/* Grade toggle */}
@@ -204,11 +205,11 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                         flex: 1,
                         padding: '10px 0',
                         borderRadius: 8,
-                        border: grade === g ? '2px solid #4F46E5' : '1.5px solid #CBD5E1',
-                        background: grade === g ? '#EEF2FF' : '#fff',
-                        color: grade === g ? '#4F46E5' : '#64748B',
+                        border: grade === g ? '2px solid #2C6E6A' : '1.5px solid #CBD5E1',
+                        background: grade === g ? '#EAF3EF' : '#fff',
+                        color: grade === g ? '#20554E' : '#64748B',
                         fontWeight: 700,
-                        fontSize: 14,
+                        fontSize: 13,
                         cursor: 'pointer',
                         transition: 'all 0.15s',
                       }}
@@ -219,34 +220,19 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                 </div>
               </div>
 
-              {/* Section buttons */}
+              {/* Section dropdown */}
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Section</label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {SECTIONS.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setSection(s)}
-                      style={{
-                        flex: 1,
-                        padding: '10px 0',
-                        borderRadius: 8,
-                        border: section === s ? '2px solid #4F46E5' : '1.5px solid #CBD5E1',
-                        background: section === s ? '#EEF2FF' : '#fff',
-                        color: section === s ? '#4F46E5' : '#64748B',
-                        fontWeight: 700,
-                        fontSize: 14,
-                        cursor: 'pointer',
-                        transition: 'all 0.15s',
-                      }}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
+                <label className="form-label">Section (A through Z)</label>
+                <CustomSelect
+                  value={section}
+                  onChange={(val) => setSection(val)}
+                  options={SECTIONS.map((s) => ({
+                    value: s,
+                    label: `Section ${s}`,
+                  }))}
+                />
                 <p style={{ fontSize: 12, color: '#64748B', marginTop: 8 }}>
-                  Assigning to: <strong>Grade {grade} — Section {section}</strong>
+                  Assigned to: <strong>Grade {grade} — Section {section}</strong>
                 </p>
               </div>
             </div>
@@ -264,12 +250,12 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
               }}
             >
               <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Teacher Details
+                Faculty &amp; Class Teacher Assignment
               </p>
 
-              {/* Subject (required) */}
+              {/* Subject */}
               <div className="form-group">
-                <label className="form-label">Subject <span style={{ color: '#EF4444' }}>*</span></label>
+                <label className="form-label">Teaching Discipline / Subject <span style={{ color: '#EF4444' }}>*</span></label>
                 <CustomSelect
                   value={subject}
                   onChange={(val) => setSubject(val)}
@@ -277,41 +263,72 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                 />
               </div>
 
-              {/* Class Teacher Assignment (optional) */}
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">
-                  Class Teacher Assignment
-                  <span style={{ fontSize: 11, color: '#64748B', fontWeight: 400, marginLeft: 6 }}>(optional)</span>
+              {/* Class Teacher Toggle */}
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #E2E8F0' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                  <input
+                    type="checkbox"
+                    checked={isClassTeacher}
+                    onChange={(e) => setIsClassTeacher(e.target.checked)}
+                    style={{ width: 18, height: 18, accentColor: '#2C6E6A', cursor: 'pointer' }}
+                  />
+                  <span>Assign as Homeroom Class Teacher</span>
                 </label>
-                <CustomSelect
-                  value={assignedClass}
-                  onChange={(val) => setAssignedClass(val)}
-                  options={[
-                    { value: 'none', label: '— None (Subject Teacher Only) —' },
-                    ...ALL_SESSIONS.map((session) => {
-                      const isTaken = takenSessions.has(session);
-                      return {
-                        value: session,
-                        label: `Grade ${session.split('-')[0]} — Section ${session.split('-')[1]}${isTaken ? ' (Taken)' : ''}`,
-                        disabled: isTaken,
-                      };
-                    }),
-                  ]}
-                />
-                <p style={{ fontSize: 12, color: '#64748B', marginTop: 6 }}>
-                  {assignedClass === 'none'
-                    ? 'This teacher will be a subject teacher with no class ownership.'
-                    : `This teacher will be the Class Teacher of Grade ${assignedClass.split('-')[0]} — Section ${assignedClass.split('-')[1]}.`}
-                </p>
+
+                {isClassTeacher && (
+                  <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12, padding: '12px', background: '#FFFFFF', borderRadius: 8, border: '1px solid #E2E8F0' }}>
+                    <div>
+                      <label className="form-label" style={{ fontSize: 12 }}>Assigned Grade</label>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {GRADES.map((g) => (
+                          <button
+                            key={g}
+                            type="button"
+                            onClick={() => setGrade(g)}
+                            style={{
+                              flex: 1,
+                              padding: '8px 0',
+                              borderRadius: 6,
+                              border: grade === g ? '2px solid #2C6E6A' : '1px solid #CBD5E1',
+                              background: grade === g ? '#EAF3EF' : '#FFFFFF',
+                              color: grade === g ? '#20554E' : '#64748B',
+                              fontWeight: 700,
+                              fontSize: 12.5,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Grade {g}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="form-label" style={{ fontSize: 12 }}>Assigned Section (A–Z)</label>
+                      <CustomSelect
+                        value={section}
+                        onChange={(val) => setSection(val)}
+                        options={SECTIONS.map((s) => ({
+                          value: s,
+                          label: `Section ${s}`,
+                        }))}
+                      />
+                    </div>
+
+                    <p style={{ fontSize: 12, color: '#2C6E6A', fontWeight: 600, margin: 0 }}>
+                      Class Teacher for: <strong>Grade {grade} — Section {section}</strong>
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-            <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={onClose}>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20 }}>
+            <button type="button" className="btn-secondary" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary" style={{ flex: 1 }}>
+            <button type="submit" className="btn-primary" style={{ padding: '10px 24px' }}>
               Save Changes
             </button>
           </div>

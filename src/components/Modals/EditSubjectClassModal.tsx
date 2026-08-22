@@ -185,33 +185,28 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Target Grade</label>
+              <label className="form-label">Target Grade (9-12)</label>
               <CustomSelect
                 value={grade}
                 onChange={(val) => setGrade(val)}
                 options={[
+                  { value: '9', label: 'Grade 9' },
                   { value: '10', label: 'Grade 10' },
                   { value: '11', label: 'Grade 11' },
                   { value: '12', label: 'Grade 12' },
-                  { value: '9', label: 'Grade 9' },
-                  { value: '8', label: 'Grade 8' },
-                  { value: '7', label: 'Grade 7' },
-                  { value: '6', label: 'Grade 6' },
                 ]}
               />
             </div>
 
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Section Letter</label>
+              <label className="form-label">Section Letter (A-Z)</label>
               <CustomSelect
                 value={section}
                 onChange={(val) => setSection(val)}
-                options={[
-                  { value: 'A', label: 'Section A' },
-                  { value: 'B', label: 'Section B' },
-                  { value: 'C', label: 'Section C' },
-                  { value: 'D', label: 'Section D' },
-                ]}
+                options={Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map((s) => ({
+                  value: s,
+                  label: `Section ${s}`,
+                }))}
               />
             </div>
           </div>

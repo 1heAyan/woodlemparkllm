@@ -7,6 +7,7 @@ import {
   UserProfile,
   Student,
   TestItem,
+  TestQuestion,
   AssignmentItem,
   SyllabusTerm,
   Achievement,
@@ -14,6 +15,9 @@ import {
   ParentDocument,
   AuditLogItem,
   SubjectClass,
+  ClassResource,
+  ClassBroadcast,
+  ResourceType,
 } from '@/lib/supabaseClient';
 
 import { LoginView } from '@/components/Auth/LoginView';
@@ -35,6 +39,7 @@ import { BulkImportModal, BulkUserRow } from '@/components/Modals/BulkImportModa
 import { CreateSubjectClassModal } from '@/components/Modals/CreateSubjectClassModal';
 import { TestResultRecord } from '@/components/Modals/ReviewTestResultsModal';
 import { AssignmentSubmissionRecord } from '@/components/Modals/GradeAssignmentModal';
+import { AiChatbot } from '@/components/Shared/AiChatbot';
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -52,6 +57,8 @@ export default function Home() {
   const [testResults, setTestResults] = useState<Record<string, TestResultRecord>>({});
   const [assignmentSubmissions, setAssignmentSubmissions] = useState<Record<string, AssignmentSubmissionRecord>>({});
   const [studentSyllabusProgress, setStudentSyllabusProgress] = useState<Record<string, boolean>>({});
+  const [classResources, setClassResources] = useState<ClassResource[]>([]);
+  const [classBroadcasts, setClassBroadcasts] = useState<ClassBroadcast[]>([]);
   const [schemaError, setSchemaError] = useState<string | null>(null);
 
   // Modals state
@@ -76,7 +83,7 @@ export default function Home() {
     try {
       setSchemaError(null);
 
-      // Fetch all tables in parallel for blazing fast performance
+      // Fetch all tables from Supabase in parallel
       const [
         profRes,
         testRes,
@@ -88,6 +95,13 @@ export default function Home() {
         hubRes,
         enrRes,
         docRes,
+        subClassRes,
+        auditRes,
+        resRes,
+        castRes,
+        testResultsRes,
+        assSubmissionsRes,
+        studentSyllabusRes,
       ] = await Promise.all([
         supabase.from('profiles').select('*').order('created_at', { ascending: true }).range(0, 4999),
         supabase.from('tests').select('*').order('created_at', { ascending: false }),
@@ -99,12 +113,29 @@ export default function Home() {
         supabase.from('hub_activities').select('*').order('date', { ascending: true }),
         supabase.from('hub_enrollments').select('*'),
         supabase.from('parent_documents').select('*'),
+        supabase.from('subject_classes').select('*').order('created_at', { ascending: false }),
+        supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(200),
+        supabase.from('class_resources').select('*').order('created_at', { ascending: false }),
+        supabase.from('class_broadcasts').select('*').order('created_at', { ascending: false }),
+        supabase.from('test_results').select('*'),
+        supabase.from('assignment_submissions').select('*'),
+        supabase.from('student_syllabus_progress').select('*'),
       ]);
 
       if (profRes.error) {
-        setSchemaError(`Database Table Missing: "${profRes.error.message}". Please run 'supabase_schema.sql' in your Supabase SQL Editor.`);
+        setSchemaError('The school portal is currently synchronizing. Please refresh the page if data does not appear immediately.');
       } else {
-        setProfiles(profRes.data || []);
+        const loadedProfiles = profRes.data || [];
+        setProfiles(loadedProfiles);
+
+        // Always re-sync currently active session user with latest database record
+        setCurrentUser((prev) => {
+          if (!prev) return null;
+          const fresh = loadedProfiles.find(
+            (p) => (prev.id && p.id === prev.id) || (p.email && p.email.toLowerCase() === prev.email.toLowerCase())
+          );
+          return fresh || prev;
+        });
       }
 
       setTests(testRes.data || []);
@@ -129,17 +160,10 @@ export default function Home() {
 
       setSyllabus(builtSyllabus);
 
-      let fileMap: Record<string, string> = {};
-      let fileDataMap: Record<string, string> = {};
-      try {
-        fileMap = JSON.parse(localStorage.getItem('woodlem_achievement_files') || '{}');
-        fileDataMap = JSON.parse(localStorage.getItem('woodlem_achievement_file_data') || '{}');
-      } catch (e) {}
-
       const builtAchievements: Achievement[] = (achRes.data || []).map((ach: any) => {
         let description = ach.desc_text || ach.description || '';
-        let fileName = fileMap[ach.id] || ach.file_name || '';
-        let fileUrl = fileDataMap[ach.id] || ach.file_url || '';
+        let fileName = ach.file_name || '';
+        let fileUrl = ach.file_url || '';
 
         if (ach.desc_text && (ach.desc_text.startsWith('{') || ach.desc_text.startsWith('['))) {
           try {
@@ -167,18 +191,6 @@ export default function Home() {
         if (!attMap[row.date]) attMap[row.date] = {};
         attMap[row.date][row.student_id] = row.status;
       });
-
-      // Merge with local storage backup
-      try {
-        const savedAtt = JSON.parse(localStorage.getItem('woodlem_attendance') || '{}');
-        Object.entries(savedAtt).forEach(([d, students]: [string, any]) => {
-          if (!attMap[d]) attMap[d] = {};
-          Object.entries(students).forEach(([sid, st]: [string, any]) => {
-            if (!attMap[d][sid]) attMap[d][sid] = st;
-          });
-        });
-      } catch (e) {}
-
       setAttendance(attMap);
 
       const builtHub: HubActivity[] = (hubRes.data || []).map((act: any) => ({
@@ -189,76 +201,101 @@ export default function Home() {
       }));
       setHubActivities(builtHub);
       setParentDocuments(docRes.data || []);
+
+      // Pure Supabase state loading: 100% in sync with database
+      setSubjectClasses(subClassRes.data || []);
+      setAuditLogs(auditRes.data || []);
+      setClassResources(resRes.data || []);
+      setClassBroadcasts(castRes.data || []);
+
+      const testResMap: Record<string, TestResultRecord> = {};
+      (testResultsRes.data || []).forEach((row: any) => {
+        const key = `${row.test_id}_${row.student_id}`;
+        testResMap[key] = {
+          test_id: row.test_id,
+          student_id: row.student_id,
+          student_name: row.student_name || 'Student',
+          score: Number(row.score),
+          feedback: row.feedback || '',
+          completed_at: row.submitted_at ? new Date(row.submitted_at).toLocaleDateString() : undefined,
+        };
+      });
+      setTestResults(testResMap);
+
+      const assSubMap: Record<string, AssignmentSubmissionRecord> = {};
+      (assSubmissionsRes.data || []).forEach((row: any) => {
+        const key = `${row.assignment_id}_${row.student_id}`;
+        assSubMap[key] = {
+          assignment_id: row.assignment_id,
+          student_id: row.student_id,
+          student_name: row.student_name || 'Student',
+          file_name: row.file_name || '',
+          file_url: row.file_url || '',
+          grade: row.score ? `${row.score}` : '',
+          feedback: row.feedback || '',
+          status: row.score ? 'graded' : 'submitted',
+          submitted_at: row.submitted_at ? new Date(row.submitted_at).toLocaleDateString() : undefined,
+        };
+      });
+      setAssignmentSubmissions(assSubMap);
+
+      const sylProgMap: Record<string, boolean> = {};
+      (studentSyllabusRes.data || []).forEach((row: any) => {
+        sylProgMap[`${row.student_id}_${row.topic_id}`] = !!row.is_completed;
+      });
+      setStudentSyllabusProgress(sylProgMap);
     } catch (err: any) {
       console.error('Error loading Supabase data:', err);
     }
   }, []);
 
   useEffect(() => {
-    // Check saved session or auth state
-    const savedUser = localStorage.getItem('woodlem_active_user');
-    if (savedUser) {
-      try {
-        setCurrentUser(JSON.parse(savedUser));
-      } catch (e) {}
-    }
-    setIsMounted(true);
-    loadAllData();
-
-    // Load saved audit logs
-    const savedLogs = localStorage.getItem('woodlem_audit_logs');
-    if (savedLogs) {
-      try {
-        setAuditLogs(JSON.parse(savedLogs));
-      } catch (e) {}
-    }
-
-    // Load saved subject classes and purge any dummy seed classes
-    const savedClasses = localStorage.getItem('woodlem_subject_classes');
-    if (savedClasses) {
-      try {
-        const parsed: SubjectClass[] = JSON.parse(savedClasses);
-        const filtered = parsed.filter(
-          (c) =>
-            !c.id.startsWith('class-seed-') &&
-            c.name !== 'Physics 12-C' &&
-            c.name !== 'Chemistry 12-C' &&
-            c.name !== 'Mathematics 10-A' &&
-            c.name !== 'English Literature 10-A'
-        );
-        setSubjectClasses(filtered);
-        localStorage.setItem('woodlem_subject_classes', JSON.stringify(filtered));
-      } catch (e) {}
-    } else {
-      setSubjectClasses([]);
-    }
-
-    // Load saved test results
+    // Clear any stale legacy localStorage items so everything is 100% from Supabase
     try {
-      const savedTestResults = localStorage.getItem('woodlem_test_results');
-      if (savedTestResults) setTestResults(JSON.parse(savedTestResults));
+      localStorage.clear();
     } catch (e) {}
 
-    // Load saved assignment submissions
-    try {
-      const savedSubs = localStorage.getItem('woodlem_assignment_submissions');
-      if (savedSubs) setAssignmentSubmissions(JSON.parse(savedSubs));
-    } catch (e) {}
+    // Check active Supabase Auth Session directly from cloud
+    const initAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.email) {
+          const userEmail = session.user.email.toLowerCase();
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('email', userEmail)
+            .maybeSingle();
 
-    // Load saved student syllabus progress
-    try {
-      const savedSyllabusProg = localStorage.getItem('woodlem_student_syllabus');
-      if (savedSyllabusProg) setStudentSyllabusProgress(JSON.parse(savedSyllabusProg));
-    } catch (e) {}
+          if (prof) {
+            setCurrentUser(prof);
+          }
+        }
+      } catch (e) {}
+      await loadAllData();
+      setIsMounted(true);
+    };
 
-    // Subscribe to auth state changes to stay in sync
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session && !localStorage.getItem('woodlem_active_user')) {
+    initAuth();
+
+    // Subscribe to Supabase auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
         setCurrentUser(null);
+      } else if (session?.user?.email) {
+        const userEmail = session.user.email.toLowerCase();
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('email', userEmail)
+          .maybeSingle();
+        if (prof) {
+          setCurrentUser(prof);
+        }
       }
     });
 
-    // Subscribe to real-time database updates
+    // Subscribe to real-time database updates across public schema
     const channel = supabase
       .channel('woodlem-realtime')
       .on('postgres_changes', { event: '*', schema: 'public' }, () => {
@@ -275,7 +312,7 @@ export default function Home() {
   // Handlers
   const handleLoginSuccess = (profile: UserProfile) => {
     setCurrentUser(profile);
-    localStorage.setItem('woodlem_active_user', JSON.stringify(profile));
+    loadAllData();
   };
 
   const handleSignOut = async () => {
@@ -283,7 +320,6 @@ export default function Home() {
       await supabase.auth.signOut();
     } catch (e) {}
     setCurrentUser(null);
-    localStorage.removeItem('woodlem_active_user');
   };
 
   // 1. Provision User (Admin -> Supabase Profiles & Auth)
@@ -352,131 +388,238 @@ export default function Home() {
 
       const { error: profErr } = await supabase.from('profiles').upsert([newProfile], { onConflict: 'email' });
       if (profErr) {
-        alert(`Error creating profile record in Supabase: ${profErr.message}`);
+        alert('Unable to create user account. Please check the information provided and try again.');
         return;
       }
 
-      alert(`✓ User "${userData.name}" (${userData.role}) successfully provisioned with default password!`);
+      alert(`User account for "${userData.name}" has been created successfully.`);
       loadAllData();
     } catch (err: any) {
-      alert(`Failed to provision user: ${err.message}`);
+      alert('Unable to create user account. Please try again.');
     }
   };
 
   // 1b. Bulk Excel Import Users
-  const handleBulkImportUsers = async (users: BulkUserRow[]) => {
+  const handleBulkImportUsers = async (
+    users: BulkUserRow[],
+    onProgress?: (current: number, total: number) => void
+  ) => {
     try {
-      // 1. Prepare batch of all profiles for instant database write
+      // 1. Fetch existing profiles to preserve exact database IDs
+      const { data: existingProfiles } = await supabase
+        .from('profiles')
+        .select('id, email');
+      const existingIdMap = new Map(
+        (existingProfiles || []).map((p) => [p.email.toLowerCase(), p.id])
+      );
+
+      // 2. Prepare high-fidelity profiles batch
       const profilesBatch: UserProfile[] = users.map((u, idx) => {
-        const cleanGrade = (u.grade || '10').replace(/[^0-9]/g, '') || '10';
-        const cleanClass = (u.classLetter || 'A').toUpperCase().replace(/[^A-Z]/g, '') || 'A';
-        const profileId = typeof crypto !== 'undefined' && crypto.randomUUID 
-          ? crypto.randomUUID() 
-          : 'usr_' + Date.now() + '_' + idx;
+        const emailKey = u.email.trim().toLowerCase();
+        const existingId = existingIdMap.get(emailKey);
+        const profileId =
+          existingId ||
+          (typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : 'usr_' + Date.now() + '_' + idx);
+
+        let cleanGrade = '';
+        if (u.role === 'student') {
+          const rawG = (u.grade || '').replace(/[^0-9]/g, '');
+          cleanGrade = ['9', '10', '11', '12'].includes(rawG) ? rawG : '9';
+        }
+
+        const cleanClass = (u.classLetter || 'A')
+          .toUpperCase()
+          .replace(/[^A-Z]/g, '') || 'A';
 
         return {
           id: profileId,
           name: u.name.trim(),
-          email: u.email.trim().toLowerCase(),
+          email: emailKey,
           role: u.role,
           user_code: u.userCode.trim(),
           admission_number: u.userCode.trim(),
           grade: cleanGrade,
-          class_letter: cleanClass,
+          class_letter: u.role === 'student' ? cleanClass : '',
           subject: null,
           assigned_class: null,
         };
       });
 
-      // 2. Batch upsert directly to Supabase public.profiles in 1 high-speed query
-      const { error: profErr } = await supabase
-        .from('profiles')
-        .upsert(profilesBatch, { onConflict: 'email' });
+      // 3. Upsert profiles to database in safe chunks of 50
+      for (let i = 0; i < profilesBatch.length; i += 50) {
+        const chunk = profilesBatch.slice(i, i + 50);
+        const { error: profErr } = await supabase
+          .from('profiles')
+          .upsert(chunk, { onConflict: 'email' });
 
-      if (profErr) {
-        throw new Error(`Failed to insert profiles into Supabase: ${profErr.message}`);
-      }
-
-      // 3. Optional: Background async provision of Supabase Auth passwords (non-blocking)
-      const isolatedClient = createIsolatedSupabaseClient();
-      for (const u of users) {
-        try {
-          await isolatedClient.auth.signUp({
-            email: u.email.trim().toLowerCase(),
-            password: u.password || 'woodlem123',
-            options: {
-              data: {
-                name: u.name,
-                role: u.role,
-                user_code: u.userCode,
-                admission_number: u.userCode,
-                grade: u.grade,
-                class_letter: u.classLetter,
-              },
-            },
-          });
-        } catch (e) {
-          // Skip if already registered or rate limited
+        if (profErr) {
+          console.error('Batch database insert error:', profErr);
+          throw new Error(profErr.message);
         }
       }
 
-      alert(`Bulk Import Success:\n\nSuccessfully imported ${profilesBatch.length} users into the database.\nAll users are immediately visible in the directory.`);
+      // 4. Provision Supabase Auth passwords concurrently in batches of 8
+      const isolatedClient = createIsolatedSupabaseClient();
+      const BATCH_SIZE = 8;
+      let completedCount = 0;
+
+      for (let i = 0; i < users.length; i += BATCH_SIZE) {
+        const batch = users.slice(i, i + BATCH_SIZE);
+        await Promise.allSettled(
+          batch.map((u) =>
+            isolatedClient.auth.signUp({
+              email: u.email.trim().toLowerCase(),
+              password: u.password || 'woodlem123',
+              options: {
+                data: {
+                  name: u.name,
+                  role: u.role,
+                  user_code: u.userCode,
+                  admission_number: u.userCode,
+                  grade: u.grade || '9',
+                  class_letter: u.classLetter || 'A',
+                },
+              },
+            })
+          )
+        );
+        completedCount += batch.length;
+        if (onProgress) {
+          onProgress(completedCount, users.length);
+        }
+      }
+
+      alert(
+        `Successfully imported ${profilesBatch.length} user accounts with Grade and Section assignments. The directory and class matrices have been updated.`
+      );
       await loadAllData();
     } catch (err: any) {
-      alert(`Bulk import error: ${err.message}`);
+      console.error('Bulk import error:', err);
+      alert('Unable to complete bulk import. Please ensure the file is a valid Excel or CSV spreadsheet.');
     }
   };
 
   const handleUpdateUser = async (updatedUser: UserProfile) => {
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          name: updatedUser.name,
-          email: updatedUser.email,
-          role: updatedUser.role,
-          user_code: updatedUser.user_code,
-          admission_number: updatedUser.admission_number || updatedUser.user_code,
-          grade: updatedUser.grade,
-          class_letter: updatedUser.class_letter,
-          subject: updatedUser.subject ?? null,
-          assigned_class: updatedUser.assigned_class ?? null,
-        })
-        .eq('id', updatedUser.id);
+      const cleanEmail = updatedUser.email.trim().toLowerCase();
+      const payload: Partial<UserProfile> = {
+        name: updatedUser.name.trim(),
+        email: cleanEmail,
+        role: updatedUser.role,
+        user_code: updatedUser.user_code?.trim() || '',
+        admission_number: (updatedUser.admission_number || updatedUser.user_code || '').trim(),
+        grade: updatedUser.grade ?? '',
+        class_letter: updatedUser.class_letter ?? '',
+        subject: updatedUser.subject ?? null,
+        assigned_class: updatedUser.assigned_class ?? null,
+      };
 
-      if (error) {
-        alert(`Failed to update user profile: ${error.message}`);
-        return;
+      // 1. Optimistically update local profiles state immediately
+      setProfiles((prev) =>
+        prev.map((p) =>
+          p.id === updatedUser.id || (p.email && p.email.toLowerCase() === cleanEmail)
+            ? ({ ...p, ...payload } as UserProfile)
+            : p
+        )
+      );
+
+      // 2. Perform direct update to public.profiles table by both email and id
+      await supabase
+        .from('profiles')
+        .update(payload)
+        .eq('email', cleanEmail);
+
+      if (updatedUser.id) {
+        await supabase
+          .from('profiles')
+          .update(payload)
+          .eq('id', updatedUser.id);
       }
-      alert(`✓ User "${updatedUser.name}" profile updated successfully.`);
-      loadAllData();
+
+      // 3. If currently logged-in user matches this profile, sync session state
+      if (
+        currentUser &&
+        (currentUser.id === updatedUser.id ||
+          currentUser.email.toLowerCase() === cleanEmail)
+      ) {
+        const mergedUser: UserProfile = { ...currentUser, ...payload } as UserProfile;
+        setCurrentUser(mergedUser);
+      }
+
+      recordAuditLog('EDIT_ACHIEVEMENT' as any, updatedUser.name, `Updated profile details`);
+      alert(`Profile for "${updatedUser.name}" updated successfully.`);
     } catch (err: any) {
-      alert(`Failed to update user: ${err.message}`);
+      console.error('Update user error:', err);
+      alert('Unable to save changes. Please try again.');
     }
   };
 
   const handleDeleteUser = async (userId: string) => {
+    const targetUser = profiles.find((p) => p.id === userId);
+    const userName = targetUser?.name || 'User';
+
+    // 1. Optimistic UI update: immediately remove from profiles
+    setProfiles((prev) => prev.filter((p) => p.id !== userId));
+
+    // 2. Remove user from subject classes enrollment optimistically
+    setSubjectClasses((prev) =>
+      prev.map((c) => ({
+        ...c,
+        enrolled_student_ids: (c.enrolled_student_ids || []).filter(
+          (id) => id !== userId && id !== targetUser?.email
+        ),
+      }))
+    );
+
     try {
       const { error } = await supabase.from('profiles').delete().eq('id', userId);
       if (error) {
-        alert(`Failed to delete user profile: ${error.message}`);
+        alert('Unable to remove user account. Please try again.');
+        await loadAllData();
         return;
       }
-      alert('✓ User deleted successfully.');
-      loadAllData();
+      recordAuditLog(
+        'DELETE_ACHIEVEMENT' as any,
+        userName,
+        `Deleted user account: ${targetUser?.email || userId}`
+      );
+      alert(`User account for "${userName}" has been removed.`);
+      await loadAllData();
     } catch (err: any) {
-      alert(`Failed to delete user: ${err.message}`);
+      alert('Unable to remove user account. Please try again.');
+      await loadAllData();
     }
   };
 
   // 2. Tests & Assessments
-  const handleCreateTest = async (data: { title: string; className?: string } | string) => {
+  const handleCreateTest = async (
+    data:
+      | {
+          title: string;
+          className?: string;
+          durationMinutes?: number;
+          questions?: TestQuestion[];
+        }
+      | string
+  ) => {
     const title = typeof data === 'string' ? data : data.title;
-    const className = typeof data === 'object' && data.className ? data.className : (targetClassForModal || '10-A');
+    const className =
+      typeof data === 'object' && data.className
+        ? data.className
+        : targetClassForModal || '10-A';
+    const durationMinutes =
+      typeof data === 'object' && data.durationMinutes ? data.durationMinutes : 30;
+    const questions =
+      typeof data === 'object' && data.questions ? data.questions : [];
+
     const newTest: TestItem = {
       id: `test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title,
       class_name: className,
+      duration_minutes: durationMinutes,
+      questions,
     };
 
     setTests((prev) => [newTest, ...prev]);
@@ -484,8 +627,12 @@ export default function Home() {
       await supabase.from('tests').insert([newTest]);
     } catch (e) {}
 
-    recordAuditLog('CREATE_ACHIEVEMENT' as any, title, `Published new assessment for ${className}`);
-    alert(`✓ Assessment "${title}" published successfully!`);
+    recordAuditLog(
+      'CREATE_ACHIEVEMENT' as any,
+      title,
+      `Published new assessment with ${questions.length} questions for ${className}`
+    );
+    alert(`Assessment "${title}" published successfully.`);
   };
 
   const handleDeleteTest = async (testId: string) => {
@@ -500,20 +647,28 @@ export default function Home() {
     }
   };
 
-  const handleSaveTestResult = (result: TestResultRecord) => {
+  const handleSaveTestResult = async (result: TestResultRecord) => {
     const key = `${result.test_id}_${result.student_id}`;
-    setTestResults((prev) => {
-      const updated = { ...prev, [key]: result };
-      try {
-        localStorage.setItem('woodlem_test_results', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    setTestResults((prev) => ({ ...prev, [key]: result }));
+
+    try {
+      await supabase.from('test_results').upsert({
+        id: key,
+        test_id: result.test_id,
+        student_id: result.student_id,
+        score: result.score,
+        feedback: result.feedback || '',
+        submitted_at: new Date().toISOString(),
+        graded_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error('Error saving test result to Supabase:', e);
+    }
 
     recordAuditLog('EDIT_ACHIEVEMENT' as any, result.student_name, `Completed test with score ${result.score}%`);
   };
 
-  const handleGradeTest = (testId: string, studentId: string, score: number, feedback?: string) => {
+  const handleGradeTest = async (testId: string, studentId: string, score: number, feedback?: string) => {
     const key = `${testId}_${studentId}`;
     const student = profiles.find((p) => p.id === studentId);
     const existing = testResults[key];
@@ -527,13 +682,21 @@ export default function Home() {
       feedback: feedback || '',
     };
 
-    setTestResults((prev) => {
-      const updated = { ...prev, [key]: updatedRecord };
-      try {
-        localStorage.setItem('woodlem_test_results', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    setTestResults((prev) => ({ ...prev, [key]: updatedRecord }));
+
+    try {
+      await supabase.from('test_results').upsert({
+        id: key,
+        test_id: testId,
+        student_id: studentId,
+        score,
+        feedback: feedback || '',
+        graded_at: new Date().toISOString(),
+        graded_by: currentUser?.name || 'Teacher',
+      });
+    } catch (e) {
+      console.error('Error grading test in Supabase:', e);
+    }
 
     recordAuditLog('EDIT_ACHIEVEMENT' as any, updatedRecord.student_name, `Teacher recorded test score: ${score}%`);
   };
@@ -559,7 +722,7 @@ export default function Home() {
     } catch (e) {}
 
     recordAuditLog('CREATE_ACHIEVEMENT' as any, title, `Published new homework assignment for ${className}`);
-    alert(`✓ Assignment "${title}" created successfully!`);
+    alert(`Assignment "${title}" created successfully.`);
   };
 
   const handleDeleteAssignment = async (assignmentId: string) => {
@@ -574,20 +737,29 @@ export default function Home() {
     }
   };
 
-  const handleSubmitAssignment = (submission: AssignmentSubmissionRecord) => {
+  const handleSubmitAssignment = async (submission: AssignmentSubmissionRecord) => {
     const key = `${submission.assignment_id}_${submission.student_id}`;
-    setAssignmentSubmissions((prev) => {
-      const updated = { ...prev, [key]: submission };
-      try {
-        localStorage.setItem('woodlem_assignment_submissions', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    setAssignmentSubmissions((prev) => ({ ...prev, [key]: submission }));
+
+    try {
+      await supabase.from('assignment_submissions').upsert({
+        id: key,
+        assignment_id: submission.assignment_id,
+        student_id: submission.student_id,
+        file_name: submission.file_name || '',
+        file_url: submission.file_url || '',
+        grade: submission.grade || '',
+        feedback: submission.feedback || '',
+        submitted_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error('Error saving assignment submission to Supabase:', e);
+    }
 
     recordAuditLog('CREATE_ACHIEVEMENT' as any, submission.student_name, `Uploaded assignment file: ${submission.file_name || 'Homework'}`);
   };
 
-  const handleGradeAssignment = (assignmentId: string, studentId: string, grade: string, feedback?: string) => {
+  const handleGradeAssignment = async (assignmentId: string, studentId: string, grade: string, feedback?: string) => {
     const key = `${assignmentId}_${studentId}`;
     const student = profiles.find((p) => p.id === studentId);
     const existing = assignmentSubmissions[key];
@@ -597,6 +769,7 @@ export default function Home() {
       student_id: studentId,
       student_name: student?.name || existing?.student_name || 'Student',
       file_name: existing?.file_name || 'Completed_Assignment.pdf',
+      file_url: existing?.file_url || '',
       notes: existing?.notes || '',
       grade,
       feedback: feedback || '',
@@ -604,13 +777,23 @@ export default function Home() {
       submitted_at: existing?.submitted_at || new Date().toLocaleDateString(),
     };
 
-    setAssignmentSubmissions((prev) => {
-      const updated = { ...prev, [key]: updatedRecord };
-      try {
-        localStorage.setItem('woodlem_assignment_submissions', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    setAssignmentSubmissions((prev) => ({ ...prev, [key]: updatedRecord }));
+
+    try {
+      await supabase.from('assignment_submissions').upsert({
+        id: key,
+        assignment_id: assignmentId,
+        student_id: studentId,
+        file_name: updatedRecord.file_name || '',
+        file_url: updatedRecord.file_url || '',
+        grade,
+        feedback: feedback || '',
+        graded_at: new Date().toISOString(),
+        graded_by: currentUser?.name || 'Teacher',
+      });
+    } catch (e) {
+      console.error('Error grading assignment in Supabase:', e);
+    }
 
     recordAuditLog('EDIT_ACHIEVEMENT' as any, updatedRecord.student_name, `Teacher graded assignment: Grade ${grade}`);
   };
@@ -640,7 +823,7 @@ export default function Home() {
     }
 
     recordAuditLog('CREATE_ACHIEVEMENT' as any, name, `Added new syllabus term block`);
-    alert(`✓ Syllabus Term "${name}" created!`);
+    alert(`Syllabus term "${name}" created successfully.`);
   };
 
   const handleDeleteTerm = async (termId: string) => {
@@ -681,7 +864,7 @@ export default function Home() {
     }
 
     recordAuditLog('CREATE_ACHIEVEMENT' as any, title, `Added topic to syllabus`);
-    alert(`✓ Topic "${title}" added to syllabus!`);
+    alert(`Topic "${title}" added to syllabus.`);
   };
 
   const handleDeleteTopic = async (termId: string, topicId: string) => {
@@ -729,16 +912,16 @@ export default function Home() {
     } else {
       const effectiveStudentId = studentId || currentUser?.id || 'student';
       const key = `${effectiveStudentId}_${topicId}`;
-      setStudentSyllabusProgress((prev) => {
-        const updated = { ...prev, [key]: isChecked };
-        try {
-          localStorage.setItem('woodlem_student_syllabus', JSON.stringify(updated));
-        } catch (e) {}
-        return updated;
-      });
+      setStudentSyllabusProgress((prev) => ({ ...prev, [key]: isChecked }));
 
       try {
-        await supabase.from('syllabus_topics').update({ student_checked: isChecked }).eq('id', topicId);
+        await supabase.from('student_syllabus_progress').upsert({
+          id: key,
+          student_id: effectiveStudentId,
+          topic_id: topicId,
+          is_completed: isChecked,
+          updated_at: new Date().toISOString(),
+        });
       } catch (e) {
         console.error('Error updating student topic check in Supabase:', e);
       }
@@ -763,15 +946,8 @@ export default function Home() {
         created_at: new Date().toLocaleString(),
       };
 
-      setAuditLogs((prev) => {
-        const updated = [newEntry, ...prev].slice(0, 200);
-        try {
-          localStorage.setItem('woodlem_audit_logs', JSON.stringify(updated));
-        } catch (e) {}
-        return updated;
-      });
+      setAuditLogs((prev) => [newEntry, ...prev].slice(0, 200));
 
-      // Attempt background write to Supabase audit_logs
       try {
         await supabase.from('audit_logs').insert([
           {
@@ -800,22 +976,6 @@ export default function Home() {
     try {
       const generatedId = `ach-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-      if (fileName) {
-        try {
-          const fileMap = JSON.parse(localStorage.getItem('woodlem_achievement_files') || '{}');
-          fileMap[generatedId] = fileName;
-          localStorage.setItem('woodlem_achievement_files', JSON.stringify(fileMap));
-        } catch (e) {}
-      }
-
-      if (fileDataUrl) {
-        try {
-          const dataMap = JSON.parse(localStorage.getItem('woodlem_achievement_file_data') || '{}');
-          dataMap[generatedId] = fileDataUrl;
-          localStorage.setItem('woodlem_achievement_file_data', JSON.stringify(dataMap));
-        } catch (e) {}
-      }
-
       const newAch: Achievement = {
         id: generatedId,
         student_id: currentUser.id,
@@ -839,19 +999,22 @@ export default function Home() {
           id: generatedId,
           student_id: currentUser.id,
           title,
+          description,
           desc_text: payload,
+          file_name: fileName || '',
+          file_url: fileDataUrl || '',
         },
       ]);
 
       if (error) {
-        console.warn('Supabase achievement insert warning:', error.message);
+        console.warn('Achievement insert warning:', error.message);
       }
 
       recordAuditLog('CREATE_ACHIEVEMENT', title, `Logged achievement with proof: ${fileName || 'none'}`);
-      alert(`✓ Achievement "${title}" saved successfully!`);
+      alert(`Achievement record for "${title}" saved successfully.`);
       loadAllData();
     } catch (err: any) {
-      alert(`Error saving achievement: ${err.message}`);
+      alert('Unable to save achievement record. Please try again.');
     }
   };
 
@@ -864,24 +1027,6 @@ export default function Home() {
   ) => {
     if (!currentUser) return;
     try {
-      try {
-        const fileMap = JSON.parse(localStorage.getItem('woodlem_achievement_files') || '{}');
-        if (fileName) {
-          fileMap[id] = fileName;
-        } else {
-          delete fileMap[id];
-        }
-        localStorage.setItem('woodlem_achievement_files', JSON.stringify(fileMap));
-      } catch (e) {}
-
-      if (fileDataUrl) {
-        try {
-          const dataMap = JSON.parse(localStorage.getItem('woodlem_achievement_file_data') || '{}');
-          dataMap[id] = fileDataUrl;
-          localStorage.setItem('woodlem_achievement_file_data', JSON.stringify(dataMap));
-        } catch (e) {}
-      }
-
       setAchievements((prev) =>
         prev.map((a) =>
           a.id === id
@@ -906,46 +1051,39 @@ export default function Home() {
         .from('achievements')
         .update({
           title,
+          description,
           desc_text: payload,
+          file_name: fileName || '',
+          file_url: fileDataUrl || '',
         })
         .eq('id', id);
 
       if (error) {
-        console.warn('Supabase achievement update warning:', error.message);
+        console.warn('Achievement update warning:', error.message);
       }
 
       recordAuditLog('EDIT_ACHIEVEMENT', title, `Updated details / certificate: ${fileName || 'none'}`);
-      alert(`✓ Achievement "${title}" updated successfully!`);
+      alert(`Achievement record for "${title}" updated successfully.`);
       loadAllData();
     } catch (err: any) {
-      alert(`Error updating achievement: ${err.message}`);
+      alert('Unable to update achievement record. Please try again.');
     }
   };
 
   const handleDeleteAchievement = async (id: string, title: string) => {
     if (!currentUser) return;
     try {
-      try {
-        const fileMap = JSON.parse(localStorage.getItem('woodlem_achievement_files') || '{}');
-        delete fileMap[id];
-        localStorage.setItem('woodlem_achievement_files', JSON.stringify(fileMap));
-
-        const dataMap = JSON.parse(localStorage.getItem('woodlem_achievement_file_data') || '{}');
-        delete dataMap[id];
-        localStorage.setItem('woodlem_achievement_file_data', JSON.stringify(dataMap));
-      } catch (e) {}
-
       setAchievements((prev) => prev.filter((a) => a.id !== id));
 
       const { error } = await supabase.from('achievements').delete().eq('id', id);
       if (error) {
-        console.warn('Supabase achievement delete warning:', error.message);
+        console.warn('Achievement delete warning:', error.message);
       }
 
       recordAuditLog('DELETE_ACHIEVEMENT', title, 'Removed achievement record');
       loadAllData();
     } catch (err: any) {
-      alert(`Error deleting achievement: ${err.message}`);
+      alert('Unable to remove achievement record. Please try again.');
     }
   };
 
@@ -972,39 +1110,32 @@ export default function Home() {
       created_at: new Date().toISOString(),
     };
 
-    setSubjectClasses((prev) => {
-      const updated = [newClass, ...prev];
-      try {
-        localStorage.setItem('woodlem_subject_classes', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    setSubjectClasses((prev) => [newClass, ...prev]);
 
     try {
-      await supabase.from('subject_classes').insert([newClass]);
-    } catch (e) {}
+      const { error } = await supabase.from('subject_classes').insert([newClass]);
+      if (error) console.error('Error inserting class to Supabase:', error.message);
+    } catch (e) {
+      console.error('Error creating class in Supabase:', e);
+    }
 
     recordAuditLog(
       'CREATE_ACHIEVEMENT' as any,
       newClass.name,
       `Teacher created classroom with ${newClass.enrolled_student_ids.length} students enrolled`
     );
-    alert(`✓ Classroom "${newClass.name}" created successfully!`);
+    alert(`Classroom "${newClass.name}" created successfully.`);
   };
 
   const handleDeleteSubjectClass = async (id: string) => {
-    setSubjectClasses((prev) => {
-      const updated = prev.filter((c) => c.id !== id);
-      try {
-        localStorage.setItem('woodlem_subject_classes', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    setSubjectClasses((prev) => prev.filter((c) => c.id !== id));
 
     try {
       await supabase.from('subject_classes').delete().eq('id', id);
-    } catch (e) {}
-    alert('Classroom deleted.');
+    } catch (e) {
+      console.error('Error deleting class from Supabase:', e);
+    }
+    alert('Classroom removed successfully.');
   };
 
   const handleUpdateSubjectClass = async (
@@ -1018,8 +1149,8 @@ export default function Home() {
       enrolled_student_ids?: string[];
     }
   ) => {
-    setSubjectClasses((prev) => {
-      const updated = prev.map((c) =>
+    setSubjectClasses((prev) =>
+      prev.map((c) =>
         c.id === classId
           ? {
               ...c,
@@ -1031,12 +1162,8 @@ export default function Home() {
               enrolled_student_ids: updatedData.enrolled_student_ids || c.enrolled_student_ids,
             }
           : c
-      );
-      try {
-        localStorage.setItem('woodlem_subject_classes', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+      )
+    );
 
     try {
       await supabase
@@ -1059,17 +1186,13 @@ export default function Home() {
       updatedData.name,
       `Updated subject classroom details (${updatedData.class_name})`
     );
-    alert(`✓ Classroom "${updatedData.name}" updated successfully!`);
+    alert(`Classroom "${updatedData.name}" updated successfully.`);
   };
 
   const handleUpdateClassEnrollment = async (classId: string, enrolledStudentIds: string[]) => {
-    setSubjectClasses((prev) => {
-      const updated = prev.map((c) => (c.id === classId ? { ...c, enrolled_student_ids: enrolledStudentIds } : c));
-      try {
-        localStorage.setItem('woodlem_subject_classes', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    setSubjectClasses((prev) =>
+      prev.map((c) => (c.id === classId ? { ...c, enrolled_student_ids: enrolledStudentIds } : c))
+    );
 
     try {
       await supabase
@@ -1090,32 +1213,24 @@ export default function Home() {
     }
   };
 
-  // 6. Attendance (Optimistic + Supabase Sync)
+  // 6. Attendance (Pure Supabase Sync)
   const handleSaveAttendance = async (date: string, records: Record<string, string>) => {
     // 1. Immediate optimistic state update
-    setAttendance((prev) => {
-      const updated = {
-        ...prev,
-        [date]: { ...(prev[date] || {}), ...records },
-      };
-      try {
-        localStorage.setItem('woodlem_attendance', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    setAttendance((prev) => ({
+      ...prev,
+      [date]: { ...(prev[date] || {}), ...records },
+    }));
 
     // 2. Delete and insert to Supabase for 100% reliability
     const studentIds = Object.keys(records);
     if (studentIds.length > 0) {
       try {
-        // Delete previous records for these students on this date
         await supabase
           .from('attendance')
           .delete()
           .eq('date', date)
           .in('student_id', studentIds);
 
-        // Insert new records
         const rows = Object.entries(records).map(([student_id, status]) => ({
           date,
           student_id,
@@ -1209,6 +1324,135 @@ export default function Home() {
     loadAllData();
   };
 
+  // 7. Class Resources (Full-Page Inline - Pure Supabase)
+  const handleCreateResource = async (resourceData: {
+    class_id: string;
+    title: string;
+    description?: string;
+    resource_type: ResourceType;
+    file_name?: string;
+    file_url?: string;
+    file_size?: string;
+    external_link?: string;
+    topic_tag?: string;
+  }) => {
+    const newResource: ClassResource = {
+      id: `res-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      class_id: resourceData.class_id,
+      teacher_id: currentUser?.id || 'teacher',
+      teacher_name: currentUser?.name || 'Teacher',
+      title: resourceData.title.trim(),
+      description: resourceData.description?.trim() || '',
+      resource_type: resourceData.resource_type,
+      file_name: resourceData.file_name || '',
+      file_url: resourceData.file_url || '',
+      file_size: resourceData.file_size || '',
+      external_link: resourceData.external_link?.trim() || '',
+      topic_tag: resourceData.topic_tag?.trim() || '',
+      created_at: new Date().toISOString(),
+    };
+
+    setClassResources((prev) => [newResource, ...prev]);
+
+    try {
+      await supabase.from('class_resources').insert([newResource]);
+    } catch (e) {
+      console.error('Error inserting class resource:', e);
+    }
+
+    recordAuditLog(
+      'CREATE_ACHIEVEMENT' as any,
+      newResource.title,
+      `Uploaded study resource (${newResource.resource_type.toUpperCase()}) for classroom`
+    );
+  };
+
+  const handleDeleteResource = async (resourceId: string) => {
+    const resObj = classResources.find((r) => r.id === resourceId);
+    setClassResources((prev) => prev.filter((r) => r.id !== resourceId));
+
+    try {
+      await supabase.from('class_resources').delete().eq('id', resourceId);
+    } catch (e) {
+      console.error('Error deleting class resource:', e);
+    }
+
+    if (resObj) {
+      recordAuditLog(
+        'DELETE_ACHIEVEMENT' as any,
+        resObj.title,
+        `Deleted class learning resource`
+      );
+    }
+  };
+
+  // 8. Class Broadcast Announcements (Full-Page Inline - Pure Supabase)
+  const handleCreateBroadcast = async (broadcastData: {
+    class_id: string;
+    title: string;
+    content: string;
+    is_pinned?: boolean;
+    priority?: 'normal' | 'important' | 'urgent';
+    tagged_resource_ids?: string[];
+  }) => {
+    const newBroadcast: ClassBroadcast = {
+      id: `cast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      class_id: broadcastData.class_id,
+      teacher_id: currentUser?.id || 'teacher',
+      teacher_name: currentUser?.name || 'Teacher',
+      title: broadcastData.title.trim(),
+      content: broadcastData.content.trim(),
+      is_pinned: !!broadcastData.is_pinned,
+      priority: broadcastData.priority || 'normal',
+      tagged_resource_ids: broadcastData.tagged_resource_ids || [],
+      created_at: new Date().toISOString(),
+    };
+
+    setClassBroadcasts((prev) => [newBroadcast, ...prev]);
+
+    try {
+      await supabase.from('class_broadcasts').insert([newBroadcast]);
+    } catch (e) {
+      console.error('Error inserting class broadcast:', e);
+    }
+
+    recordAuditLog(
+      'CREATE_ACHIEVEMENT' as any,
+      newBroadcast.title,
+      `Broadcasted announcement to class with ${newBroadcast.tagged_resource_ids?.length || 0} tagged resources`
+    );
+  };
+
+  const handleDeleteBroadcast = async (broadcastId: string) => {
+    setClassBroadcasts((prev) => prev.filter((b) => b.id !== broadcastId));
+
+    try {
+      await supabase.from('class_broadcasts').delete().eq('id', broadcastId);
+    } catch (e) {
+      console.error('Error deleting class broadcast:', e);
+    }
+  };
+
+  const handleTogglePinBroadcast = async (broadcastId: string) => {
+    let newPinState = false;
+    setClassBroadcasts((prev) =>
+      prev.map((b) => {
+        if (b.id === broadcastId) {
+          newPinState = !b.is_pinned;
+          return { ...b, is_pinned: newPinState };
+        }
+        return b;
+      })
+    );
+
+    try {
+      await supabase
+        .from('class_broadcasts')
+        .update({ is_pinned: newPinState })
+        .eq('id', broadcastId);
+    } catch (e) {}
+  };
+
   // Filter students profile list for dropdowns
   const students: Student[] = profiles
     .filter((p) => p.role === 'student')
@@ -1256,6 +1500,8 @@ export default function Home() {
           attendance={attendance}
           hubActivities={hubActivities}
           subjectClasses={subjectClasses}
+          classResources={classResources}
+          classBroadcasts={classBroadcasts}
           testResults={testResults}
           assignmentSubmissions={assignmentSubmissions}
           studentSyllabusProgress={studentSyllabusProgress}
@@ -1281,8 +1527,15 @@ export default function Home() {
           hubActivities={hubActivities}
           auditLogs={auditLogs}
           subjectClasses={subjectClasses}
+          classResources={classResources}
+          classBroadcasts={classBroadcasts}
           testResults={testResults}
           assignmentSubmissions={assignmentSubmissions}
+          onCreateResource={handleCreateResource}
+          onDeleteResource={handleDeleteResource}
+          onCreateBroadcast={handleCreateBroadcast}
+          onDeleteBroadcast={handleDeleteBroadcast}
+          onTogglePinBroadcast={handleTogglePinBroadcast}
           onOpenCreateClassModal={() => setIsCreateClassOpen(true)}
           onUpdateSubjectClass={handleUpdateSubjectClass}
           onDeleteSubjectClass={handleDeleteSubjectClass}
@@ -1418,6 +1671,9 @@ export default function Home() {
           onSubmit={handleCreateSubjectClass}
         />
       )}
+
+      {/* Floating Gemini AI Assistant (Bottom-Right for every dashboard) */}
+      <AiChatbot currentUser={currentUser} />
     </>
   );
 }

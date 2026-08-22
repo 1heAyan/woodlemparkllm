@@ -151,7 +151,7 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({ 
           <div className="form-group">
             <label className="form-label">Target Grades</label>
             <div className="checkbox-group">
-              {['Grade 10', 'Grade 11', 'Grade 12'].map((g) => (
+              {['Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'].map((g) => (
                 <label key={g}>
                   <input
                     type="checkbox"
