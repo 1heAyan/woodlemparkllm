@@ -57,6 +57,7 @@ interface StudentDashboardProps {
     fileName?: string;
     fileUrl?: string;
   }) => void;
+  onRefreshData?: () => void;
   onSignOut: () => void;
 }
 
@@ -83,6 +84,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   onToggleHubEnrollment,
   onOpenVideoModal,
   onApplyLeave,
+  onRefreshData,
   onSignOut,
 }) => {
   // Navigation mode: 'class' | 'homeroom_circulars' | 'awards' | 'attendance' | 'hub' | 'settings' | 'support'
@@ -2351,7 +2353,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         {/* VIEW 5: SETTINGS & PASSWORD RESET */}
         {activeNavType === 'settings' && (
           <div style={{ padding: '24px 32px' }}>
-            <SettingsView currentUser={currentStudent} />
+            <SettingsView currentUser={currentStudent} onRefreshData={onRefreshData} />
           </div>
         )}
 

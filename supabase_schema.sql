@@ -18,6 +18,8 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS admission_number TEXT DEFAU
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS class_letter TEXT DEFAULT '';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subject TEXT DEFAULT NULL;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS assigned_class TEXT DEFAULT NULL;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT NULL;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS temp_password TEXT DEFAULT NULL;
 
 -- Seed initial Admin user profile
 INSERT INTO public.profiles (id, email, name, role, user_code)

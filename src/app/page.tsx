@@ -1706,6 +1706,7 @@ export default function Home() {
           onToggleHubEnrollment={handleToggleHubEnrollment}
           onOpenVideoModal={(act) => setSelectedVideoActivity(act)}
           onApplyLeave={handleApplyLeave}
+          onRefreshData={loadAllData}
           onSignOut={handleSignOut}
         />
       ) : currentUser.role === 'teacher' ? (

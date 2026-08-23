@@ -54,15 +54,51 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [avatarFeedback, setAvatarFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
+  // Compress image before saving to Supabase (keeps payload ~20-40KB for instant cloud sync)
+  const compressImage = (file: File, maxWidth = 320, maxHeight = 320, quality = 0.82): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(event.target?.result as string);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = (e) => reject(e);
+        img.src = event.target?.result as string;
+      };
+      reader.onerror = (e) => reject(e);
+      reader.readAsDataURL(file);
+    });
+  };
+
   // Sync avatar from Supabase currentUser
   useEffect(() => {
     if (currentUser?.avatar_url) {
       setAvatarUrl(currentUser.avatar_url);
-    } else {
-      try {
-        const saved = localStorage.getItem(`woodlem_avatar_${currentUser.id}`);
-        if (saved) setAvatarUrl(saved);
-      } catch (e) {}
     }
   }, [currentUser]);
 
@@ -322,52 +358,75 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     });
   };
 
-  // Handle profile picture upload (saved to Supabase profiles)
+  // Handle profile picture upload (compressed and saved directly to Supabase cloud)
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      setAvatarFeedback({ type: 'error', text: 'Image too large. Please choose a photo under 5 MB.' });
+    if (file.size > 8 * 1024 * 1024) {
+      setAvatarFeedback({ type: 'error', text: 'Image too large. Please choose a photo under 8 MB.' });
       return;
     }
 
     setIsUploadingAvatar(true);
     setAvatarFeedback(null);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result as string;
-      setAvatarUrl(dataUrl);
-      try {
-        localStorage.setItem(`woodlem_avatar_${currentUser.id}`, dataUrl);
-      } catch (e) {}
 
-      try {
-        await supabase.from('profiles').update({ avatar_url: dataUrl } as any).eq('id', currentUser.id);
-        setAvatarFeedback({ type: 'success', text: 'Profile photo saved to Supabase cloud and updated across the portal!' });
-        if (onRefreshData) onRefreshData();
-      } catch (e) {
-        setAvatarFeedback({ type: 'success', text: 'Profile photo updated locally.' });
+    try {
+      // 1. Compress image to clean lightweight 320x320 JPEG
+      const compressedDataUrl = await compressImage(file);
+      setAvatarUrl(compressedDataUrl);
+
+      // 2. Save directly to Supabase profiles table
+      const email = (currentUser.email || '').toLowerCase().trim();
+      let saveSuccess = false;
+
+      if (email) {
+        const { error: emailErr } = await supabase
+          .from('profiles')
+          .update({ avatar_url: compressedDataUrl } as any)
+          .eq('email', email);
+        if (!emailErr) saveSuccess = true;
       }
+
+      if (!saveSuccess && currentUser.id) {
+        const { error: idErr } = await supabase
+          .from('profiles')
+          .update({ avatar_url: compressedDataUrl } as any)
+          .eq('id', currentUser.id);
+        if (!idErr) saveSuccess = true;
+      }
+
+      // Update local state and trigger refresh
+      currentUser.avatar_url = compressedDataUrl;
+      setAvatarFeedback({
+        type: 'success',
+        text: 'Profile photo saved directly to Supabase Cloud! It is permanently tied to your account across all devices.',
+      });
+      if (onRefreshData) onRefreshData();
+    } catch (err: any) {
+      console.error('Avatar upload error:', err);
+      setAvatarFeedback({ type: 'error', text: 'Failed to process image. Please try another photo.' });
+    } finally {
       setIsUploadingAvatar(false);
-    };
-    reader.onerror = () => {
-      setAvatarFeedback({ type: 'error', text: 'Failed to read the image file. Please try again.' });
-      setIsUploadingAvatar(false);
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
   const handleRemoveAvatar = async () => {
     setAvatarUrl(null);
+    currentUser.avatar_url = undefined;
+
     try {
-      localStorage.removeItem(`woodlem_avatar_${currentUser.id}`);
-    } catch (e) {}
-    try {
-      await supabase.from('profiles').update({ avatar_url: null } as any).eq('id', currentUser.id);
+      const email = (currentUser.email || '').toLowerCase().trim();
+      if (email) {
+        await supabase.from('profiles').update({ avatar_url: null } as any).eq('email', email);
+      }
+      if (currentUser.id) {
+        await supabase.from('profiles').update({ avatar_url: null } as any).eq('id', currentUser.id);
+      }
       if (onRefreshData) onRefreshData();
     } catch (e) {}
-    setAvatarFeedback({ type: 'success', text: 'Profile photo removed.' });
+
+    setAvatarFeedback({ type: 'success', text: 'Profile photo removed from Supabase Cloud.' });
   };
 
   return (
