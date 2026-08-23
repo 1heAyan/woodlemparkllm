@@ -5,6 +5,7 @@ import { UserProfile, ParentDocument, HubActivity } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
+import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 
 interface AdminDashboardProps {
   currentUser: UserProfile;
@@ -43,6 +44,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [docStudentFilter, setDocStudentFilter] = useState('');
   const [selectedClassInspect, setSelectedClassInspect] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Portal Navigation & AI Copilot Integration
+  const { isAiPanelOpen, toggleAiPanel, subscribeToNavigation } = usePortalNavigation();
+
+  React.useEffect(() => {
+    const unsubscribe = subscribeToNavigation((target) => {
+      if (target.view === 'overview') {
+        setActiveTab('overview');
+      } else if (target.view === 'directory') {
+        setActiveTab('directory');
+      } else if (target.view === 'classes') {
+        setActiveTab('classes');
+      } else if (target.view === 'documents') {
+        setActiveTab('documents');
+      } else if (target.view === 'hub') {
+        setActiveTab('hub');
+      } else if (target.view === 'settings') {
+        setActiveTab('settings');
+      } else if (target.view === 'support') {
+        setActiveTab('support');
+      } else if (target.view === 'system') {
+        setActiveTab('system');
+      } else if (target.modalAction === 'provision_user') {
+        onOpenProvisionModal();
+      } else if (target.modalAction === 'bulk_import') {
+        onOpenBulkModal();
+      }
+    });
+    return unsubscribe;
+  }, [subscribeToNavigation, onOpenProvisionModal, onOpenBulkModal]);
 
   // Grouped profiles
   const students = useMemo(() => profiles.filter((p) => p.role === 'student'), [profiles]);
@@ -1264,8 +1295,63 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
 
-        {/* Navigation list (pure text, no icons) */}
+        {/* Navigation list */}
         <nav style={{ flex: 1, padding: '6px 8px', overflowY: 'auto' }}>
+          {/* AI COPILOT QUICK DOCK TRIGGER */}
+          <button
+            type="button"
+            onClick={toggleAiPanel}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '8px 10px',
+              fontSize: 11.5,
+              borderRadius: 6,
+              marginBottom: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: isAiPanelOpen
+                ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)'
+                : 'linear-gradient(135deg, rgba(84, 87, 254, 0.08) 0%, rgba(155, 81, 224, 0.08) 100%)',
+              border: isAiPanelOpen ? '1px solid #334155' : '1px solid rgba(155, 81, 224, 0.25)',
+              color: isAiPanelOpen ? '#FFFFFF' : '#4338CA',
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: isAiPanelOpen ? '0 4px 12px rgba(15, 23, 42, 0.15)' : 'none',
+              transition: 'all 0.18s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
+                  fill={isAiPanelOpen ? '#A78BFA' : 'url(#gemini-nav-icon-admin)'}
+                />
+                <defs>
+                  <linearGradient id="gemini-nav-icon-admin" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#1BA1E3" />
+                    <stop offset="0.5" stopColor="#5457FE" />
+                    <stop offset="1" stopColor="#9B51E0" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <span>Ask Gemini AI</span>
+            </div>
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                padding: '1px 5px',
+                borderRadius: 3,
+                background: isAiPanelOpen ? 'rgba(255, 255, 255, 0.15)' : '#E0E7FF',
+                color: isAiPanelOpen ? '#E0E7FF' : '#4338CA',
+              }}
+            >
+              ⌘K
+            </span>
+          </button>
+
           <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', color: '#9E9B95', padding: '6px 6px 4px' }}>
             NAVIGATION
           </div>

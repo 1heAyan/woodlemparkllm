@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { AssignmentItem, UserProfile } from '@/lib/supabaseClient';
 import { ViewFileModal } from './ViewFileModal';
+import { openFileInNewTab, downloadFile } from '@/lib/fileHelper';
 
 export interface AssignmentSubmissionRecord {
   assignment_id: string;
@@ -159,41 +160,68 @@ export const GradeAssignmentModal: React.FC<GradeAssignmentModalProps> = ({
                       <td style={{ padding: '10px 12px' }}>
                         {submission ? (
                           <div>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setViewingFile({
-                                  fileName: submission.file_name || 'Completed_Work.pdf',
-                                  fileUrl: submission.file_url,
-                                  studentName: student.name,
-                                  title: assignment.title,
-                                  description: submission.notes || 'Student submitted completed homework assignment.',
-                                  submissionDate: submission.submitted_at,
-                                })
-                              }
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 5,
-                                padding: '3px 8px',
-                                borderRadius: 4,
-                                fontSize: 11,
-                                fontWeight: 600,
-                                background: '#EAF3EF',
-                                color: '#2D6E5D',
-                                border: '1px solid #C7E4D8',
-                                cursor: 'pointer',
-                                maxWidth: 170,
-                                textAlign: 'left',
-                              }}
-                              title="Click to preview or download file"
-                            >
-                              <span style={{ fontSize: 11 }}>📄</span>
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {submission.file_name || 'Completed_Work.pdf'}
-                              </span>
-                              <span style={{ fontSize: 10, opacity: 0.8, marginLeft: 'auto' }}>👁</span>
-                            </button>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openFileInNewTab({
+                                    fileName: submission.file_name || 'Completed_Work.pdf',
+                                    fileUrl: submission.file_url,
+                                    studentName: student.name,
+                                    title: assignment.title,
+                                    description: submission.notes || 'Student submitted completed homework assignment.',
+                                    submissionDate: submission.submitted_at,
+                                  })
+                                }
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 5,
+                                  padding: '4px 9px',
+                                  borderRadius: 4,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: '#EAF3EF',
+                                  color: '#2D6E5D',
+                                  border: '1px solid #C7E4D8',
+                                  cursor: 'pointer',
+                                  maxWidth: 160,
+                                  textAlign: 'left',
+                                }}
+                                title={`Click to open submission in new tab: ${submission.file_name}`}
+                              >
+                                <span>↗</span>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {submission.file_name || 'Work.pdf'}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  downloadFile({
+                                    fileName: submission.file_name || 'Completed_Work.pdf',
+                                    fileUrl: submission.file_url,
+                                    studentName: student.name,
+                                    title: assignment.title,
+                                    description: submission.notes,
+                                    submissionDate: submission.submitted_at,
+                                  })
+                                }
+                                title="Download Submission File"
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: 4,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: '#FAF9F6',
+                                  color: 'var(--neutral-dark)',
+                                  border: '1px solid var(--border-color)',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                ↓
+                              </button>
+                            </div>
                             {submission.notes && (
                               <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, fontStyle: 'italic' }}>
                                 &quot;{submission.notes}&quot;

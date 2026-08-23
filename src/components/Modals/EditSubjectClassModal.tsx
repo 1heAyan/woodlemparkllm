@@ -38,6 +38,7 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
   const [room, setRoom] = useState('');
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [studentSearch, setStudentSearch] = useState('');
+  const [rosterScope, setRosterScope] = useState<'section' | 'grade' | 'all'>('section');
 
   useEffect(() => {
     if (activeClass) {
@@ -64,6 +65,14 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
     return profiles.filter((p) => p.role === 'student');
   }, [profiles]);
 
+  // Students in selected grade
+  const gradeStudents = useMemo(() => {
+    return allStudents.filter((s) => {
+      const g = (s.grade || '').replace(/[^0-9]/g, '');
+      return g === grade;
+    });
+  }, [allStudents, grade]);
+
   // Students matching selected grade & section
   const sectionStudents = useMemo(() => {
     return allStudents.filter((s) => {
@@ -73,17 +82,24 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
     });
   }, [allStudents, grade, section]);
 
+  // Students according to active scope
+  const scopedStudents = useMemo(() => {
+    if (rosterScope === 'section') return sectionStudents;
+    if (rosterScope === 'grade') return gradeStudents;
+    return allStudents;
+  }, [rosterScope, sectionStudents, gradeStudents, allStudents]);
+
   // Filtered student list for search
   const filteredStudents = useMemo(() => {
-    if (!studentSearch.trim()) return allStudents;
+    if (!studentSearch.trim()) return scopedStudents;
     const q = studentSearch.toLowerCase();
-    return allStudents.filter(
+    return scopedStudents.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
         (s.admission_number || '').toLowerCase().includes(q) ||
         s.email.toLowerCase().includes(q)
     );
-  }, [allStudents, studentSearch]);
+  }, [scopedStudents, studentSearch]);
 
   if (!isOpen || !activeClass) return null;
 
@@ -94,10 +110,13 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
   };
 
   const handleSelectAllGrade = () => {
-    const gradeStudents = allStudents.filter((s) => (s.grade || '').replace(/[^0-9]/g, '') === grade);
     const ids = gradeStudents.map((s) => s.id);
     const set = new Set([...selectedStudentIds, ...ids]);
     setSelectedStudentIds(Array.from(set));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedStudentIds([]);
   };
 
   const handleToggleStudent = (id: string) => {
@@ -125,35 +144,34 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
     onClose();
   };
 
+  const handleDeleteClass = () => {
+    if (onDelete && confirm(`Are you sure you want to delete classroom "${activeClass.name}"? This action cannot be undone.`)) {
+      onDelete(activeClass.id);
+      onClose();
+    }
+  };
+
   return (
     <div className="modal-overlay active" onClick={onClose}>
-      <div
-        className="modal-content"
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 580, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
-      >
+      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 580, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)' }}>
           <div>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               Subject Classroom Settings
             </span>
             <h2 className="modal-title" style={{ margin: '2px 0 0', fontSize: 16 }}>
-              Edit Subject Classroom
+              Edit {activeClass.name}
             </h2>
           </div>
           <button type="button" className="close-modal" onClick={onClose}>&times;</button>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          style={{ overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}
-        >
+        <form onSubmit={handleSubmit} style={{ overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="form-group" style={{ margin: 0 }}>
             <label className="form-label">Class / Subject Name</label>
             <input
               type="text"
               className="form-input"
-              placeholder="e.g. AP Physics 1, Biology 12-C, Advanced Calculus"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
@@ -166,7 +184,6 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. Biology, Physics, Math"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
               />
@@ -176,7 +193,6 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. Lab 204, Room B-12"
                 value={room}
                 onChange={(e) => setRoom(e.target.value)}
               />
@@ -213,13 +229,13 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
 
           {/* Student Roster Enrollment Box */}
           <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 14px', background: '#FAF9F6' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
               <div>
                 <label className="form-label" style={{ margin: 0, fontSize: 12, fontWeight: 700 }}>
                   Enrolled Students ({selectedStudentIds.length} Selected)
                 </label>
                 <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                  Section {grade}-{section} has {sectionStudents.length} students
+                  Section {grade}-{section} has {sectionStudents.length} student{sectionStudents.length === 1 ? '' : 's'}
                 </span>
               </div>
 
@@ -227,33 +243,105 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
                 <button
                   type="button"
                   onClick={handleSelectAllSection}
-                  style={{ padding: '3px 8px', fontSize: 11, fontWeight: 600, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', borderRadius: 4, cursor: 'pointer' }}
+                  style={{ padding: '4px 9px', fontSize: 11, fontWeight: 600, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', borderRadius: 4, cursor: 'pointer' }}
                 >
                   + Add Section {grade}-{section}
                 </button>
                 <button
                   type="button"
                   onClick={handleSelectAllGrade}
-                  style={{ padding: '3px 8px', fontSize: 11, fontWeight: 600, background: '#FFFFFF', color: 'var(--neutral-dark)', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer' }}
+                  style={{ padding: '4px 9px', fontSize: 11, fontWeight: 600, background: '#FFFFFF', color: 'var(--neutral-dark)', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer' }}
                 >
-                  + Add All Grade {grade}
+                  + Add All Gr. {grade}
                 </button>
+                {selectedStudentIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleDeselectAll}
+                    style={{ padding: '4px 9px', fontSize: 11, fontWeight: 600, background: '#FFF1F0', color: '#D9534F', border: '1px solid #F5C6CB', borderRadius: 4, cursor: 'pointer' }}
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
+            </div>
+
+            {/* Scope Filter Tabs */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              <button
+                type="button"
+                onClick={() => setRosterScope('section')}
+                style={{
+                  padding: '3px 10px',
+                  fontSize: 11,
+                  fontWeight: rosterScope === 'section' ? 700 : 500,
+                  borderRadius: 14,
+                  border: rosterScope === 'section' ? '1px solid #2C6E6A' : '1px solid var(--border-color)',
+                  background: rosterScope === 'section' ? '#2C6E6A' : '#FFFFFF',
+                  color: rosterScope === 'section' ? '#FFFFFF' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                }}
+              >
+                Section {grade}-{section} ({sectionStudents.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setRosterScope('grade')}
+                style={{
+                  padding: '3px 10px',
+                  fontSize: 11,
+                  fontWeight: rosterScope === 'grade' ? 700 : 500,
+                  borderRadius: 14,
+                  border: rosterScope === 'grade' ? '1px solid #2C6E6A' : '1px solid var(--border-color)',
+                  background: rosterScope === 'grade' ? '#2C6E6A' : '#FFFFFF',
+                  color: rosterScope === 'grade' ? '#FFFFFF' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                }}
+              >
+                All Grade {grade} ({gradeStudents.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setRosterScope('all')}
+                style={{
+                  padding: '3px 10px',
+                  fontSize: 11,
+                  fontWeight: rosterScope === 'all' ? 700 : 500,
+                  borderRadius: 14,
+                  border: rosterScope === 'all' ? '1px solid #2C6E6A' : '1px solid var(--border-color)',
+                  background: rosterScope === 'all' ? '#2C6E6A' : '#FFFFFF',
+                  color: rosterScope === 'all' ? '#FFFFFF' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                }}
+              >
+                All Students ({allStudents.length})
+              </button>
             </div>
 
             <input
               type="text"
-              placeholder="Search student by name or admission no..."
+              placeholder={`Search within ${rosterScope === 'section' ? `Section ${grade}-${section}` : rosterScope === 'grade' ? `Grade ${grade}` : 'all students'}...`}
               className="form-input"
               style={{ width: '100%', padding: '6px 10px', fontSize: 12, marginBottom: 8, background: '#FFFFFF' }}
               value={studentSearch}
               onChange={(e) => setStudentSearch(e.target.value)}
             />
 
-            <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 6, padding: '6px 8px' }}>
+            <div style={{ maxHeight: 170, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 6, padding: '6px 8px' }}>
               {filteredStudents.length === 0 ? (
-                <div style={{ padding: 12, textAlign: 'center', fontSize: 11.5, color: 'var(--text-secondary)' }}>
-                  No students found matching your search.
+                <div style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-secondary)' }}>
+                  No students found in {rosterScope === 'section' ? `Section ${grade}-${section}` : `Grade ${grade}`}.
+                  {rosterScope !== 'all' && (
+                    <div style={{ marginTop: 4 }}>
+                      <button
+                        type="button"
+                        onClick={() => setRosterScope('all')}
+                        style={{ color: '#2C6E6A', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontSize: 11.5 }}
+                      >
+                        View all school students
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 filteredStudents.map((st) => {
@@ -267,11 +355,12 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        padding: '5px 8px',
+                        padding: '6px 8px',
                         borderRadius: 4,
                         background: isSelected ? '#EAF3EF' : 'transparent',
                         cursor: 'pointer',
                         fontSize: 12,
+                        transition: 'background 0.1s',
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -281,9 +370,9 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
                           onChange={() => handleToggleStudent(st.id)}
                           style={{ accentColor: '#2C6E6A', cursor: 'pointer' }}
                         />
-                        <span style={{ fontWeight: isSelected ? 700 : 500 }}>{st.name}</span>
+                        <span style={{ fontWeight: isSelected ? 700 : 500, color: 'var(--neutral-dark)' }}>{st.name}</span>
                       </div>
-                      <span style={{ fontSize: 10.5, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                      <span style={{ fontSize: 10.5, color: isSelected ? '#2D6E5D' : 'var(--text-secondary)', fontFamily: 'monospace', fontWeight: 600 }}>
                         Grade {cleanG}-{cleanS} {st.admission_number ? `(${st.admission_number})` : ''}
                       </span>
                     </label>
@@ -293,34 +382,19 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
             </div>
           </div>
 
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              borderTop: '1px solid var(--border-color)',
-              paddingTop: 14,
-              marginTop: 4,
-            }}
-          >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
             {onDelete ? (
               <button
                 type="button"
-                onClick={() => {
-                  if (confirm(`Are you sure you want to delete classroom "${activeClass.name}"? This cannot be undone.`)) {
-                    onDelete(activeClass.id);
-                    onClose();
-                  }
-                }}
+                onClick={handleDeleteClass}
                 style={{
-                  padding: '7px 14px',
-                  fontSize: 11.5,
+                  background: 'none',
+                  border: 'none',
+                  color: '#D9534F',
+                  fontSize: 13,
                   fontWeight: 600,
-                  background: '#FDF1F0',
-                  border: '1px solid #F5C6CB',
-                  color: '#A83B38',
-                  borderRadius: 4,
                   cursor: 'pointer',
+                  padding: '6px 0',
                 }}
               >
                 Delete Classroom
@@ -331,7 +405,7 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
               <button type="button" className="btn-secondary" onClick={onClose} style={{ padding: '8px 16px' }}>
                 Cancel
               </button>
-              <button type="submit" className="btn-primary" style={{ padding: '8px 22px' }}>
+              <button type="submit" className="btn-primary" style={{ padding: '8px 20px' }}>
                 Save Changes
               </button>
             </div>

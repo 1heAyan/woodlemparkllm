@@ -892,4 +892,36 @@ textarea.form-input { resize: vertical; }
   box-shadow: 0 10px 24px rgba(44, 110, 106, 0.08);
 }
 
+/* ==========================================================================
+   ANTIGRAVITY-STYLE INTEGRATED AI COPILOT STYLING
+   ========================================================================== */
 
+.antigravity-copilot-drawer {
+  will-change: transform;
+}
+
+@media (min-width: 768px) {
+  .keyboard-shortcut-pill {
+    display: inline-block !important;
+  }
+}
+
+.ai-nav-badge-btn {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ai-nav-badge-btn:active {
+  transform: scale(0.96) !important;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

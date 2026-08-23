@@ -23,6 +23,9 @@ import { AssignmentSubmissionRecord } from '../Modals/GradeAssignmentModal';
 import { ViewFileModal } from '../Modals/ViewFileModal';
 import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
+import { usePortalNavigation } from '@/lib/PortalNavigationContext';
+import { openFileInNewTab, downloadFile } from '@/lib/fileHelper';
+import { ApplyLeaveModal } from '../Modals/ApplyLeaveModal';
 
 interface StudentDashboardProps {
   currentStudent: UserProfile;
@@ -46,6 +49,14 @@ interface StudentDashboardProps {
   onDeleteAchievement: (id: string, title: string) => void;
   onToggleHubEnrollment: (activityId: string) => void;
   onOpenVideoModal: (activity: HubActivity) => void;
+  onApplyLeave?: (data: {
+    startDate: string;
+    endDate: string;
+    reason: string;
+    leaveType: string;
+    fileName?: string;
+    fileUrl?: string;
+  }) => void;
   onSignOut: () => void;
 }
 
@@ -71,10 +82,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   onDeleteAchievement,
   onToggleHubEnrollment,
   onOpenVideoModal,
+  onApplyLeave,
   onSignOut,
 }) => {
-  // Navigation mode: 'class' | 'awards' | 'attendance' | 'hub' | 'settings' | 'support'
-  const [activeNavType, setActiveNavType] = useState<'class' | 'awards' | 'attendance' | 'hub' | 'settings' | 'support'>('class');
+  // Navigation mode: 'class' | 'homeroom_circulars' | 'awards' | 'attendance' | 'hub' | 'settings' | 'support'
+  const [activeNavType, setActiveNavType] = useState<'class' | 'homeroom_circulars' | 'awards' | 'attendance' | 'hub' | 'settings' | 'support'>('class');
   
   // Tabs inside a subject classroom: 'broadcasts' | 'resources' | 'tasks' | 'syllabus'
   const [classSubTab, setClassSubTab] = useState<'broadcasts' | 'resources' | 'tasks' | 'syllabus'>('broadcasts');
@@ -95,6 +107,26 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     description?: string;
     submissionDate?: string;
   } | null>(null);
+
+  // Leave & Sick Note Modal state
+  const [isApplyLeaveOpen, setIsApplyLeaveOpen] = useState(false);
+
+  // Homeroom circulars search & filter state
+  const [hrSearchQuery, setHrSearchQuery] = useState('');
+  const [hrPriorityFilter, setHrPriorityFilter] = useState<'all' | 'pinned' | 'urgent' | 'important'>('all');
+
+  // Sidebar profile photo (prioritizes Supabase cloud avatar_url)
+  const [sidebarAvatarUrl, setSidebarAvatarUrl] = useState<string | null>(() => currentStudent.avatar_url || null);
+  useEffect(() => {
+    if (currentStudent?.avatar_url) {
+      setSidebarAvatarUrl(currentStudent.avatar_url);
+    } else {
+      try {
+        const saved = localStorage.getItem(`woodlem_avatar_${currentStudent.id}`);
+        setSidebarAvatarUrl(saved || null);
+      } catch (e) {}
+    }
+  }, [currentStudent, activeNavType]);
 
   // Student class metadata
   const cleanGrade = useMemo(() => (currentStudent.grade || '10').replace(/[^0-9]/g, '') || '10', [currentStudent.grade]);
@@ -121,6 +153,57 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   // Selected active classroom
   const [selectedClassId, setSelectedClassId] = useState<string>('');
 
+  // Homeroom class ID for this student (e.g. homeroom-12-B)
+  const homeroomClassId = useMemo(() => {
+    return `homeroom-${cleanGrade}-${cleanSection}`;
+  }, [cleanGrade, cleanSection]);
+
+  // Homeroom Broadcasts & Resources for this student
+  const myHomeroomBroadcasts = useMemo(() => {
+    return classBroadcasts
+      .filter((b) => b.class_id === homeroomClassId)
+      .sort((a, b) => {
+        if (a.is_pinned && !b.is_pinned) return -1;
+        if (!a.is_pinned && b.is_pinned) return 1;
+        return new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime();
+      });
+  }, [classBroadcasts, homeroomClassId]);
+
+  const myHomeroomResources = useMemo(() => {
+    return classResources
+      .filter((r) => r.class_id === homeroomClassId)
+      .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime());
+  }, [classResources, homeroomClassId]);
+
+  const filteredHomeroomBroadcasts = useMemo(() => {
+    return myHomeroomBroadcasts.filter((bc) => {
+      if (hrPriorityFilter === 'pinned' && !bc.is_pinned) return false;
+      if (hrPriorityFilter === 'urgent' && bc.priority !== 'urgent') return false;
+      if (hrPriorityFilter === 'important' && bc.priority !== 'important') return false;
+      if (hrSearchQuery.trim()) {
+        const q = hrSearchQuery.toLowerCase();
+        return bc.title.toLowerCase().includes(q) || bc.content.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [myHomeroomBroadcasts, hrPriorityFilter, hrSearchQuery]);
+
+  const filteredHomeroomResources = useMemo(() => {
+    return myHomeroomResources.filter((res) => {
+      if (hrSearchQuery.trim()) {
+        const q = hrSearchQuery.toLowerCase();
+        return (
+          res.title.toLowerCase().includes(q) ||
+          (res.description || '').toLowerCase().includes(q) ||
+          (res.topic_tag || '').toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [myHomeroomResources, hrSearchQuery]);
+
+  const [studentHrTab, setStudentHrTab] = useState<'circulars' | 'materials'>('circulars');
+
   useEffect(() => {
     if (myClasses.length > 0) {
       if (!selectedClassId || !myClasses.find((c) => c.id === selectedClassId)) {
@@ -139,6 +222,38 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [activeTestModal, setActiveTestModal] = useState<TestItem | null>(null);
   const [activeSubmitModal, setActiveSubmitModal] = useState<AssignmentItem | null>(null);
   const [editingAchievement, setEditingAchievement] = useState<Achievement | null>(null);
+
+  // Portal Navigation & AI Copilot Integration
+  const { isAiPanelOpen, toggleAiPanel, subscribeToNavigation } = usePortalNavigation();
+
+  useEffect(() => {
+    const unsubscribe = subscribeToNavigation((target) => {
+      if (target.view === 'awards') {
+        setActiveNavType('awards');
+      } else if (target.view === 'attendance') {
+        setActiveNavType('attendance');
+      } else if (target.view === 'hub') {
+        setActiveNavType('hub');
+      } else if (target.view === 'settings') {
+        setActiveNavType('settings');
+      } else if (target.view === 'support') {
+        setActiveNavType('support');
+      } else if (target.view === 'class') {
+        setActiveNavType('class');
+        if (target.classId && myClasses.some((c) => c.id === target.classId)) {
+          setSelectedClassId(target.classId);
+        } else if (myClasses.length > 0 && (!selectedClassId || !myClasses.some((c) => c.id === selectedClassId))) {
+          setSelectedClassId(myClasses[0].id);
+        }
+        if (target.subTab && ['broadcasts', 'resources', 'tasks', 'syllabus'].includes(target.subTab)) {
+          setClassSubTab(target.subTab as any);
+        }
+      } else if (target.modalAction === 'add_achievement') {
+        onAddAchievementClick();
+      }
+    });
+    return unsubscribe;
+  }, [subscribeToNavigation, myClasses, selectedClassId, onAddAchievementClick]);
 
   // Filter resources & broadcasts for active subject class
   const thisClassResources = useMemo(() => {
@@ -268,6 +383,19 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     triggerConfetti();
   };
 
+  const handleApplyLeaveSubmit = (data: {
+    startDate: string;
+    endDate: string;
+    reason: string;
+    leaveType: string;
+    fileName?: string;
+    fileUrl?: string;
+  }) => {
+    if (onApplyLeave) {
+      onApplyLeave(data);
+    }
+  };
+
   const handleTestSubmitSuccess = (testId: string, answers: Record<string, string>) => {
     // Determine score
     const totalQ = Object.keys(answers).length || 3;
@@ -322,7 +450,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 width: 34,
                 height: 34,
                 borderRadius: '50%',
-                background: '#2C6E6A',
+                background: sidebarAvatarUrl ? 'transparent' : '#2C6E6A',
                 color: '#FFFFFF',
                 display: 'flex',
                 alignItems: 'center',
@@ -330,9 +458,15 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 fontSize: 13,
                 fontWeight: 700,
                 flexShrink: 0,
+                overflow: 'hidden',
+                border: sidebarAvatarUrl ? '2px solid #2C6E6A' : 'none',
               }}
             >
-              {(currentStudent.name || 'S').charAt(0).toUpperCase()}
+              {sidebarAvatarUrl ? (
+                <img src={sidebarAvatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                (currentStudent.name || 'S').charAt(0).toUpperCase()
+              )}
             </div>
             <div style={{ overflow: 'hidden', flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -352,10 +486,92 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
         {/* Navigation Sections */}
         <nav className="nav-menu" style={{ flex: 1, padding: '10px 12px', overflowY: 'auto' }}>
+          {/* AI COPILOT QUICK DOCK TRIGGER */}
+          <button
+            type="button"
+            className={`nav-item ${isAiPanelOpen ? 'active' : ''}`}
+            onClick={toggleAiPanel}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '9px 12px',
+              fontSize: 13,
+              borderRadius: 8,
+              marginBottom: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: isAiPanelOpen
+                ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)'
+                : 'linear-gradient(135deg, rgba(84, 87, 254, 0.08) 0%, rgba(155, 81, 224, 0.08) 100%)',
+              border: isAiPanelOpen ? '1px solid #334155' : '1px solid rgba(155, 81, 224, 0.25)',
+              color: isAiPanelOpen ? '#FFFFFF' : '#4338CA',
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: isAiPanelOpen ? '0 4px 12px rgba(15, 23, 42, 0.15)' : 'none',
+              transition: 'all 0.18s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
+                  fill={isAiPanelOpen ? '#A78BFA' : 'url(#gemini-nav-icon)'}
+                />
+                <defs>
+                  <linearGradient id="gemini-nav-icon" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#1BA1E3" />
+                    <stop offset="0.5" stopColor="#5457FE" />
+                    <stop offset="1" stopColor="#9B51E0" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <span>Ask Gemini AI</span>
+            </div>
+            <span
+              style={{
+                fontSize: 9.5,
+                fontWeight: 700,
+                padding: '2px 6px',
+                borderRadius: 4,
+                background: isAiPanelOpen ? 'rgba(255, 255, 255, 0.15)' : '#E0E7FF',
+                color: isAiPanelOpen ? '#E0E7FF' : '#4338CA',
+              }}
+            >
+              ⌘K
+            </span>
+          </button>
+
           {/* 1. STUDENT MAIN / GENERAL PROFILE */}
           <div className="nav-label" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em' }}>
             STUDENT PROFILE &amp; RECORDS
           </div>
+          {/* 1.5 HOMEROOM CIRCULARS & NOTICES */}
+          <button
+            className={`nav-item ${activeNavType === 'homeroom_circulars' ? 'active' : ''}`}
+            onClick={() => setActiveNavType('homeroom_circulars')}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '8px 12px',
+              fontSize: 12.5,
+              borderRadius: 6,
+              marginBottom: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>📢 Class Circulars</span>
+            </div>
+            {(myHomeroomBroadcasts.length + myHomeroomResources.length) > 0 && (
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10, background: activeNavType === 'homeroom_circulars' ? '#2C6E6A' : '#FEF7EC', color: activeNavType === 'homeroom_circulars' ? '#FFFFFF' : '#9E6C1B' }}>
+                {myHomeroomBroadcasts.length + myHomeroomResources.length}
+              </span>
+            )}
+          </button>
+
           <button
             className={`nav-item ${activeNavType === 'awards' ? 'active' : ''}`}
             onClick={() => setActiveNavType('awards')}
@@ -730,29 +946,56 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                                           </div>
                                         </div>
 
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            if (res.external_link && !res.file_url) {
-                                              window.open(res.external_link, '_blank');
-                                            } else {
-                                              setPreviewingResource(res);
-                                            }
-                                          }}
-                                          style={{
-                                            padding: '4px 9px',
-                                            fontSize: 11,
-                                            fontWeight: 700,
-                                            background: '#2C6E6A',
-                                            color: '#FFFFFF',
-                                            border: 'none',
-                                            borderRadius: 4,
-                                            cursor: 'pointer',
-                                            whiteSpace: 'nowrap',
-                                          }}
-                                        >
-                                          {res.external_link && !res.file_url ? 'Open ↗' : 'View / Download'}
-                                        </button>
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              openFileInNewTab({
+                                                fileName: res.file_name || res.title,
+                                                fileUrl: res.file_url,
+                                                externalLink: res.external_link,
+                                                title: res.title,
+                                              });
+                                            }}
+                                            style={{
+                                              padding: '4px 9px',
+                                              fontSize: 11,
+                                              fontWeight: 700,
+                                              background: '#2C6E6A',
+                                              color: '#FFFFFF',
+                                              border: 'none',
+                                              borderRadius: 4,
+                                              cursor: 'pointer',
+                                              whiteSpace: 'nowrap',
+                                            }}
+                                          >
+                                            Open ↗
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              downloadFile({
+                                                fileName: res.file_name || `${res.title}.pdf`,
+                                                fileUrl: res.file_url,
+                                                externalLink: res.external_link,
+                                              });
+                                            }}
+                                            title="Download"
+                                            style={{
+                                              padding: '4px 8px',
+                                              fontSize: 11,
+                                              fontWeight: 700,
+                                              background: '#FAF9F6',
+                                              color: 'var(--neutral-dark)',
+                                              border: '1px solid var(--border-color)',
+                                              borderRadius: 4,
+                                              cursor: 'pointer',
+                                              whiteSpace: 'nowrap',
+                                            }}
+                                          >
+                                            ↓
+                                          </button>
+                                        </div>
                                       </div>
                                     );
                                   })}
@@ -909,31 +1152,55 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                               </div>
                             </div>
 
-                            {/* Action Button */}
-                            <div style={{ paddingTop: 10, borderTop: '1px solid #F0EFEA' }}>
+                            {/* Action Buttons */}
+                            <div style={{ display: 'flex', gap: 6 }}>
                               <button
                                 type="button"
                                 onClick={() => {
-                                  if (res.external_link && !res.file_url) {
-                                    window.open(res.external_link, '_blank');
-                                  } else {
-                                    setPreviewingResource(res);
-                                  }
+                                  openFileInNewTab({
+                                    fileName: res.file_name || res.title,
+                                    fileUrl: res.file_url,
+                                    externalLink: res.external_link,
+                                    title: res.title,
+                                  });
                                 }}
                                 style={{
-                                  width: '100%',
-                                  padding: '6px 12px',
-                                  fontSize: 11.5,
+                                  padding: '4px 10px',
+                                  fontSize: 11,
                                   fontWeight: 700,
                                   background: '#2C6E6A',
                                   color: '#FFFFFF',
                                   border: 'none',
                                   borderRadius: 4,
                                   cursor: 'pointer',
-                                  textAlign: 'center',
+                                  whiteSpace: 'nowrap',
                                 }}
                               >
-                                {res.external_link && !res.file_url ? 'Open Link ↗' : 'View & Download Material'}
+                                Open ↗
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  downloadFile({
+                                    fileName: res.file_name || `${res.title}.pdf`,
+                                    fileUrl: res.file_url,
+                                    externalLink: res.external_link,
+                                  });
+                                }}
+                                title="Download File"
+                                style={{
+                                  padding: '4px 8px',
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: '#FAF9F6',
+                                  color: 'var(--neutral-dark)',
+                                  border: '1px solid var(--border-color)',
+                                  borderRadius: 4,
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                ↓
                               </button>
                             </div>
                           </div>
@@ -1173,9 +1440,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                       Certified achievements submitted to your official school profile and verified by your class teacher.
                     </p>
                   </div>
-                  <button className="btn-primary" onClick={onAddAchievementClick} style={{ padding: '6px 14px', fontSize: 12 }}>
-                    + Upload New Award
-                  </button>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 4, background: '#FEF7EC', color: '#9E6C1B', border: '1px solid #F5DEB3' }}>
+                    {myAchievements.length} Distinctions
+                  </span>
                 </div>
 
                 {myAchievements.length === 0 ? (
@@ -1227,41 +1494,63 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                             </td>
                             <td style={{ padding: '10px 16px', verticalAlign: 'middle' }}>
                               {aw.file_name ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setViewingFile({
-                                      fileName: aw.file_name || 'Certificate.pdf',
-                                      fileUrl: aw.file_url,
-                                      studentName: currentStudent.name,
-                                      title: aw.title,
-                                      description: aw.description,
-                                      submissionDate: aw.created_at ? new Date(aw.created_at).toLocaleDateString() : undefined,
-                                    })
-                                  }
-                                  title={`Click to preview certificate: ${aw.file_name}`}
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 5,
-                                    maxWidth: 160,
-                                    padding: '3px 8px',
-                                    borderRadius: 4,
-                                    fontSize: 10.5,
-                                    fontWeight: 600,
-                                    background: '#EAF3EF',
-                                    color: '#2D6E5D',
-                                    border: '1px solid #C7E4D8',
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                  }}
-                                >
-                                  <span>📄</span>
-                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {aw.file_name}
-                                  </span>
-                                  <span style={{ fontSize: 10, opacity: 0.8, marginLeft: 'auto' }}>👁</span>
-                                </button>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openFileInNewTab({
+                                        fileName: aw.file_name || 'Certificate.pdf',
+                                        fileUrl: aw.file_url,
+                                        studentName: currentStudent.name,
+                                        title: aw.title,
+                                        description: aw.description,
+                                        submissionDate: aw.created_at ? new Date(aw.created_at).toLocaleDateString() : undefined,
+                                      })
+                                    }
+                                    title={`Click to open certificate in new tab: ${aw.file_name}`}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 5,
+                                      padding: '4px 9px',
+                                      borderRadius: 4,
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      background: '#EAF3EF',
+                                      color: '#2D6E5D',
+                                      border: '1px solid #C7E4D8',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    <span>↗ Open</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      downloadFile({
+                                        fileName: aw.file_name || 'Certificate.pdf',
+                                        fileUrl: aw.file_url,
+                                        studentName: currentStudent.name,
+                                        title: aw.title,
+                                        description: aw.description,
+                                        submissionDate: aw.created_at ? new Date(aw.created_at).toLocaleDateString() : undefined,
+                                      })
+                                    }
+                                    title="Download Certificate File"
+                                    style={{
+                                      padding: '4px 8px',
+                                      borderRadius: 4,
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      background: '#FAF9F6',
+                                      color: 'var(--neutral-dark)',
+                                      border: '1px solid var(--border-color)',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    ↓
+                                  </button>
+                                </div>
                               ) : (
                                 <span style={{ color: '#CBD5E1', fontSize: 11 }}>No file attached</span>
                               )}
@@ -1319,20 +1608,30 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         {activeNavType === 'attendance' && (
           <>
             <header className="content-header">
-              <div className="header-top">
+              <div className="header-top" style={{ alignItems: 'flex-start' }}>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#2C6E6A', letterSpacing: '0.06em' }}>
-                    ACADEMIC RECORDS
+                    ACADEMIC RECORDS · HOMEROOM GRADE {cleanGrade}-{cleanSection}
                   </div>
                   <h1 className="page-title" style={{ margin: '2px 0 0' }}>
                     School Attendance History
                   </h1>
                 </div>
 
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Overall Rate</div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: attendanceStats.rate >= 85 ? '#2C6E6A' : '#D9534F' }}>
-                    {attendanceStats.rate}%
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => setIsApplyLeaveOpen(true)}
+                    style={{ padding: '7px 16px', fontSize: 12 }}
+                  >
+                    + Apply for Leave / Sick Note
+                  </button>
+                  <div style={{ textAlign: 'right', borderLeft: '1px solid var(--border-color)', paddingLeft: 12 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Overall Rate</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: attendanceStats.rate >= 85 ? '#2C6E6A' : '#D9534F' }}>
+                      {attendanceStats.rate}%
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1494,6 +1793,561 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </>
         )}
 
+        {/* VIEW 4.5: HOMEROOM CIRCULARS & NOTICES FROM CLASS TEACHER */}
+        {activeNavType === 'homeroom_circulars' && (
+          <>
+            {/* Executive Hero Banner */}
+            <header
+              style={{
+                background: 'linear-gradient(135deg, #1C4D46 0%, #2C6E6A 50%, #3B8C80 100%)',
+                color: '#FFFFFF',
+                padding: '28px 36px',
+                borderBottom: '1px solid rgba(255,255,255,0.1)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 20,
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: 800,
+                      padding: '3px 9px',
+                      borderRadius: 20,
+                      background: 'rgba(255,255,255,0.2)',
+                      backdropFilter: 'blur(8px)',
+                      color: '#FFFFFF',
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    HOMEROOM HUB · GRADE {cleanGrade}-{cleanSection}
+                  </span>
+                  <span style={{ fontSize: 12, opacity: 0.85 }}>Official Class Channel</span>
+                </div>
+                <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', color: '#FFFFFF' }}>
+                  Class Circulars &amp; Direct Materials
+                </h1>
+                <p style={{ margin: '6px 0 0', fontSize: 13, opacity: 0.9, maxWidth: 580, lineHeight: 1.4 }}>
+                  Official notices, event circulars, weekly timetables, and resource files shared directly by your Homeroom Class Teacher.
+                </p>
+              </div>
+
+              {/* Quick Stat Chips */}
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <div
+                  style={{
+                    background: 'rgba(255,255,255,0.12)',
+                    backdropFilter: 'blur(10px)',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: 8,
+                    padding: '10px 16px',
+                    minWidth: 100,
+                    textAlign: 'center',
+                  }}
+                >
+                  <div style={{ fontSize: 20, fontWeight: 800, color: '#FFFFFF' }}>{myHomeroomBroadcasts.length}</div>
+                  <div style={{ fontSize: 10, textTransform: 'uppercase', opacity: 0.85, fontWeight: 700, marginTop: 2 }}>
+                    Notices
+                  </div>
+                </div>
+                <div
+                  style={{
+                    background: 'rgba(255,255,255,0.12)',
+                    backdropFilter: 'blur(10px)',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: 8,
+                    padding: '10px 16px',
+                    minWidth: 100,
+                    textAlign: 'center',
+                  }}
+                >
+                  <div style={{ fontSize: 20, fontWeight: 800, color: '#FFFFFF' }}>{myHomeroomResources.length}</div>
+                  <div style={{ fontSize: 10, textTransform: 'uppercase', opacity: 0.85, fontWeight: 700, marginTop: 2 }}>
+                    Materials
+                  </div>
+                </div>
+              </div>
+            </header>
+
+            <div className="content-body" style={{ padding: '24px 36px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Segmented Tab Bar & Controls */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                  background: '#FFFFFF',
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  border: '1px solid var(--border-color)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                }}
+              >
+                {/* Pill Tab Switcher */}
+                <div style={{ display: 'flex', gap: 6, background: '#FAF9F6', padding: 4, borderRadius: 8, border: '1px solid #ECEAE5' }}>
+                  <button
+                    type="button"
+                    onClick={() => setStudentHrTab('circulars')}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 18px',
+                      fontSize: 12.5,
+                      fontWeight: studentHrTab === 'circulars' ? 700 : 600,
+                      borderRadius: 6,
+                      border: 'none',
+                      background: studentHrTab === 'circulars' ? '#FFFFFF' : 'transparent',
+                      color: studentHrTab === 'circulars' ? '#2C6E6A' : 'var(--text-secondary)',
+                      boxShadow: studentHrTab === 'circulars' ? '0 2px 5px rgba(0,0,0,0.08)' : 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <span>📢 Notices &amp; Circulars</span>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        padding: '1px 7px',
+                        borderRadius: 10,
+                        background: studentHrTab === 'circulars' ? '#EAF3EF' : '#ECEAE5',
+                        color: studentHrTab === 'circulars' ? '#2D6E5D' : 'var(--text-secondary)',
+                      }}
+                    >
+                      {myHomeroomBroadcasts.length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStudentHrTab('materials')}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 18px',
+                      fontSize: 12.5,
+                      fontWeight: studentHrTab === 'materials' ? 700 : 600,
+                      borderRadius: 6,
+                      border: 'none',
+                      background: studentHrTab === 'materials' ? '#FFFFFF' : 'transparent',
+                      color: studentHrTab === 'materials' ? '#2C6E6A' : 'var(--text-secondary)',
+                      boxShadow: studentHrTab === 'materials' ? '0 2px 5px rgba(0,0,0,0.08)' : 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <span>📚 Class Materials &amp; Timetables</span>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        padding: '1px 7px',
+                        borderRadius: 10,
+                        background: studentHrTab === 'materials' ? '#EAF3EF' : '#ECEAE5',
+                        color: studentHrTab === 'materials' ? '#2D6E5D' : 'var(--text-secondary)',
+                      }}
+                    >
+                      {myHomeroomResources.length}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Search input & Filter pills */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  {studentHrTab === 'circulars' && (
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {(['all', 'pinned', 'urgent', 'important'] as const).map((pri) => (
+                        <button
+                          key={pri}
+                          type="button"
+                          onClick={() => setHrPriorityFilter(pri)}
+                          style={{
+                            padding: '5px 10px',
+                            fontSize: 11,
+                            fontWeight: hrPriorityFilter === pri ? 700 : 500,
+                            borderRadius: 4,
+                            border: hrPriorityFilter === pri ? '1px solid #C7E4D8' : '1px solid #ECEAE5',
+                            background: hrPriorityFilter === pri ? '#EAF3EF' : '#FAF9F6',
+                            color: hrPriorityFilter === pri ? '#2D6E5D' : 'var(--text-secondary)',
+                            cursor: 'pointer',
+                            textTransform: 'capitalize',
+                          }}
+                        >
+                          {pri === 'all' ? 'All Updates' : pri}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder={`Search ${studentHrTab === 'circulars' ? 'circulars...' : 'materials...'}`}
+                    value={hrSearchQuery}
+                    onChange={(e) => setHrSearchQuery(e.target.value)}
+                    style={{ padding: '6px 12px', fontSize: 12, width: 200 }}
+                  />
+                </div>
+              </div>
+
+              {/* TAB 1: NOTICES & CIRCULARS */}
+              {studentHrTab === 'circulars' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {filteredHomeroomBroadcasts.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '60px 24px',
+                        background: '#FFFFFF',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 12,
+                        textAlign: 'center',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 64,
+                          height: 64,
+                          borderRadius: '50%',
+                          background: 'linear-gradient(135deg, #EAF3EF 0%, #D8EDE5 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 28,
+                          marginBottom: 16,
+                          boxShadow: '0 4px 12px rgba(44, 110, 106, 0.12)',
+                        }}
+                      >
+                        📢
+                      </div>
+                      <h3 style={{ fontSize: 17, fontWeight: 800, margin: 0, color: 'var(--neutral-dark)' }}>
+                        {hrSearchQuery || hrPriorityFilter !== 'all'
+                          ? 'No matching notices found'
+                          : 'All Caught Up on Class Circulars'}
+                      </h3>
+                      <p style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 460, margin: '8px 0 16px', lineHeight: 1.5 }}>
+                        {hrSearchQuery || hrPriorityFilter !== 'all'
+                          ? 'Try clearing the search or changing the filter to see all updates.'
+                          : `Your Homeroom Class Teacher hasn't posted any circulars for Grade ${cleanGrade}-${cleanSection} today. Official updates and school event guidelines will appear here.`}
+                      </p>
+                      {(hrSearchQuery || hrPriorityFilter !== 'all') && (
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => {
+                            setHrSearchQuery('');
+                            setHrPriorityFilter('all');
+                          }}
+                          style={{ padding: '6px 16px', fontSize: 12 }}
+                        >
+                          Clear Filters
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    filteredHomeroomBroadcasts.map((bc) => {
+                      const isPinned = !!bc.is_pinned;
+                      const isUrgent = bc.priority === 'urgent';
+                      const isImportant = bc.priority === 'important';
+
+                      let accentColor = '#2C6E6A';
+                      if (isUrgent) accentColor = '#EF4444';
+                      else if (isImportant) accentColor = '#3B82F6';
+                      else if (isPinned) accentColor = '#F59E0B';
+
+                      return (
+                        <div
+                          key={bc.id}
+                          style={{
+                            background: '#FFFFFF',
+                            border: '1px solid var(--border-color)',
+                            borderLeft: `5px solid ${accentColor}`,
+                            borderRadius: 10,
+                            padding: '22px 26px',
+                            boxShadow: '0 2px 10px rgba(0,0,0,0.03)',
+                            transition: 'transform 0.2s, box-shadow 0.2s',
+                          }}
+                        >
+                          {/* Card Top Meta */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div
+                                style={{
+                                  width: 36,
+                                  height: 36,
+                                  borderRadius: '50%',
+                                  background: '#2C6E6A',
+                                  color: '#FFFFFF',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: 14,
+                                  fontWeight: 800,
+                                }}
+                              >
+                                👨‍🏫
+                              </div>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--neutral-dark)' }}>
+                                    {bc.teacher_name || 'Class Teacher'}
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontSize: 9.5,
+                                      fontWeight: 800,
+                                      padding: '1px 6px',
+                                      borderRadius: 3,
+                                      background: '#EAF3EF',
+                                      color: '#2D6E5D',
+                                      border: '1px solid #C7E4D8',
+                                      textTransform: 'uppercase',
+                                    }}
+                                  >
+                                    Class Teacher · Grade {cleanGrade}-{cleanSection}
+                                  </span>
+                                </div>
+                                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                  {bc.created_at ? new Date(bc.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'Recently'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Badges */}
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              {isPinned && (
+                                <span style={{ fontSize: 10.5, fontWeight: 800, padding: '3px 8px', borderRadius: 4, background: '#FEF7EC', color: '#9E6C1B', border: '1px solid #F5DEB3' }}>
+                                  📌 PINNED
+                                </span>
+                              )}
+                              {isUrgent && (
+                                <span style={{ fontSize: 10.5, fontWeight: 800, padding: '3px 8px', borderRadius: 4, background: '#FDF1F0', color: '#A83B38', border: '1px solid #F5C6CB' }}>
+                                  🚨 URGENT
+                                </span>
+                              )}
+                              {isImportant && (
+                                <span style={{ fontSize: 10.5, fontWeight: 800, padding: '3px 8px', borderRadius: 4, background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE' }}>
+                                  ⭐ IMPORTANT
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Title */}
+                          <h3 style={{ fontSize: 16.5, fontWeight: 800, margin: '0 0 10px', color: 'var(--neutral-dark)', letterSpacing: '-0.01em' }}>
+                            {bc.title}
+                          </h3>
+
+                          {/* Content */}
+                          <div style={{ fontSize: 13.5, color: '#374151', lineHeight: 1.65, whiteSpace: 'pre-wrap', background: '#FAF9F6', padding: '14px 16px', borderRadius: 8, border: '1px solid #ECEAE5' }}>
+                            {bc.content}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {/* TAB 2: CLASS MATERIALS & TIMETABLES */}
+              {studentHrTab === 'materials' && (
+                <div>
+                  {filteredHomeroomResources.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '60px 24px',
+                        background: '#FFFFFF',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 12,
+                        textAlign: 'center',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 64,
+                          height: 64,
+                          borderRadius: '50%',
+                          background: 'linear-gradient(135deg, #FEF7EC 0%, #FDEED8 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 28,
+                          marginBottom: 16,
+                          boxShadow: '0 4px 12px rgba(212, 163, 115, 0.15)',
+                        }}
+                      >
+                        📂
+                      </div>
+                      <h3 style={{ fontSize: 17, fontWeight: 800, margin: 0, color: 'var(--neutral-dark)' }}>
+                        {hrSearchQuery ? 'No matching materials found' : 'No Class Materials Uploaded Yet'}
+                      </h3>
+                      <p style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 460, margin: '8px 0 16px', lineHeight: 1.5 }}>
+                        {hrSearchQuery
+                          ? 'Try clearing the search input.'
+                          : `Timetables, consent slips, and documents uploaded by your Homeroom Teacher for Grade ${cleanGrade}-${cleanSection} will be accessible here.`}
+                      </p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+                      {filteredHomeroomResources.map((res) => {
+                        let typeIcon = '📄';
+                        let typeBg = '#EAF3EF';
+                        let typeColor = '#2D6E5D';
+                        if (res.resource_type === 'pdf') {
+                          typeIcon = '📕';
+                          typeBg = '#FDF1F0';
+                          typeColor = '#A83B38';
+                        } else if (res.resource_type === 'slides') {
+                          typeIcon = '📊';
+                          typeBg = '#FEF7EC';
+                          typeColor = '#9E6C1B';
+                        } else if (res.resource_type === 'video') {
+                          typeIcon = '🎥';
+                          typeBg = '#F3EFFA';
+                          typeColor = '#7C5CBF';
+                        } else if (res.resource_type === 'link') {
+                          typeIcon = '🔗';
+                          typeBg = '#EFF6FF';
+                          typeColor = '#1E40AF';
+                        }
+
+                        return (
+                          <div
+                            key={res.id}
+                            style={{
+                              background: '#FFFFFF',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: 10,
+                              padding: '18px 20px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'space-between',
+                              gap: 14,
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                              transition: 'transform 0.2s, box-shadow 0.2s',
+                            }}
+                          >
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                                <span
+                                  style={{
+                                    fontSize: 10.5,
+                                    fontWeight: 800,
+                                    padding: '2px 8px',
+                                    borderRadius: 4,
+                                    background: typeBg,
+                                    color: typeColor,
+                                    textTransform: 'uppercase',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                  }}
+                                >
+                                  <span>{typeIcon}</span>
+                                  <span>{res.resource_type}</span>
+                                </span>
+                                {res.topic_tag && (
+                                  <span style={{ fontSize: 10.5, color: '#2C6E6A', fontWeight: 700, background: '#FAF9F6', padding: '2px 6px', borderRadius: 4, border: '1px solid #ECEAE5' }}>
+                                    #{res.topic_tag}
+                                  </span>
+                                )}
+                              </div>
+
+                              <h4 style={{ fontSize: 14.5, fontWeight: 800, margin: '0 0 6px', color: 'var(--neutral-dark)', lineHeight: 1.35 }}>
+                                {res.title}
+                              </h4>
+                              {res.description && (
+                                <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.45 }}>
+                                  {res.description}
+                                </p>
+                              )}
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTop: '1px solid #ECEAE5' }}>
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    openFileInNewTab({
+                                      fileName: res.file_name || res.title,
+                                      fileUrl: res.file_url,
+                                      externalLink: res.external_link,
+                                      title: res.title,
+                                    });
+                                  }}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    padding: '6px 12px',
+                                    fontSize: 11.5,
+                                    fontWeight: 700,
+                                    background: '#2C6E6A',
+                                    color: '#FFFFFF',
+                                    border: 'none',
+                                    borderRadius: 5,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <span>↗ Open</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    downloadFile({
+                                      fileName: res.file_name || `${res.title}.pdf`,
+                                      fileUrl: res.file_url,
+                                      externalLink: res.external_link,
+                                    });
+                                  }}
+                                  title="Download Resource"
+                                  style={{
+                                    padding: '6px 10px',
+                                    fontSize: 11.5,
+                                    fontWeight: 700,
+                                    background: '#FAF9F6',
+                                    color: 'var(--neutral-dark)',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: 5,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  ↓ Download
+                                </button>
+                              </div>
+                              <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                {res.file_size || 'Material'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
         {/* VIEW 5: SETTINGS & PASSWORD RESET */}
         {activeNavType === 'settings' && (
           <div style={{ padding: '24px 32px' }}>
@@ -1558,6 +2412,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           setViewingFile(null);
           setPreviewingResource(null);
         }}
+      />
+      {/* Apply for Authorized Leave / Sick Note Modal */}
+      <ApplyLeaveModal
+        isOpen={isApplyLeaveOpen}
+        onClose={() => setIsApplyLeaveOpen(false)}
+        onSubmit={handleApplyLeaveSubmit}
+        studentName={currentStudent.name}
+        studentGrade={`Grade ${cleanGrade}-${cleanSection}`}
       />
     </div>
   );

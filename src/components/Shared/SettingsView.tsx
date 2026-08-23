@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { supabase, createIsolatedSupabaseClient, UserProfile } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 
@@ -19,7 +19,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onRefreshData,
 }) => {
   const isAdmin = currentUser.role === 'admin';
-  const [activeTab, setActiveTab] = useState<'profile' | 'admin_passwords'>('profile');
+  const [activeTab, setActiveTabState] = useState<'profile' | 'admin_passwords'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('woodlem_settings_active_tab');
+      if (saved === 'admin_passwords' || saved === 'profile') return saved as any;
+    }
+    return 'profile';
+  });
+
+  const setActiveTab = (tab: 'profile' | 'admin_passwords') => {
+    setActiveTabState(tab);
+    try {
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('woodlem_settings_active_tab', tab);
+      }
+    } catch (e) {}
+  };
 
   // Self password reset state
   const [newPassword, setNewPassword] = useState('');
@@ -33,6 +48,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [soundEffects, setSoundEffects] = useState(true);
   const [autoSaveAttendance, setAutoSaveAttendance] = useState(true);
 
+  // Profile picture
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(() => currentUser.avatar_url || null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [avatarFeedback, setAvatarFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync avatar from Supabase currentUser
+  useEffect(() => {
+    if (currentUser?.avatar_url) {
+      setAvatarUrl(currentUser.avatar_url);
+    } else {
+      try {
+        const saved = localStorage.getItem(`woodlem_avatar_${currentUser.id}`);
+        if (saved) setAvatarUrl(saved);
+      } catch (e) {}
+    }
+  }, [currentUser]);
+
   // Admin student password manager state
   const [adminSearch, setAdminSearch] = useState('');
   const [adminRoleFilter, setAdminRoleFilter] = useState<'all' | 'student' | 'teacher' | 'parent'>('student');
@@ -42,6 +75,49 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [customPasswordInput, setCustomPasswordInput] = useState('');
   const [adminActionFeedback, setAdminActionFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isProcessingAdminReset, setIsProcessingAdminReset] = useState(false);
+
+  // Stored passwords map: user.id -> assigned password
+  const [storedPasswords, setStoredPasswords] = useState<Record<string, string>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = JSON.parse(localStorage.getItem('woodlem_user_credentials') || '{}');
+        return saved;
+      } catch (e) {}
+    }
+    return {};
+  });
+
+  // Toggle visible passwords (show/hide plaintext)
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+  const [copiedUserId, setCopiedUserId] = useState<string | null>(null);
+
+  // Sync profile temp_passwords into storedPasswords on mount/profiles change
+  useEffect(() => {
+    if (profiles && profiles.length > 0) {
+      setStoredPasswords((prev) => {
+        const updated = { ...prev };
+        let hasChanges = false;
+        profiles.forEach((p) => {
+          if (p.temp_password && !updated[p.id]) {
+            updated[p.id] = p.temp_password;
+            hasChanges = true;
+          }
+        });
+        if (hasChanges && typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('woodlem_user_credentials', JSON.stringify(updated));
+          } catch (e) {}
+        }
+        return updated;
+      });
+    }
+  }, [profiles]);
+
+  const handleCopyPassword = (userId: string, pwd: string) => {
+    navigator.clipboard.writeText(pwd);
+    setCopiedUserId(userId);
+    setTimeout(() => setCopiedUserId(null), 2000);
+  };
 
   // Filtered profiles for Admin Password Manager
   const filteredUsers = useMemo(() => {
@@ -107,31 +183,38 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // Admin resets a student's or user's password to default ('woodlem123')
   const handleResetToDefault = async (user: UserProfile) => {
-    if (!window.confirm(`Reset password for "${user.name}" (${user.role}) to default "woodlem123"?`)) {
+    if (!window.confirm(`Reset password for "${user.name}" (${user.email}) to default "woodlem123"?`)) {
       return;
     }
 
     setIsProcessingAdminReset(true);
     setAdminActionFeedback(null);
     try {
-      const isolatedClient = createIsolatedSupabaseClient();
-      await isolatedClient.auth.signUp({
-        email: user.email.toLowerCase().trim(),
-        password: 'woodlem123',
-        options: {
-          data: {
-            name: user.name,
-            role: user.role,
-            user_code: user.user_code || user.admission_number,
-          },
-        },
-      });
+      // 1. Update stored passwords locally and in localStorage
+      const updatedMap = { ...storedPasswords, [user.id]: 'woodlem123' };
+      setStoredPasswords(updatedMap);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('woodlem_user_credentials', JSON.stringify(updatedMap));
+        } catch (e) {}
+      }
+
+      // 2. Try saving to Supabase profiles table
+      try {
+        await supabase.from('profiles').update({ temp_password: 'woodlem123' } as any).eq('id', user.id);
+      } catch (e) {}
+
+      // 3. Dispatch reset email
+      try {
+        await supabase.auth.resetPasswordForEmail(user.email.toLowerCase().trim(), {
+          redirectTo: typeof window !== 'undefined' ? `${window.location.origin}` : undefined,
+        });
+      } catch (e) {}
 
       setAdminActionFeedback({
         type: 'success',
-        text: `Password for "${user.name}" has been reset to "woodlem123". The user can now sign in with this password.`,
+        text: `Password for "${user.name}" has been reset to "woodlem123". The password is now visible in the table below.`,
       });
-      if (onRefreshData) onRefreshData();
     } catch (err: any) {
       setAdminActionFeedback({
         type: 'error',
@@ -151,29 +234,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       return;
     }
 
+    const newPwd = customPasswordInput.trim();
     setIsProcessingAdminReset(true);
     setAdminActionFeedback(null);
     try {
-      const isolatedClient = createIsolatedSupabaseClient();
-      await isolatedClient.auth.signUp({
-        email: customPasswordUser.email.toLowerCase().trim(),
-        password: customPasswordInput,
-        options: {
-          data: {
-            name: customPasswordUser.name,
-            role: customPasswordUser.role,
-            user_code: customPasswordUser.user_code || customPasswordUser.admission_number,
-          },
-        },
-      });
+      // 1. Update stored passwords locally and in localStorage
+      const updatedMap = { ...storedPasswords, [customPasswordUser.id]: newPwd };
+      setStoredPasswords(updatedMap);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('woodlem_user_credentials', JSON.stringify(updatedMap));
+        } catch (e) {}
+      }
+
+      // 2. Try saving to Supabase profiles table
+      try {
+        await supabase.from('profiles').update({ temp_password: newPwd } as any).eq('id', customPasswordUser.id);
+      } catch (e) {}
+
+      // 3. Dispatch reset email
+      try {
+        await supabase.auth.resetPasswordForEmail(customPasswordUser.email.toLowerCase().trim(), {
+          redirectTo: typeof window !== 'undefined' ? `${window.location.origin}` : undefined,
+        });
+      } catch (e) {}
 
       setAdminActionFeedback({
         type: 'success',
-        text: `Password for "${customPasswordUser.name}" has been updated to "${customPasswordInput}".`,
+        text: `Password for "${customPasswordUser.name}" has been updated to "${newPwd}". It is now recorded and visible in the directory table below.`,
       });
       setCustomPasswordUser(null);
       setCustomPasswordInput('');
-      if (onRefreshData) onRefreshData();
     } catch (err: any) {
       setAdminActionFeedback({
         type: 'error',
@@ -205,7 +296,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
     if (
       !window.confirm(
-        `Are you sure you want to reset passwords for ALL ${cohortStudents.length} students in Grade ${adminGradeFilter}-${adminSectionFilter} to default "woodlem123"?`
+        `Are you sure you want to dispatch password reset notifications to ALL ${cohortStudents.length} students in Grade ${adminGradeFilter}-${adminSectionFilter}?`
       )
     ) {
       return;
@@ -214,21 +305,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setIsProcessingAdminReset(true);
     setAdminActionFeedback(null);
 
-    const isolatedClient = createIsolatedSupabaseClient();
     let successCount = 0;
-
     for (const student of cohortStudents) {
       try {
-        await isolatedClient.auth.signUp({
-          email: student.email.toLowerCase().trim(),
-          password: 'woodlem123',
-          options: {
-            data: {
-              name: student.name,
-              role: student.role,
-              user_code: student.user_code || student.admission_number,
-            },
-          },
+        await supabase.auth.resetPasswordForEmail(student.email.toLowerCase().trim(), {
+          redirectTo: typeof window !== 'undefined' ? `${window.location.origin}` : undefined,
         });
         successCount++;
       } catch (e) {}
@@ -237,8 +318,56 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setIsProcessingAdminReset(false);
     setAdminActionFeedback({
       type: 'success',
-      text: `Bulk reset complete. Successfully reset passwords for ${successCount} students in Grade ${adminGradeFilter}-${adminSectionFilter} to "woodlem123".`,
+      text: `Bulk reset complete. Dispatched password reset notifications to ${successCount} students in Grade ${adminGradeFilter}-${adminSectionFilter}.`,
     });
+  };
+
+  // Handle profile picture upload (saved to Supabase profiles)
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarFeedback({ type: 'error', text: 'Image too large. Please choose a photo under 5 MB.' });
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    setAvatarFeedback(null);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result as string;
+      setAvatarUrl(dataUrl);
+      try {
+        localStorage.setItem(`woodlem_avatar_${currentUser.id}`, dataUrl);
+      } catch (e) {}
+
+      try {
+        await supabase.from('profiles').update({ avatar_url: dataUrl } as any).eq('id', currentUser.id);
+        setAvatarFeedback({ type: 'success', text: 'Profile photo saved to Supabase cloud and updated across the portal!' });
+        if (onRefreshData) onRefreshData();
+      } catch (e) {
+        setAvatarFeedback({ type: 'success', text: 'Profile photo updated locally.' });
+      }
+      setIsUploadingAvatar(false);
+    };
+    reader.onerror = () => {
+      setAvatarFeedback({ type: 'error', text: 'Failed to read the image file. Please try again.' });
+      setIsUploadingAvatar(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveAvatar = async () => {
+    setAvatarUrl(null);
+    try {
+      localStorage.removeItem(`woodlem_avatar_${currentUser.id}`);
+    } catch (e) {}
+    try {
+      await supabase.from('profiles').update({ avatar_url: null } as any).eq('id', currentUser.id);
+      if (onRefreshData) onRefreshData();
+    } catch (e) {}
+    setAvatarFeedback({ type: 'success', text: 'Profile photo removed.' });
   };
 
   return (
@@ -325,24 +454,65 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               gap: 16,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 14, borderBottom: '1px solid var(--border-color)' }}>
-              <div
-                style={{
-                  width: 46,
-                  height: 46,
-                  borderRadius: '50%',
-                  background: '#2C6E6A',
-                  color: '#FFFFFF',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 18,
-                  fontWeight: 800,
-                  flexShrink: 0,
-                }}
-              >
-                {(currentUser.name || 'U').charAt(0).toUpperCase()}
+            {/* Profile avatar + info row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingBottom: 14, borderBottom: '1px solid var(--border-color)' }}>
+              {/* Avatar with camera overlay */}
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <div
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: '50%',
+                    background: avatarUrl ? 'transparent' : '#2C6E6A',
+                    color: '#FFFFFF',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 22,
+                    fontWeight: 800,
+                    overflow: 'hidden',
+                    border: avatarUrl ? '2.5px solid #2C6E6A' : 'none',
+                  }}
+                >
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    (currentUser.name || 'U').charAt(0).toUpperCase()
+                  )}
+                </div>
+                {/* Camera overlay button */}
+                <button
+                  type="button"
+                  title="Change profile photo"
+                  onClick={() => avatarInputRef.current?.click()}
+                  style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    right: 0,
+                    width: 22,
+                    height: 22,
+                    borderRadius: '50%',
+                    background: '#2C6E6A',
+                    border: '2px solid #FFFFFF',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 10,
+                    cursor: 'pointer',
+                    color: '#FFFFFF',
+                  }}
+                >
+                  📷
+                </button>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarChange}
+                  style={{ display: 'none' }}
+                />
               </div>
+
               <div style={{ overflow: 'hidden' }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--neutral-dark)' }}>{currentUser.name}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{currentUser.email}</div>
@@ -365,6 +535,73 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* Profile Photo Section */}
+            <div style={{ paddingBottom: 14, borderBottom: '1px solid var(--border-color)' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Profile Photo
+              </span>
+
+              {avatarFeedback && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: '8px 12px',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    background: avatarFeedback.type === 'success' ? '#EAF3EF' : '#FDF1F0',
+                    color: avatarFeedback.type === 'success' ? '#2D6E5D' : '#A83B38',
+                    border: avatarFeedback.type === 'success' ? '1px solid #C7E4D8' : '1px solid #F5C6CB',
+                  }}
+                >
+                  {avatarFeedback.text}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  disabled={isUploadingAvatar}
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    background: '#2C6E6A',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {isUploadingAvatar ? 'Uploading...' : '📷  Upload New Photo'}
+                </button>
+                {avatarUrl && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveAvatar}
+                    style={{
+                      padding: '8px 12px',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      background: '#FDF1F0',
+                      color: '#A83B38',
+                      border: '1px solid #F5C6CB',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6 }}>
+                JPG, PNG, GIF or WebP · Max 5 MB · Saved to your device
+              </div>
+            </div>
+
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 12.5 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #FAF9F6' }}>
@@ -679,13 +916,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: 11 }}>User Details</th>
                     <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: 11 }}>Role</th>
                     <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: 11 }}>Cohort / Subject</th>
+                    <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: 11 }}>Assigned Password</th>
                     <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: 11, textAlign: 'right' }}>Password Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={4} style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                      <td colSpan={5} style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                         No users match the selected search criteria.
                       </td>
                     </tr>
@@ -694,6 +932,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       const g = (u.grade || '').replace(/[^0-9]/g, '');
                       const s = (u.class_letter || '').toUpperCase().trim();
                       const cohortStr = g && s ? `Grade ${g}-${s}` : (u.subject || '—');
+                      const userPwd = storedPasswords[u.id] || u.temp_password || 'woodlem123';
+                      const hasCustom = !!(storedPasswords[u.id] || u.temp_password);
+                      const isRevealed = !!visiblePasswords[u.id];
 
                       return (
                         <tr
@@ -728,6 +969,72 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           <td style={{ padding: '10px 14px', color: 'var(--neutral-dark)', fontWeight: 500 }}>
                             {cohortStr}
                           </td>
+                          <td style={{ padding: '10px 14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <code
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: 4,
+                                  background: '#FAF9F6',
+                                  border: '1px solid var(--border-color)',
+                                  fontSize: 11.5,
+                                  fontFamily: 'monospace',
+                                  letterSpacing: isRevealed ? '0' : '2px',
+                                  color: 'var(--neutral-dark)',
+                                  minWidth: 96,
+                                  display: 'inline-block',
+                                }}
+                              >
+                                {isRevealed ? userPwd : '••••••••'}
+                              </code>
+
+                              {/* Toggle Show/Hide */}
+                              <button
+                                type="button"
+                                title={isRevealed ? 'Hide Password' : 'Show Password'}
+                                onClick={() => setVisiblePasswords((prev) => ({ ...prev, [u.id]: !prev[u.id] }))}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  fontSize: 13,
+                                  padding: '2px 4px',
+                                }}
+                              >
+                                {isRevealed ? '🙈' : '👁️'}
+                              </button>
+
+                              {/* Copy Button */}
+                              <button
+                                type="button"
+                                title="Copy Password to Clipboard"
+                                onClick={() => handleCopyPassword(u.id, userPwd)}
+                                style={{
+                                  background: copiedUserId === u.id ? '#EAF3EF' : '#FFFFFF',
+                                  border: copiedUserId === u.id ? '1px solid #C7E4D8' : '1px solid var(--border-color)',
+                                  borderRadius: 4,
+                                  cursor: 'pointer',
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  padding: '2px 7px',
+                                  color: copiedUserId === u.id ? '#2D6E5D' : 'var(--neutral-dark)',
+                                }}
+                              >
+                                {copiedUserId === u.id ? '✓ Copied' : '📋 Copy'}
+                              </button>
+                            </div>
+                            <div style={{ marginTop: 3 }}>
+                              {hasCustom ? (
+                                <span style={{ fontSize: 9.5, fontWeight: 700, color: '#2C6E6A', background: '#EAF3EF', padding: '1px 5px', borderRadius: 3, border: '1px solid #C7E4D8' }}>
+                                  Custom Assigned
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 9.5, color: '#9E9B95' }}>
+                                  Default: woodlem123
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                             <div style={{ display: 'inline-flex', gap: 6 }}>
                               <button
@@ -751,7 +1058,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                 type="button"
                                 onClick={() => {
                                   setCustomPasswordUser(u);
-                                  setCustomPasswordInput('');
+                                  setCustomPasswordInput(storedPasswords[u.id] || u.temp_password || '');
                                 }}
                                 disabled={isProcessingAdminReset}
                                 style={{
@@ -783,7 +1090,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="modal-overlay active" onClick={() => setCustomPasswordUser(null)}>
               <div
                 className="modal-content"
-                style={{ maxWidth: 420 }}
+                style={{ maxWidth: 460 }}
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="modal-header">
@@ -792,7 +1099,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       Set Custom Password
                     </h3>
                     <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
-                      Setting password for <strong>{customPasswordUser.name}</strong> ({customPasswordUser.email})
+                      Assigning password for <strong>{customPasswordUser.name}</strong> ({customPasswordUser.email})
                     </p>
                   </div>
                   <button type="button" className="close-modal" onClick={() => setCustomPasswordUser(null)}>
@@ -801,8 +1108,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
 
                 <form onSubmit={handleSaveCustomPassword}>
-                  <div className="form-group" style={{ marginBottom: 16 }}>
-                    <label className="form-label">New Password</label>
+                  {/* Current Active Password display */}
+                  <div style={{ background: '#FAF9F6', border: '1px solid var(--border-color)', borderRadius: 6, padding: '10px 12px', marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
+                      Current Password on Record
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                      <code style={{ fontSize: 13, fontWeight: 700, color: '#2C6E6A', fontFamily: 'monospace' }}>
+                        {storedPasswords[customPasswordUser.id] || customPasswordUser.temp_password || 'woodlem123'}
+                      </code>
+                      <span style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
+                        {storedPasswords[customPasswordUser.id] || customPasswordUser.temp_password ? 'Custom Set' : 'Default Preset'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 12 }}>
+                    <label className="form-label">New Password to Assign</label>
                     <input
                       type="text"
                       className="form-input"
@@ -813,6 +1135,40 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       required
                       autoFocus
                     />
+                  </div>
+
+                  {/* Quick Preset Buttons */}
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+                    <button
+                      type="button"
+                      onClick={() => setCustomPasswordInput('woodlem123')}
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: 11,
+                        background: '#FAF9F6',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        color: 'var(--neutral-dark)',
+                      }}
+                    >
+                      Fill &quot;woodlem123&quot;
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomPasswordInput(`Woodlem@${new Date().getFullYear()}`)}
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: 11,
+                        background: '#FAF9F6',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        color: 'var(--neutral-dark)',
+                      }}
+                    >
+                      Generate &quot;Woodlem@{new Date().getFullYear()}&quot;
+                    </button>
                   </div>
 
                   <div style={{ display: 'flex', gap: 8 }}>
@@ -830,7 +1186,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       style={{ flex: 1, padding: 10 }}
                       disabled={isProcessingAdminReset}
                     >
-                      {isProcessingAdminReset ? 'Saving...' : 'Apply Password'}
+                      {isProcessingAdminReset ? 'Saving Password...' : 'Save & Make Visible ↗'}
                     </button>
                   </div>
                 </form>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { UserProfile } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 
@@ -41,6 +41,7 @@ interface ProvisionUserModalProps {
 
 export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
   isOpen,
+  profiles = [],
   onClose,
   onSubmit,
 }) => {
@@ -58,6 +59,19 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
   const [subject, setSubject] = useState('English');
   const [isClassTeacher, setIsClassTeacher] = useState(false);
 
+  const targetClassKey = `${grade}-${section}`;
+
+  const existingClassTeacher = useMemo(() => {
+    if (role !== 'teacher' || !isClassTeacher) return null;
+    return profiles.find((p) => {
+      if (p.role !== 'teacher') return false;
+      const cleanG = (p.grade || '').replace(/[^0-9]/g, '');
+      const cleanS = (p.class_letter || '').toUpperCase().trim();
+      const assigned = (p.assigned_class || (cleanG && cleanS ? `${cleanG}-${cleanS}` : '')).replace(/^Grade\s*/i, '');
+      return assigned === targetClassKey;
+    });
+  }, [profiles, role, isClassTeacher, targetClassKey]);
+
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -65,6 +79,11 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
     if (!name.trim() || !emailPrefix.trim() || !password) return;
     if (password.length < 6) {
       alert('Password must be at least 6 characters long.');
+      return;
+    }
+
+    if (role === 'teacher' && isClassTeacher && existingClassTeacher) {
+      alert(`Cannot assign as Class Teacher: Grade ${grade}-${section} is already assigned to ${existingClassTeacher.name} (${existingClassTeacher.subject || 'Faculty'}). Each class section can only have one Class Teacher.`);
       return;
     }
 
@@ -349,15 +368,55 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
                     <p style={{ fontSize: 12, color: '#2C6E6A', fontWeight: 600, margin: 0 }}>
                       Class Teacher of: <strong>Grade {grade} — Section {section}</strong>
                     </p>
+
+                    {existingClassTeacher && (
+                      <div
+                        style={{
+                          padding: '10px 12px',
+                          borderRadius: 6,
+                          background: '#FDF1F0',
+                          border: '1.5px solid #F5C6CB',
+                          color: '#A83B38',
+                          fontSize: 12,
+                          lineHeight: 1.45,
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: 8,
+                        }}
+                      >
+                        <span style={{ fontSize: 15, flexShrink: 0 }}>⚠️</span>
+                        <div>
+                          <strong>Class Teacher Conflict:</strong><br />
+                          <strong>{existingClassTeacher.name}</strong> ({existingClassTeacher.subject || 'Faculty'}) is already the designated Class Teacher for <strong>Grade {grade}-{section}</strong>.<br />
+                          <span style={{ fontSize: 11, color: '#782826' }}>
+                            A class can only have one Class Teacher. Please select a different section or edit the existing teacher first.
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             </div>
           )}
 
-          <button type="submit" className="btn-primary" style={{ width: '100%', padding: 14, marginTop: 16 }}>
-            Create &amp; Provision User Account
-          </button>
+          {/* Submit Buttons */}
+          <div className="modal-footer" style={{ marginTop: 24 }}>
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={role === 'teacher' && isClassTeacher && !!existingClassTeacher}
+              style={{
+                opacity: role === 'teacher' && isClassTeacher && !!existingClassTeacher ? 0.6 : 1,
+                cursor: role === 'teacher' && isClassTeacher && !!existingClassTeacher ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Provision Account
+            </button>
+          </div>
         </form>
       </div>
     </div>

@@ -8,7 +8,6 @@ import {
   SyllabusTerm,
   Achievement,
   HubActivity,
-  AuditLogItem,
   SubjectClass,
   ClassResource,
   ClassBroadcast,
@@ -22,6 +21,8 @@ import { ViewFileModal } from '../Modals/ViewFileModal';
 import { EditSubjectClassModal } from '../Modals/EditSubjectClassModal';
 import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
+import { usePortalNavigation } from '@/lib/PortalNavigationContext';
+import { openFileInNewTab, downloadFile } from '@/lib/fileHelper';
 
 interface TeacherDashboardProps {
   currentUser: UserProfile;
@@ -32,7 +33,6 @@ interface TeacherDashboardProps {
   achievements: Achievement[];
   attendance: Record<string, Record<string, string>>; // date -> studentId -> status
   hubActivities: HubActivity[];
-  auditLogs?: AuditLogItem[];
   subjectClasses: SubjectClass[];
   classResources?: ClassResource[];
   classBroadcasts?: ClassBroadcast[];
@@ -100,7 +100,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   achievements,
   attendance,
   hubActivities,
-  auditLogs = [],
   subjectClasses,
   classResources = [],
   classBroadcasts = [],
@@ -135,8 +134,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [isEditClassModalOpen, setIsEditClassModalOpen] = useState(false);
   const [selectedReviewTest, setSelectedReviewTest] = useState<TestItem | null>(null);
   const [selectedGradeAssignment, setSelectedGradeAssignment] = useState<AssignmentItem | null>(null);
-  // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'audit' | 'hub' | 'settings' | 'support'
-  const [activeNavMode, setActiveNavMode] = useState<'class' | 'homeroom_attendance' | 'homeroom_awards' | 'audit' | 'hub' | 'settings' | 'support'>('class');
+  // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'hub' | 'settings' | 'support'
+  const [activeNavMode, setActiveNavMode] = useState<'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'hub' | 'settings' | 'support'>('class');
+
+  // Sidebar profile photo (prioritizes Supabase cloud avatar_url)
+  const [sidebarAvatarUrl, setSidebarAvatarUrl] = useState<string | null>(() => currentUser.avatar_url || null);
+  useEffect(() => {
+    if (currentUser?.avatar_url) {
+      setSidebarAvatarUrl(currentUser.avatar_url);
+    } else {
+      try {
+        const saved = localStorage.getItem(`woodlem_avatar_${currentUser.id}`);
+        setSidebarAvatarUrl(saved || null);
+      } catch (e) {}
+    }
+  }, [currentUser, activeNavMode]);
 
   // Sub-tabs inside a subject classroom: 'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'roster'
   const [classSubTab, setClassSubTab] = useState<'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'roster'>('broadcasts');
@@ -208,6 +220,65 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // Active selected class ID
   const [selectedClassId, setSelectedClassId] = useState<string>('');
 
+  // Filter co-curricular hub activities created/published by this teacher
+  const myHubActivities = useMemo(() => {
+    return hubActivities.filter((act) => {
+      if (!act.created_by) return false;
+      const creator = act.created_by.toLowerCase().trim();
+      const myId = (currentUser.id || '').toLowerCase().trim();
+      const myName = (currentUser.name || '').toLowerCase().trim();
+      const myEmail = (currentUser.email || '').toLowerCase().trim();
+      return (
+        creator === myId ||
+        creator === myName ||
+        creator === myEmail ||
+        (myName && (creator.includes(myName) || myName.includes(creator))) ||
+        (currentUser.role === 'admin')
+      );
+    });
+  }, [hubActivities, currentUser.id, currentUser.name, currentUser.email, currentUser.role]);
+
+  // Portal Navigation & AI Copilot Integration
+  const { isAiPanelOpen, toggleAiPanel, subscribeToNavigation } = usePortalNavigation();
+
+  useEffect(() => {
+    const unsubscribe = subscribeToNavigation((target) => {
+      if (target.view === 'homeroom_awards' || target.view === 'awards') {
+        setActiveNavMode('homeroom_awards');
+      } else if (target.view === 'homeroom_attendance' || target.view === 'attendance') {
+        setActiveNavMode('homeroom_attendance');
+        if (target.subTab === 'mark') {
+          setAttendanceViewMode('mark');
+        } else if (target.subTab === 'history') {
+          setAttendanceViewMode('history');
+        }
+      } else if (target.view === 'hub') {
+        setActiveNavMode('hub');
+      } else if (target.view === 'settings') {
+        setActiveNavMode('settings');
+      } else if (target.view === 'support') {
+        setActiveNavMode('support');
+      } else if (target.view === 'class') {
+        setActiveNavMode('class');
+        if (target.classId && teacherClasses.some((c) => c.id === target.classId)) {
+          setSelectedClassId(target.classId);
+        } else if (teacherClasses.length > 0 && (!selectedClassId || !teacherClasses.some((c) => c.id === selectedClassId))) {
+          setSelectedClassId(teacherClasses[0].id);
+        }
+        if (target.subTab && ['broadcasts', 'resources', 'tasks', 'syllabus', 'roster'].includes(target.subTab)) {
+          setClassSubTab(target.subTab as any);
+        }
+      } else if (target.modalAction === 'create_class') {
+        onOpenCreateClassModal();
+      } else if (target.modalAction === 'create_test') {
+        onOpenCreateTestModal();
+      } else if (target.modalAction === 'create_assignment') {
+        onOpenCreateAssignmentModal();
+      }
+    });
+    return unsubscribe;
+  }, [subscribeToNavigation, teacherClasses, selectedClassId, onOpenCreateClassModal, onOpenCreateTestModal, onOpenCreateAssignmentModal]);
+
   useEffect(() => {
     if (teacherClasses.length > 0) {
       if (!selectedClassId || !teacherClasses.find((c) => c.id === selectedClassId)) {
@@ -237,6 +308,121 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     });
   }, [profiles, homeroomGrade, homeroomSection]);
 
+  // Synthetic class_id for the homeroom (used to tag resources/broadcasts sent to the whole class)
+  const homeroomClassId = useMemo(() => `homeroom-${homeroomGrade}-${homeroomSection}`, [homeroomGrade, homeroomSection]);
+
+  // Homeroom resources & broadcasts (filtered by homeroomClassId)
+  const homeroomResources = useMemo(() =>
+    classResources.filter((r) => r.class_id === homeroomClassId)
+      .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime()),
+    [classResources, homeroomClassId]
+  );
+  const homeroomBroadcasts = useMemo(() =>
+    classBroadcasts
+      .filter((b) => b.class_id === homeroomClassId)
+      .sort((a, b) => {
+        if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
+        return new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime();
+      }),
+    [classBroadcasts, homeroomClassId]
+  );
+
+  // Homeroom resource uploader state
+  const [hrResTitle, setHrResTitle] = useState('');
+  const [hrResDesc, setHrResDesc] = useState('');
+  const [hrResType, setHrResType] = useState<ResourceType>('pdf');
+  const [hrResFileName, setHrResFileName] = useState('');
+  const [hrResFileDataUrl, setHrResFileDataUrl] = useState('');
+  const [hrResFileSize, setHrResFileSize] = useState('');
+  const [hrResExternalLink, setHrResExternalLink] = useState('');
+  const [hrResTopicTag, setHrResTopicTag] = useState('');
+  const [hrIsResourceFormExpanded, setHrIsResourceFormExpanded] = useState(false);
+  const [hrIsUploadingResource, setHrIsUploadingResource] = useState(false);
+  const [hrResSearchQuery, setHrResSearchQuery] = useState('');
+  const [hrResTypeFilter, setHrResTypeFilter] = useState<'all' | ResourceType>('all');
+
+  // Homeroom broadcast composer state
+  const [hrBcTitle, setHrBcTitle] = useState('');
+  const [hrBcContent, setHrBcContent] = useState('');
+  const [hrBcPriority, setHrBcPriority] = useState<'normal' | 'important' | 'urgent'>('normal');
+  const [hrBcIsPinned, setHrBcIsPinned] = useState(false);
+  const [hrBcIsPosting, setHrBcIsPosting] = useState(false);
+  const [hrActiveTab, setHrActiveTab] = useState<'broadcasts' | 'resources'>('broadcasts');
+
+  const handleHrResourceFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setHrResFileName(file.name);
+    const sizeKB = file.size / 1024;
+    setHrResFileSize(sizeKB > 1024 ? `${(sizeKB / 1024).toFixed(1)} MB` : `${Math.round(sizeKB)} KB`);
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext === 'pdf') setHrResType('pdf');
+    else if (['ppt', 'pptx', 'key'].includes(ext || '')) setHrResType('slides');
+    else if (['doc', 'docx', 'txt', 'rtf'].includes(ext || '')) setHrResType('doc');
+    else if (['xls', 'xlsx', 'csv'].includes(ext || '')) setHrResType('worksheet');
+    const reader = new FileReader();
+    reader.onload = (ev) => setHrResFileDataUrl((ev.target?.result as string) || '');
+    reader.readAsDataURL(file);
+  };
+
+  const handleHrSaveResource = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!hrResTitle.trim()) { alert('Please enter a title for the resource.'); return; }
+    if (['link', 'video'].includes(hrResType) && !hrResExternalLink.trim()) { alert('Please enter a valid link (URL).'); return; }
+    if (onCreateResource) {
+      setHrIsUploadingResource(true);
+      onCreateResource({
+        class_id: homeroomClassId,
+        title: hrResTitle.trim(),
+        description: hrResDesc.trim(),
+        resource_type: hrResType,
+        file_name: hrResFileName || (hrResType === 'link' ? 'External Link' : 'Resource File'),
+        file_url: hrResFileDataUrl || hrResExternalLink,
+        file_size: hrResFileSize,
+        external_link: hrResExternalLink.trim(),
+        topic_tag: hrResTopicTag.trim(),
+      });
+      setTimeout(() => {
+        setHrIsUploadingResource(false);
+        setHrResTitle(''); setHrResDesc(''); setHrResFileName('');
+        setHrResFileDataUrl(''); setHrResFileSize(''); setHrResExternalLink('');
+        setHrResTopicTag(''); setHrIsResourceFormExpanded(false);
+      }, 250);
+    }
+  };
+
+  const handleHrPostBroadcast = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!hrBcTitle.trim()) { alert('Please enter an announcement title.'); return; }
+    if (!hrBcContent.trim()) { alert('Please enter message content.'); return; }
+    if (onCreateBroadcast) {
+      setHrBcIsPosting(true);
+      onCreateBroadcast({
+        class_id: homeroomClassId,
+        title: hrBcTitle.trim(),
+        content: hrBcContent.trim(),
+        is_pinned: hrBcIsPinned,
+        priority: hrBcPriority,
+      });
+      setTimeout(() => {
+        setHrBcIsPosting(false);
+        setHrBcTitle(''); setHrBcContent(''); setHrBcPriority('normal'); setHrBcIsPinned(false);
+      }, 250);
+    }
+  };
+
+  const filteredHrResources = useMemo(() =>
+    homeroomResources.filter((r) => {
+      if (hrResTypeFilter !== 'all' && r.resource_type !== hrResTypeFilter) return false;
+      if (hrResSearchQuery.trim()) {
+        const q = hrResSearchQuery.toLowerCase();
+        return r.title.toLowerCase().includes(q) || (r.description || '').toLowerCase().includes(q) || (r.topic_tag || '').toLowerCase().includes(q);
+      }
+      return true;
+    }),
+    [homeroomResources, hrResTypeFilter, hrResSearchQuery]
+  );
+
   // Enrolled students for the active selected subject class
   const classStudents = useMemo(() => {
     if (!activeClassObj) return [];
@@ -257,8 +443,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [dailyRecords, setDailyRecords] = useState<Record<string, string>>({});
   const [awardSearch, setAwardSearch] = useState('');
-  const [auditSearch, setAuditSearch] = useState('');
-  const [auditActionFilter, setAuditActionFilter] = useState('ALL');
   const [copiedNotification, setCopiedNotification] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState('');
   const [historyStudentSearch, setHistoryStudentSearch] = useState('');
@@ -694,56 +878,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     return aw.title.toLowerCase().includes(term) || sName.includes(term);
   });
 
-  // Filter audit logs
-  const filteredAuditLogs = useMemo(() => {
-    return auditLogs.filter((log) => {
-      if (auditActionFilter !== 'ALL' && log.action_type !== auditActionFilter) return false;
-      if (auditSearch.trim()) {
-        const q = auditSearch.toLowerCase();
-        const mName = (log.user_name || '').toLowerCase().includes(q);
-        const mTitle = (log.target_title || '').toLowerCase().includes(q);
-        const mDetails = (log.details || '').toLowerCase().includes(q);
-        return mName || mTitle || mDetails;
-      }
-      return true;
-    });
-  }, [auditLogs, auditActionFilter, auditSearch]);
-
-  const renderActionBadge = (actionType: string) => {
-    switch (actionType) {
-      case 'CREATE_ACHIEVEMENT':
-        return (
-          <span style={{ padding: '2px 6px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', fontSize: 10, fontWeight: 700, border: '1px solid #C7E4D8' }}>
-            CREATED
-          </span>
-        );
-      case 'EDIT_ACHIEVEMENT':
-        return (
-          <span style={{ padding: '2px 6px', borderRadius: 4, background: '#FEF7EC', color: '#9E6C1B', fontSize: 10, fontWeight: 700, border: '1px solid #F5DEB3' }}>
-            MODIFIED
-          </span>
-        );
-      case 'DELETE_ACHIEVEMENT':
-        return (
-          <span style={{ padding: '2px 6px', borderRadius: 4, background: '#FDF1F0', color: '#A83B38', fontSize: 10, fontWeight: 700, border: '1px solid #F5C6CB' }}>
-            DELETED
-          </span>
-        );
-      case 'SUBMIT_ASSIGNMENT':
-        return (
-          <span style={{ padding: '2px 6px', borderRadius: 4, background: '#F0EBF7', color: '#6A3FB5', fontSize: 10, fontWeight: 700, border: '1px solid #D8CAEB' }}>
-            SUBMISSION
-          </span>
-        );
-      default:
-        return (
-          <span style={{ padding: '2px 6px', borderRadius: 4, background: '#FAF9F6', color: 'var(--text-secondary)', fontSize: 10, fontWeight: 700, border: '1px solid var(--border-color)' }}>
-            {actionType}
-          </span>
-        );
-    }
-  };
-
   return (
     <div className="app-viewport">
       {/* SIDEBAR */}
@@ -777,7 +911,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 width: 34,
                 height: 34,
                 borderRadius: '50%',
-                background: '#2D2C2A',
+                background: sidebarAvatarUrl ? 'transparent' : '#2D2C2A',
                 color: '#FFFFFF',
                 display: 'flex',
                 alignItems: 'center',
@@ -785,9 +919,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 fontSize: 13,
                 fontWeight: 700,
                 flexShrink: 0,
+                overflow: 'hidden',
+                border: sidebarAvatarUrl ? '2px solid #2D2C2A' : 'none',
               }}
             >
-              {(currentUser.name || 'T').charAt(0).toUpperCase()}
+              {sidebarAvatarUrl ? (
+                <img src={sidebarAvatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                (currentUser.name || 'T').charAt(0).toUpperCase()
+              )}
             </div>
             <div style={{ overflow: 'hidden', flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -801,6 +941,62 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         </div>
 
         <nav className="nav-menu" style={{ flex: 1, padding: '10px 12px', overflowY: 'auto' }}>
+          {/* AI COPILOT QUICK DOCK TRIGGER */}
+          <button
+            type="button"
+            className={`nav-item ${isAiPanelOpen ? 'active' : ''}`}
+            onClick={toggleAiPanel}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '9px 12px',
+              fontSize: 13,
+              borderRadius: 8,
+              marginBottom: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: isAiPanelOpen
+                ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)'
+                : 'linear-gradient(135deg, rgba(84, 87, 254, 0.08) 0%, rgba(155, 81, 224, 0.08) 100%)',
+              border: isAiPanelOpen ? '1px solid #334155' : '1px solid rgba(155, 81, 224, 0.25)',
+              color: isAiPanelOpen ? '#FFFFFF' : '#4338CA',
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: isAiPanelOpen ? '0 4px 12px rgba(15, 23, 42, 0.15)' : 'none',
+              transition: 'all 0.18s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
+                  fill={isAiPanelOpen ? '#A78BFA' : 'url(#gemini-nav-icon-teacher)'}
+                />
+                <defs>
+                  <linearGradient id="gemini-nav-icon-teacher" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#1BA1E3" />
+                    <stop offset="0.5" stopColor="#5457FE" />
+                    <stop offset="1" stopColor="#9B51E0" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <span>Ask Gemini AI</span>
+            </div>
+            <span
+              style={{
+                fontSize: 9.5,
+                fontWeight: 700,
+                padding: '2px 6px',
+                borderRadius: 4,
+                background: isAiPanelOpen ? 'rgba(255, 255, 255, 0.15)' : '#E0E7FF',
+                color: isAiPanelOpen ? '#E0E7FF' : '#4338CA',
+              }}
+            >
+              ⌘K
+            </span>
+          </button>
+
           {/* 1. HOMEROOM / CLASS TEACHER SECTION */}
           <div className="nav-label" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em' }}>
             HOMEROOM / CLASS TEACHER
@@ -844,6 +1040,27 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             <span>Student Achievements</span>
             <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: '#FAF9F6', color: 'var(--text-secondary)' }}>
               {achievements.length}
+            </span>
+          </button>
+
+          <button
+            className={`nav-item ${activeNavMode === 'homeroom_resources' ? 'active' : ''}`}
+            onClick={() => setActiveNavMode('homeroom_resources')}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '8px 12px',
+              fontSize: 12.5,
+              borderRadius: 6,
+              marginBottom: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <span>Class Resources & Circulars</span>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: '#FAF9F6', color: 'var(--text-secondary)' }}>
+              {homeroomResources.length + homeroomBroadcasts.length}
             </span>
           </button>
 
@@ -914,23 +1131,29 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             })
           )}
 
-          {/* 3. GOVERNANCE & HUB */}
+          {/* 3. HOLISTIC HUB & PROGRAMS */}
           <div className="nav-label" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', marginTop: 16 }}>
-            GOVERNANCE &amp; HUB
+            HOLISTIC HUB &amp; PROGRAMS
           </div>
-          <button
-            className={`nav-item ${activeNavMode === 'audit' ? 'active' : ''}`}
-            onClick={() => setActiveNavMode('audit')}
-            style={{ padding: '8px 12px', fontSize: 12.5, borderRadius: 6, marginBottom: 2 }}
-          >
-            Activity &amp; Audit Log ({auditLogs.length})
-          </button>
           <button
             className={`nav-item ${activeNavMode === 'hub' ? 'active' : ''}`}
             onClick={() => setActiveNavMode('hub')}
-            style={{ padding: '8px 12px', fontSize: 12.5, borderRadius: 6, marginBottom: 2 }}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '8px 12px',
+              fontSize: 12.5,
+              borderRadius: 6,
+              marginBottom: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
           >
-            Holistic Hub Programs
+            <span>My Published Activities</span>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: '#FAF9F6', color: 'var(--text-secondary)' }}>
+              {myHubActivities.length}
+            </span>
           </button>
 
           {/* 4. ACCOUNT & HELP */}
@@ -1462,29 +1685,56 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                                 </div>
                                               </div>
 
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  if (res.external_link && !res.file_url) {
-                                                    window.open(res.external_link, '_blank');
-                                                  } else {
-                                                    setPreviewingResource(res);
-                                                  }
-                                                }}
-                                                style={{
-                                                  padding: '4px 9px',
-                                                  fontSize: 11,
-                                                  fontWeight: 700,
-                                                  background: '#2C6E6A',
-                                                  color: '#FFFFFF',
-                                                  border: 'none',
-                                                  borderRadius: 4,
-                                                  cursor: 'pointer',
-                                                  whiteSpace: 'nowrap',
-                                                }}
-                                              >
-                                                {res.external_link && !res.file_url ? 'Open ↗' : 'View'}
-                                              </button>
+                                              <div style={{ display: 'flex', gap: 6 }}>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    openFileInNewTab({
+                                                      fileName: res.file_name || res.title,
+                                                      fileUrl: res.file_url,
+                                                      externalLink: res.external_link,
+                                                      title: res.title,
+                                                    });
+                                                  }}
+                                                  style={{
+                                                    padding: '4px 9px',
+                                                    fontSize: 11,
+                                                    fontWeight: 700,
+                                                    background: '#2C6E6A',
+                                                    color: '#FFFFFF',
+                                                    border: 'none',
+                                                    borderRadius: 4,
+                                                    cursor: 'pointer',
+                                                    whiteSpace: 'nowrap',
+                                                  }}
+                                                >
+                                                  Open ↗
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    downloadFile({
+                                                      fileName: res.file_name || `${res.title}.pdf`,
+                                                      fileUrl: res.file_url,
+                                                      externalLink: res.external_link,
+                                                    });
+                                                  }}
+                                                  title="Download File"
+                                                  style={{
+                                                    padding: '4px 8px',
+                                                    fontSize: 11,
+                                                    fontWeight: 700,
+                                                    background: '#FAF9F6',
+                                                    color: 'var(--neutral-dark)',
+                                                    border: '1px solid var(--border-color)',
+                                                    borderRadius: 4,
+                                                    cursor: 'pointer',
+                                                    whiteSpace: 'nowrap',
+                                                  }}
+                                                >
+                                                  ↓
+                                                </button>
+                                              </div>
                                             </div>
                                           );
                                         })}
@@ -1869,28 +2119,54 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
                                 {/* Actions */}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTop: '1px solid #F0EFEA' }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (res.external_link && !res.file_url) {
-                                        window.open(res.external_link, '_blank');
-                                      } else {
-                                        setPreviewingResource(res);
-                                      }
-                                    }}
-                                    style={{
-                                      padding: '4px 10px',
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      background: '#2C6E6A',
-                                      color: '#FFFFFF',
-                                      border: 'none',
-                                      borderRadius: 4,
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    {res.external_link && !res.file_url ? 'Open Link ↗' : 'View / Download'}
-                                  </button>
+                                  <div style={{ display: 'flex', gap: 6 }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        openFileInNewTab({
+                                          fileName: res.file_name || res.title,
+                                          fileUrl: res.file_url,
+                                          externalLink: res.external_link,
+                                          title: res.title,
+                                        });
+                                      }}
+                                      style={{
+                                        padding: '5px 12px',
+                                        fontSize: 11.5,
+                                        fontWeight: 700,
+                                        background: '#2C6E6A',
+                                        color: '#FFFFFF',
+                                        border: 'none',
+                                        borderRadius: 4,
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      Open in New Tab ↗
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        downloadFile({
+                                          fileName: res.file_name || `${res.title}.pdf`,
+                                          fileUrl: res.file_url,
+                                          externalLink: res.external_link,
+                                        });
+                                      }}
+                                      title="Download File"
+                                      style={{
+                                        padding: '5px 10px',
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        background: '#FAF9F6',
+                                        color: 'var(--neutral-dark)',
+                                        border: '1px solid var(--border-color)',
+                                        borderRadius: 4,
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      ↓
+                                    </button>
+                                  </div>
 
                                   {onDeleteResource && (
                                     <button
@@ -3344,41 +3620,63 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                               </td>
                               <td style={{ textAlign: 'right', padding: '12px 16px', verticalAlign: 'middle' }}>
                                 {aw.file_name ? (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setViewingAwardFile({
-                                        fileName: aw.file_name || 'Certificate.pdf',
-                                        fileUrl: aw.file_url,
-                                        studentName: student ? student.name : 'Student',
-                                        title: aw.title,
-                                        description: aw.description,
-                                        submissionDate: aw.created_at ? new Date(aw.created_at).toLocaleDateString() : undefined,
-                                      })
-                                    }
-                                    title={`Click to preview certificate: ${aw.file_name}`}
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: 5,
-                                      maxWidth: 180,
-                                      padding: '3px 8px',
-                                      borderRadius: 4,
-                                      fontSize: 11,
-                                      fontWeight: 600,
-                                      background: '#EAF3EF',
-                                      color: '#2D6E5D',
-                                      border: '1px solid #C7E4D8',
-                                      cursor: 'pointer',
-                                      textAlign: 'left',
-                                    }}
-                                  >
-                                    <span>📄</span>
-                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                      {aw.file_name}
-                                    </span>
-                                    <span style={{ fontSize: 10, opacity: 0.8, marginLeft: 'auto' }}>👁</span>
-                                  </button>
+                                  <div style={{ display: 'inline-flex', gap: 6 }}>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        openFileInNewTab({
+                                          fileName: aw.file_name || 'Certificate.pdf',
+                                          fileUrl: aw.file_url,
+                                          studentName: student ? student.name : 'Student',
+                                          title: aw.title,
+                                          description: aw.description,
+                                          submissionDate: aw.created_at ? new Date(aw.created_at).toLocaleDateString() : undefined,
+                                        })
+                                      }
+                                      title={`Click to open certificate in new tab: ${aw.file_name}`}
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 5,
+                                        padding: '4px 9px',
+                                        borderRadius: 4,
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        background: '#EAF3EF',
+                                        color: '#2D6E5D',
+                                        border: '1px solid #C7E4D8',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      <span>↗ Open</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        downloadFile({
+                                          fileName: aw.file_name || 'Certificate.pdf',
+                                          fileUrl: aw.file_url,
+                                          studentName: student ? student.name : 'Student',
+                                          title: aw.title,
+                                          description: aw.description,
+                                          submissionDate: aw.created_at ? new Date(aw.created_at).toLocaleDateString() : undefined,
+                                        })
+                                      }
+                                      title="Download Certificate File"
+                                      style={{
+                                        padding: '4px 8px',
+                                        borderRadius: 4,
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        background: '#FAF9F6',
+                                        color: 'var(--neutral-dark)',
+                                        border: '1px solid var(--border-color)',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      ↓
+                                    </button>
+                                  </div>
                                 ) : (
                                   <span style={{ color: '#CBD5E1', fontSize: 11 }}>No file</span>
                                 )}
@@ -3394,105 +3692,744 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             </div>
           </>
         )}
-
-        {/* VIEW 4: ACTIVITY & AUDIT LOG */}
-        {activeNavMode === 'audit' && (
+        {/* VIEW 3.5: HOMEROOM CLASS RESOURCES & CIRCULARS */}
+        {activeNavMode === 'homeroom_resources' && (
           <>
-            <header className="content-header">
-              <div className="header-top">
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#2C6E6A', letterSpacing: '0.06em' }}>
-                    GOVERNANCE &amp; COMPLIANCE
-                  </div>
-                  <h1 className="page-title" style={{ margin: '2px 0 0' }}>
-                    Student Activity &amp; Audit Log
-                  </h1>
+            {/* Executive Hero Banner */}
+            <header
+              style={{
+                background: 'linear-gradient(135deg, #1C4D46 0%, #2C6E6A 50%, #3B8C80 100%)',
+                color: '#FFFFFF',
+                padding: '28px 36px',
+                borderBottom: '1px solid rgba(255,255,255,0.1)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 20,
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: 800,
+                      padding: '3px 9px',
+                      borderRadius: 20,
+                      background: 'rgba(255,255,255,0.2)',
+                      backdropFilter: 'blur(8px)',
+                      color: '#FFFFFF',
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    CLASS TEACHER PORTAL · {homeroomLabel} ({homeroomStudents.length} Students)
+                  </span>
+                  <span style={{ fontSize: 12, opacity: 0.85 }}>Direct Broadcast Channel</span>
                 </div>
+                <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', color: '#FFFFFF' }}>
+                  Class Teacher Circulars &amp; Resources
+                </h1>
+                <p style={{ margin: '6px 0 0', fontSize: 13, opacity: 0.9, maxWidth: 580, lineHeight: 1.4 }}>
+                  Broadcast instant circulars, event guidelines, timetables, and resource files directly to all students enrolled in your homeroom.
+                </p>
+              </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <input
-                    type="text"
-                    placeholder="Search student or item..."
-                    className="form-input"
-                    style={{ width: 200, padding: '6px 10px', fontSize: 12 }}
-                    value={auditSearch}
-                    onChange={(e) => setAuditSearch(e.target.value)}
-                  />
-                  <div style={{ width: 190 }}>
-                    <CustomSelect
-                      value={auditActionFilter}
-                      onChange={(val) => setAuditActionFilter(val)}
-                      options={[
-                        { value: 'ALL', label: 'All Actions' },
-                        { value: 'CREATE_ACHIEVEMENT', label: 'Created Achievements' },
-                        { value: 'EDIT_ACHIEVEMENT', label: 'Modified Achievements' },
-                        { value: 'DELETE_ACHIEVEMENT', label: 'Deleted Achievements' },
-                        { value: 'SUBMIT_ASSIGNMENT', label: 'Homework Submissions' },
-                      ]}
-                    />
+              {/* Quick Stat Chips & Action Buttons */}
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div
+                  style={{
+                    background: 'rgba(255,255,255,0.12)',
+                    backdropFilter: 'blur(10px)',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: 8,
+                    padding: '10px 16px',
+                    minWidth: 100,
+                    textAlign: 'center',
+                  }}
+                >
+                  <div style={{ fontSize: 20, fontWeight: 800, color: '#FFFFFF' }}>{homeroomBroadcasts.length}</div>
+                  <div style={{ fontSize: 10, textTransform: 'uppercase', opacity: 0.85, fontWeight: 700, marginTop: 2 }}>
+                    Circulars
+                  </div>
+                </div>
+                <div
+                  style={{
+                    background: 'rgba(255,255,255,0.12)',
+                    backdropFilter: 'blur(10px)',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: 8,
+                    padding: '10px 16px',
+                    minWidth: 100,
+                    textAlign: 'center',
+                  }}
+                >
+                  <div style={{ fontSize: 20, fontWeight: 800, color: '#FFFFFF' }}>{homeroomResources.length}</div>
+                  <div style={{ fontSize: 10, textTransform: 'uppercase', opacity: 0.85, fontWeight: 700, marginTop: 2 }}>
+                    Materials
                   </div>
                 </div>
               </div>
             </header>
 
-            <div className="content-body" style={{ padding: '24px 32px' }}>
-              <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-                {filteredAuditLogs.length === 0 ? (
-                  <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-                    No student activity logs recorded yet. Changes made by students will appear here automatically.
-                  </div>
-                ) : (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10, textTransform: 'uppercase' }}>
-                        <th style={{ textAlign: 'left', padding: '8px 12px', width: 36 }}>#</th>
-                        <th style={{ textAlign: 'left', padding: '8px 12px' }}>Timestamp</th>
-                        <th style={{ textAlign: 'left', padding: '8px 12px' }}>Student</th>
-                        <th style={{ textAlign: 'left', padding: '8px 12px' }}>Action</th>
-                        <th style={{ textAlign: 'left', padding: '8px 12px' }}>Target Item</th>
-                        <th style={{ textAlign: 'left', padding: '8px 12px' }}>Details / Change Summary</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredAuditLogs.map((log, idx) => (
-                        <tr key={log.id} style={{ borderBottom: '1px solid #ECEAE5' }}>
-                          <td style={{ padding: '8px 12px', color: '#9E9B95' }}>{idx + 1}</td>
-                          <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', color: 'var(--text-secondary)', fontSize: 11 }}>
-                            {log.created_at}
-                          </td>
-                          <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--neutral-dark)' }}>
-                            {log.user_name}
-                          </td>
-                          <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                            {renderActionBadge(log.action_type)}
-                          </td>
-                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>
-                            {log.target_title}
-                          </td>
-                          <td style={{ padding: '8px 12px', color: 'var(--text-secondary)', fontSize: 11.5 }}>
-                            {log.details}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+            <div className="content-body" style={{ padding: '24px 36px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Segmented Tab Bar & Search */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                  background: '#FFFFFF',
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  border: '1px solid var(--border-color)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                }}
+              >
+                {/* Pill Tabs */}
+                <div style={{ display: 'flex', gap: 6, background: '#FAF9F6', padding: 4, borderRadius: 8, border: '1px solid #ECEAE5' }}>
+                  <button
+                    type="button"
+                    onClick={() => setHrActiveTab('broadcasts')}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 18px',
+                      fontSize: 12.5,
+                      fontWeight: hrActiveTab === 'broadcasts' ? 700 : 600,
+                      borderRadius: 6,
+                      border: 'none',
+                      background: hrActiveTab === 'broadcasts' ? '#FFFFFF' : 'transparent',
+                      color: hrActiveTab === 'broadcasts' ? '#2C6E6A' : 'var(--text-secondary)',
+                      boxShadow: hrActiveTab === 'broadcasts' ? '0 2px 5px rgba(0,0,0,0.08)' : 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <span>📢 Class Circulars &amp; Notices</span>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        padding: '1px 7px',
+                        borderRadius: 10,
+                        background: hrActiveTab === 'broadcasts' ? '#EAF3EF' : '#ECEAE5',
+                        color: hrActiveTab === 'broadcasts' ? '#2D6E5D' : 'var(--text-secondary)',
+                      }}
+                    >
+                      {homeroomBroadcasts.length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setHrActiveTab('resources')}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 18px',
+                      fontSize: 12.5,
+                      fontWeight: hrActiveTab === 'resources' ? 700 : 600,
+                      borderRadius: 6,
+                      border: 'none',
+                      background: hrActiveTab === 'resources' ? '#FFFFFF' : 'transparent',
+                      color: hrActiveTab === 'resources' ? '#2C6E6A' : 'var(--text-secondary)',
+                      boxShadow: hrActiveTab === 'resources' ? '0 2px 5px rgba(0,0,0,0.08)' : 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <span>📚 Class Materials &amp; Guides</span>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        padding: '1px 7px',
+                        borderRadius: 10,
+                        background: hrActiveTab === 'resources' ? '#EAF3EF' : '#ECEAE5',
+                        color: hrActiveTab === 'resources' ? '#2D6E5D' : 'var(--text-secondary)',
+                      }}
+                    >
+                      {homeroomResources.length}
+                    </span>
+                  </button>
+                </div>
+
+                {hrActiveTab === 'resources' && (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => setHrIsResourceFormExpanded(!hrIsResourceFormExpanded)}
+                    style={{ padding: '7px 16px', fontSize: 12 }}
+                  >
+                    {hrIsResourceFormExpanded ? 'Close Form ▲' : '+ Upload Class Resource'}
+                  </button>
                 )}
               </div>
+
+              {/* TAB 1: CIRCULARS & BROADCASTS */}
+              {hrActiveTab === 'broadcasts' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  {/* Inline Broadcast Composer */}
+                  <div
+                    style={{
+                      background: '#FFFFFF',
+                      border: '1.5px solid var(--border-color)',
+                      borderRadius: 12,
+                      padding: '24px 28px',
+                      boxShadow: '0 4px 16px rgba(0,0,0,0.03)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                      <div
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: '50%',
+                          background: 'linear-gradient(135deg, #2C6E6A 0%, #3B8C80 100%)',
+                          color: '#FFFFFF',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 18,
+                          boxShadow: '0 4px 10px rgba(44, 110, 106, 0.2)',
+                        }}
+                      >
+                        📢
+                      </div>
+                      <div>
+                        <h4 style={{ fontSize: 15, fontWeight: 800, margin: 0, color: 'var(--neutral-dark)' }}>
+                          Post Homeroom Circular or Notice
+                        </h4>
+                        <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+                          Sent directly to all {homeroomStudents.length} students enrolled in {homeroomLabel}
+                        </div>
+                      </div>
+                    </div>
+
+                    <form onSubmit={handleHrPostBroadcast} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      <input
+                        type="text"
+                        placeholder="Circular or Notice Title (e.g. Term Examination Guidelines, Field Trip Permission Slip)..."
+                        className="form-input"
+                        value={hrBcTitle}
+                        onChange={(e) => setHrBcTitle(e.target.value)}
+                        style={{ fontSize: 13.5, fontWeight: 600, padding: '10px 14px' }}
+                      />
+
+                      <textarea
+                        rows={4}
+                        placeholder="Write announcement details, deadlines, dress code, instructions..."
+                        className="form-input"
+                        value={hrBcContent}
+                        onChange={(e) => setHrBcContent(e.target.value)}
+                        style={{ fontSize: 13, lineHeight: 1.55, resize: 'vertical', padding: '12px 14px' }}
+                      />
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: 12,
+                          paddingTop: 8,
+                          borderTop: '1px solid #ECEAE5',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)' }}>Priority Level:</span>
+                            <select
+                              value={hrBcPriority}
+                              onChange={(e) => setHrBcPriority(e.target.value as any)}
+                              style={{
+                                padding: '6px 12px',
+                                fontSize: 12,
+                                fontWeight: 600,
+                                borderRadius: 6,
+                                border: '1px solid var(--border-color)',
+                                background: '#FAF9F6',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <option value="normal">Normal Notice</option>
+                              <option value="important">⭐ Important Circular</option>
+                              <option value="urgent">🚨 Urgent Action Required</option>
+                            </select>
+                          </div>
+
+                          <label
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              fontSize: 12.5,
+                              cursor: 'pointer',
+                              userSelect: 'none',
+                              padding: '5px 10px',
+                              borderRadius: 6,
+                              background: hrBcIsPinned ? '#FEF7EC' : 'transparent',
+                              border: hrBcIsPinned ? '1px solid #F5DEB3' : '1px solid transparent',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={hrBcIsPinned}
+                              onChange={(e) => setHrBcIsPinned(e.target.checked)}
+                              style={{ accentColor: '#D4A373' }}
+                            />
+                            <span style={{ fontWeight: 700, color: hrBcIsPinned ? '#9E6C1B' : 'var(--neutral-dark)' }}>
+                              📌 Pin to top
+                            </span>
+                          </label>
+                        </div>
+
+                        <button
+                          type="submit"
+                          className="btn-primary"
+                          disabled={hrBcIsPosting}
+                          style={{ padding: '9px 24px', fontSize: 13, fontWeight: 700 }}
+                        >
+                          {hrBcIsPosting ? 'Publishing...' : 'Publish to Homeroom ↗'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
+                  {/* Broadcasts List */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h4 style={{ fontSize: 13, fontWeight: 800, margin: 0, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#2C6E6A' }}>
+                        Published Homeroom Circulars ({homeroomBroadcasts.length})
+                      </h4>
+                    </div>
+
+                    {homeroomBroadcasts.length === 0 ? (
+                      <div
+                        style={{
+                          padding: '50px 24px',
+                          background: '#FFFFFF',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 10,
+                          textAlign: 'center',
+                          color: 'var(--text-secondary)',
+                          fontSize: 13,
+                        }}
+                      >
+                        No circulars or notices posted for {homeroomLabel} yet. Use the composer above to share updates!
+                      </div>
+                    ) : (
+                      homeroomBroadcasts.map((bc) => {
+                        const isPinned = !!bc.is_pinned;
+                        const isUrgent = bc.priority === 'urgent';
+                        const isImportant = bc.priority === 'important';
+
+                        let accentColor = '#2C6E6A';
+                        if (isUrgent) accentColor = '#EF4444';
+                        else if (isImportant) accentColor = '#3B82F6';
+                        else if (isPinned) accentColor = '#F59E0B';
+
+                        return (
+                          <div
+                            key={bc.id}
+                            style={{
+                              background: '#FFFFFF',
+                              border: '1px solid var(--border-color)',
+                              borderLeft: `5px solid ${accentColor}`,
+                              borderRadius: 10,
+                              padding: '20px 24px',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                              position: 'relative',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                  {isPinned && (
+                                    <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: '#FEF7EC', color: '#9E6C1B', border: '1px solid #F5DEB3' }}>
+                                      📌 PINNED
+                                    </span>
+                                  )}
+                                  {isUrgent && (
+                                    <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: '#FDF1F0', color: '#A83B38', border: '1px solid #F5C6CB' }}>
+                                      🚨 URGENT
+                                    </span>
+                                  )}
+                                  {isImportant && (
+                                    <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE' }}>
+                                      ⭐ IMPORTANT
+                                    </span>
+                                  )}
+                                  <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                    {bc.created_at ? new Date(bc.created_at).toLocaleString() : 'Recently'}
+                                  </span>
+                                </div>
+                                <h3 style={{ fontSize: 16, fontWeight: 800, margin: 0, color: 'var(--neutral-dark)' }}>
+                                  {bc.title}
+                                </h3>
+                              </div>
+
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                {onTogglePinBroadcast && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onTogglePinBroadcast(bc.id)}
+                                    title={bc.is_pinned ? 'Unpin Circular' : 'Pin to Top'}
+                                    style={{
+                                      padding: '4px 9px',
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      background: bc.is_pinned ? '#FEF7EC' : '#FAF9F6',
+                                      border: '1px solid var(--border-color)',
+                                      color: bc.is_pinned ? '#9E6C1B' : 'var(--neutral-dark)',
+                                      borderRadius: 4,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    {bc.is_pinned ? '📌 Unpin' : '📌 Pin'}
+                                  </button>
+                                )}
+                                {onDeleteBroadcast && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (confirm(`Delete circular "${bc.title}"?`)) {
+                                        onDeleteBroadcast(bc.id);
+                                      }
+                                    }}
+                                    style={{
+                                      padding: '4px 10px',
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      background: '#FDF1F0',
+                                      border: '1px solid #F5C6CB',
+                                      color: '#A83B38',
+                                      borderRadius: 4,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    Delete
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.6, margin: '8px 0 0', whiteSpace: 'pre-wrap', background: '#FAF9F6', padding: '12px 14px', borderRadius: 6, border: '1px solid #ECEAE5' }}>
+                              {bc.content}
+                            </p>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: CLASS MATERIALS & RESOURCES */}
+              {hrActiveTab === 'resources' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  {/* Uploader Card */}
+                  {hrIsResourceFormExpanded && (
+                    <div style={{ background: '#FFFFFF', border: '1.5px solid var(--border-color)', borderRadius: 12, padding: '24px 28px', boxShadow: '0 4px 16px rgba(0,0,0,0.03)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                        <div>
+                          <h4 style={{ fontSize: 15, fontWeight: 800, margin: 0 }}>
+                            Upload Homeroom Resource or Form
+                          </h4>
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                            PDFs, permission slips, timetables, and class guides shared directly with {homeroomLabel}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => setHrIsResourceFormExpanded(false)}
+                          style={{ padding: '5px 12px', fontSize: 11.5 }}
+                        >
+                          ✕ Close
+                        </button>
+                      </div>
+
+                      <form onSubmit={handleHrSaveResource} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+                          <input
+                            type="text"
+                            placeholder="Resource Title (e.g. Grade 12-B Timetable, Annual Day Consent Form)..."
+                            className="form-input"
+                            value={hrResTitle}
+                            onChange={(e) => setHrResTitle(e.target.value)}
+                            style={{ fontSize: 13, fontWeight: 600, padding: '9px 12px' }}
+                            required
+                          />
+                          <select
+                            value={hrResType}
+                            onChange={(e) => setHrResType(e.target.value as any)}
+                            className="form-input"
+                            style={{ fontSize: 12.5, padding: '9px 12px' }}
+                          >
+                            <option value="pdf">📄 PDF Document</option>
+                            <option value="doc">📝 Word / Text Doc</option>
+                            <option value="slides">📊 Presentation Slides</option>
+                            <option value="worksheet">📋 Spreadsheet / Form</option>
+                            <option value="link">🔗 Web Link / Form URL</option>
+                          </select>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                          <input
+                            type="text"
+                            placeholder="Category / Tag (e.g. Schedule, Consent, Notice, Timetable)..."
+                            className="form-input"
+                            value={hrResTopicTag}
+                            onChange={(e) => setHrResTopicTag(e.target.value)}
+                            style={{ fontSize: 12.5, padding: '9px 12px' }}
+                          />
+                          {hrResType === 'link' ? (
+                            <input
+                              type="url"
+                              placeholder="https://..."
+                              className="form-input"
+                              value={hrResExternalLink}
+                              onChange={(e) => setHrResExternalLink(e.target.value)}
+                              style={{ fontSize: 12.5, padding: '9px 12px' }}
+                            />
+                          ) : (
+                            <input
+                              type="file"
+                              onChange={handleHrResourceFileChange}
+                              style={{ fontSize: 12, padding: '6px 8px' }}
+                            />
+                          )}
+                        </div>
+
+                        <textarea
+                          rows={2}
+                          placeholder="Short description or notes for students..."
+                          className="form-input"
+                          value={hrResDesc}
+                          onChange={(e) => setHrResDesc(e.target.value)}
+                          style={{ fontSize: 12.5, padding: '9px 12px' }}
+                        />
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 4 }}>
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={() => setHrIsResourceFormExpanded(false)}
+                            style={{ padding: '8px 16px', fontSize: 12 }}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            className="btn-primary"
+                            disabled={hrIsUploadingResource}
+                            style={{ padding: '8px 20px', fontSize: 12.5, fontWeight: 700 }}
+                          >
+                            {hrIsUploadingResource ? 'Saving...' : 'Upload & Share ↗'}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  )}
+
+                  {/* Resource List */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                      <input
+                        type="text"
+                        placeholder="Search resources..."
+                        className="form-input"
+                        style={{ width: 240, padding: '6px 12px', fontSize: 12 }}
+                        value={hrResSearchQuery}
+                        onChange={(e) => setHrResSearchQuery(e.target.value)}
+                      />
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 700 }}>
+                        {filteredHrResources.length} Materials Shared
+                      </span>
+                    </div>
+
+                    {filteredHrResources.length === 0 ? (
+                      <div style={{ padding: '50px 24px', background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 10, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
+                        No class resources uploaded for {homeroomLabel} yet.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+                        {filteredHrResources.map((res) => {
+                          let typeIcon = '📄';
+                          let typeBg = '#EAF3EF';
+                          let typeColor = '#2D6E5D';
+                          if (res.resource_type === 'pdf') {
+                            typeIcon = '📕';
+                            typeBg = '#FDF1F0';
+                            typeColor = '#A83B38';
+                          } else if (res.resource_type === 'slides') {
+                            typeIcon = '📊';
+                            typeBg = '#FEF7EC';
+                            typeColor = '#9E6C1B';
+                          } else if (res.resource_type === 'video') {
+                            typeIcon = '🎥';
+                            typeBg = '#F3EFFA';
+                            typeColor = '#7C5CBF';
+                          } else if (res.resource_type === 'link') {
+                            typeIcon = '🔗';
+                            typeBg = '#EFF6FF';
+                            typeColor = '#1E40AF';
+                          }
+
+                          return (
+                            <div
+                              key={res.id}
+                              style={{
+                                background: '#FFFFFF',
+                                border: '1px solid var(--border-color)',
+                                borderRadius: 10,
+                                padding: '18px 20px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'space-between',
+                                gap: 14,
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                              }}
+                            >
+                              <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                                  <span
+                                    style={{
+                                      fontSize: 10.5,
+                                      fontWeight: 800,
+                                      padding: '2px 8px',
+                                      borderRadius: 4,
+                                      background: typeBg,
+                                      color: typeColor,
+                                      textTransform: 'uppercase',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                    }}
+                                  >
+                                    <span>{typeIcon}</span>
+                                    <span>{res.resource_type}</span>
+                                  </span>
+                                  {res.topic_tag && (
+                                    <span style={{ fontSize: 10.5, color: '#2C6E6A', fontWeight: 700, background: '#FAF9F6', padding: '2px 6px', borderRadius: 4, border: '1px solid #ECEAE5' }}>
+                                      #{res.topic_tag}
+                                    </span>
+                                  )}
+                                </div>
+                                <h4 style={{ fontSize: 14.5, fontWeight: 800, margin: '0 0 6px', color: 'var(--neutral-dark)' }}>
+                                  {res.title}
+                                </h4>
+                                {res.description && (
+                                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.45 }}>
+                                    {res.description}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTop: '1px solid #ECEAE5' }}>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      openFileInNewTab({
+                                        fileName: res.file_name || res.title,
+                                        fileUrl: res.file_url,
+                                        externalLink: res.external_link,
+                                        title: res.title,
+                                      });
+                                    }}
+                                    style={{
+                                      padding: '5px 12px',
+                                      fontSize: 11.5,
+                                      fontWeight: 700,
+                                      background: '#2C6E6A',
+                                      color: '#FFFFFF',
+                                      border: 'none',
+                                      borderRadius: 4,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    Open ↗
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      downloadFile({
+                                        fileName: res.file_name || `${res.title}.pdf`,
+                                        fileUrl: res.file_url,
+                                        externalLink: res.external_link,
+                                      });
+                                    }}
+                                    title="Download File"
+                                    style={{
+                                      padding: '5px 9px',
+                                      fontSize: 11.5,
+                                      fontWeight: 700,
+                                      background: '#FAF9F6',
+                                      color: 'var(--neutral-dark)',
+                                      border: '1px solid var(--border-color)',
+                                      borderRadius: 4,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    ↓
+                                  </button>
+                                </div>
+
+                                {onDeleteResource && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (confirm(`Delete resource "${res.title}"?`)) {
+                                        onDeleteResource(res.id);
+                                      }
+                                    }}
+                                    style={{
+                                      padding: '4px 8px',
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      background: '#FDF1F0',
+                                      border: '1px solid #F5C6CB',
+                                      color: '#A83B38',
+                                      borderRadius: 4,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    Delete
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </>
         )}
 
-        {/* VIEW 5: HOLISTIC HUB */}
+
+        {/* VIEW 5: HOLISTIC HUB (TEACHER'S PUBLISHED ACTIVITIES ONLY) */}
         {activeNavMode === 'hub' && (
           <>
             <header className="content-header">
               <div className="header-top">
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#2C6E6A', letterSpacing: '0.06em' }}>
-                    CO-CURRICULAR HUB
+                    CO-CURRICULAR HUB · FACULTY COORDINATOR
                   </div>
                   <h1 className="page-title" style={{ margin: '2px 0 0' }}>
-                    Holistic Development Programmes
+                    My Published Activities &amp; Programmes ({myHubActivities.length})
                   </h1>
                 </div>
 
@@ -3504,13 +4441,19 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
             <div className="content-body" style={{ padding: '24px 32px' }}>
               <div className="hub-grid">
-                {hubActivities.length === 0 ? (
-                  <div className="panel-block" style={{ gridColumn: '1 / -1', padding: '32px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-                    No extracurricular programmes published yet. Click &quot;+ Publish Activity&quot; to create one!
+                {myHubActivities.length === 0 ? (
+                  <div className="panel-block" style={{ gridColumn: '1 / -1', padding: '40px 24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13, background: '#FFFFFF', borderRadius: 8, border: '1px dashed var(--border-color)' }}>
+                    <div style={{ fontSize: 24, marginBottom: 8 }}>🏅</div>
+                    <div style={{ fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 4 }}>
+                      No Co-Curricular Programmes Published Yet
+                    </div>
+                    <div>
+                      You haven&apos;t published any extracurricular clubs, workshops, or development activities yet. Click <strong>&quot;+ Publish Activity&quot;</strong> to coordinate a new programme!
+                    </div>
                   </div>
                 ) : (
-                  hubActivities.map((act) => (
-                    <div className="hub-card" key={act.id} style={{ borderRadius: 10, border: '1px solid var(--border-color)' }}>
+                  myHubActivities.map((act) => (
+                    <div className="hub-card" key={act.id} style={{ borderRadius: 10, border: '1px solid var(--border-color)', background: '#FFFFFF' }}>
                       <div className="hub-card-body" style={{ padding: '16px' }}>
                         <span className="badge badge-hub" style={{ fontSize: 9.5, marginBottom: 6 }}>{act.type}</span>
                         <div className="hub-card-title" style={{ fontSize: 14, fontWeight: 700 }}>{act.title}</div>

@@ -13,6 +13,7 @@ import {
 import { getIcon } from '../Icons';
 import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
+import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 
 interface ParentDashboardProps {
   currentUser?: UserProfile;
@@ -53,6 +54,26 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   onSignOut,
 }) => {
   const [activeTab, setActiveTab] = useState<'progress' | 'documents' | 'hub' | 'settings' | 'support'>('progress');
+
+  // Portal Navigation & AI Copilot Integration
+  const { isAiPanelOpen, toggleAiPanel, subscribeToNavigation } = usePortalNavigation();
+
+  React.useEffect(() => {
+    const unsubscribe = subscribeToNavigation((target) => {
+      if (target.view === 'progress' || target.view === 'attendance') {
+        setActiveTab('progress');
+      } else if (target.view === 'documents') {
+        setActiveTab('documents');
+      } else if (target.view === 'hub') {
+        setActiveTab('hub');
+      } else if (target.view === 'settings') {
+        setActiveTab('settings');
+      } else if (target.view === 'support') {
+        setActiveTab('support');
+      }
+    });
+    return unsubscribe;
+  }, [subscribeToNavigation]);
 
   // Attendance stats for child
   const dates = Object.keys(attendance).sort().slice(-5);
@@ -103,6 +124,62 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           </div>
         </div>
         <nav className="nav-menu">
+          {/* AI COPILOT QUICK DOCK TRIGGER */}
+          <button
+            type="button"
+            className={`nav-item ${isAiPanelOpen ? 'active' : ''}`}
+            onClick={toggleAiPanel}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '9px 12px',
+              fontSize: 13,
+              borderRadius: 8,
+              marginBottom: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: isAiPanelOpen
+                ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)'
+                : 'linear-gradient(135deg, rgba(84, 87, 254, 0.08) 0%, rgba(155, 81, 224, 0.08) 100%)',
+              border: isAiPanelOpen ? '1px solid #334155' : '1px solid rgba(155, 81, 224, 0.25)',
+              color: isAiPanelOpen ? '#FFFFFF' : '#4338CA',
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: isAiPanelOpen ? '0 4px 12px rgba(15, 23, 42, 0.15)' : 'none',
+              transition: 'all 0.18s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
+                  fill={isAiPanelOpen ? '#A78BFA' : 'url(#gemini-nav-icon-parent)'}
+                />
+                <defs>
+                  <linearGradient id="gemini-nav-icon-parent" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#1BA1E3" />
+                    <stop offset="0.5" stopColor="#5457FE" />
+                    <stop offset="1" stopColor="#9B51E0" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <span>Ask Gemini AI</span>
+            </div>
+            <span
+              style={{
+                fontSize: 9.5,
+                fontWeight: 700,
+                padding: '2px 6px',
+                borderRadius: 4,
+                background: isAiPanelOpen ? 'rgba(255, 255, 255, 0.15)' : '#E0E7FF',
+                color: isAiPanelOpen ? '#E0E7FF' : '#4338CA',
+              }}
+            >
+              ⌘K
+            </span>
+          </button>
+
           <div className="nav-label">MY STUDENT</div>
           <button
             className={`nav-item ${activeTab === 'progress' ? 'active' : ''}`}

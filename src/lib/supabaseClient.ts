@@ -27,6 +27,8 @@ export interface UserProfile {
   class_letter?: string;
   subject?: string | null;       // Teacher's subject (e.g. "English", "Math")
   assigned_class?: string | null; // Class teacher assignment (e.g. "10-D") or null
+  temp_password?: string;        // Admin preset / assigned credential
+  avatar_url?: string;           // Custom profile picture
   created_at?: string;
 }
 

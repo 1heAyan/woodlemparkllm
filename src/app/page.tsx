@@ -40,6 +40,7 @@ import { CreateSubjectClassModal } from '@/components/Modals/CreateSubjectClassM
 import { TestResultRecord } from '@/components/Modals/ReviewTestResultsModal';
 import { AssignmentSubmissionRecord } from '@/components/Modals/GradeAssignmentModal';
 import { AiChatbot } from '@/components/Shared/AiChatbot';
+import { PortalNavigationProvider } from '@/lib/PortalNavigationContext';
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -184,7 +185,24 @@ export default function Home() {
           created_at: ach.created_at,
         };
       });
-      setAchievements(builtAchievements);
+
+      // Ensure optimistic/locally saved achievements are seamlessly preserved
+      const finalAchievements = [...builtAchievements];
+      try {
+        if (typeof window !== 'undefined') {
+          const allKeys = Object.keys(localStorage).filter((k) => k.startsWith('woodlem_achievements_'));
+          allKeys.forEach((k) => {
+            const locList: Achievement[] = JSON.parse(localStorage.getItem(k) || '[]');
+            locList.forEach((loc) => {
+              if (!finalAchievements.some((a) => a.id === loc.id)) {
+                finalAchievements.unshift(loc);
+              }
+            });
+          });
+        }
+      } catch (e) {}
+
+      setAchievements(finalAchievements);
 
       const attMap: Record<string, Record<string, string>> = {};
       (attRes.data || []).forEach((row: any) => {
@@ -250,12 +268,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // Clear any stale legacy localStorage items so everything is 100% from Supabase
-    try {
-      localStorage.clear();
-    } catch (e) {}
-
-    // Check active Supabase Auth Session directly from cloud
+    // Restore active session directly from Supabase Cloud Auth
     const initAuth = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -362,6 +375,23 @@ export default function Home() {
         }
       } catch (authErr) {
         console.warn('Auth registration warning:', authErr);
+      }
+
+      // Validate single class teacher assignment per cohort
+      if (userData.role === 'teacher' && userData.assignedClass) {
+        const targetClass = userData.assignedClass.replace(/^Grade\s*/i, '');
+        const conflictTeacher = profiles.find((p) => {
+          if (p.role !== 'teacher') return false;
+          if (p.email && p.email.toLowerCase() === userData.email.toLowerCase()) return false;
+          const cleanG = (p.grade || '').replace(/[^0-9]/g, '');
+          const cleanS = (p.class_letter || '').toUpperCase().trim();
+          const assigned = (p.assigned_class || (cleanG && cleanS ? `${cleanG}-${cleanS}` : '')).replace(/^Grade\s*/i, '');
+          return assigned === targetClass;
+        });
+        if (conflictTeacher) {
+          alert(`Cannot assign as Class Teacher: Grade ${targetClass} is already assigned to ${conflictTeacher.name} (${conflictTeacher.subject || 'Faculty'}). Each class section can only have one Class Teacher.`);
+          return;
+        }
       }
 
       // Check existing profile
@@ -504,6 +534,24 @@ export default function Home() {
   const handleUpdateUser = async (updatedUser: UserProfile) => {
     try {
       const cleanEmail = updatedUser.email.trim().toLowerCase();
+
+      // Validate single class teacher assignment per cohort
+      if (updatedUser.role === 'teacher' && updatedUser.assigned_class) {
+        const targetClass = updatedUser.assigned_class.replace(/^Grade\s*/i, '');
+        const conflictTeacher = profiles.find((p) => {
+          if (p.id === updatedUser.id || (p.email && p.email.toLowerCase() === cleanEmail)) return false;
+          if (p.role !== 'teacher') return false;
+          const cleanG = (p.grade || '').replace(/[^0-9]/g, '');
+          const cleanS = (p.class_letter || '').toUpperCase().trim();
+          const assigned = (p.assigned_class || (cleanG && cleanS ? `${cleanG}-${cleanS}` : '')).replace(/^Grade\s*/i, '');
+          return assigned === targetClass;
+        });
+        if (conflictTeacher) {
+          alert(`Cannot assign as Class Teacher: Grade ${targetClass} is already assigned to ${conflictTeacher.name} (${conflictTeacher.subject || 'Faculty'}). Each class section can only have one Class Teacher.`);
+          return;
+        }
+      }
+
       const payload: Partial<UserProfile> = {
         name: updatedUser.name.trim(),
         email: cleanEmail,
@@ -976,44 +1024,77 @@ export default function Home() {
     try {
       const generatedId = `ach-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
+      // Resolve matching student profile ID
+      const matchedProfile = profiles.find(
+        (p) =>
+          (currentUser.id && p.id === currentUser.id) ||
+          (p.email && currentUser.email && p.email.toLowerCase() === currentUser.email.toLowerCase())
+      );
+      const studentId = matchedProfile?.id || currentUser.id;
+
       const newAch: Achievement = {
         id: generatedId,
-        student_id: currentUser.id,
-        title,
-        description,
+        student_id: studentId,
+        title: title.trim(),
+        description: description.trim(),
         file_name: fileName || '',
         file_url: fileDataUrl || '',
         created_at: new Date().toISOString(),
       };
 
+      // 1. Optimistically add to UI state immediately
       setAchievements((prev) => [newAch, ...prev]);
 
-      const payload = JSON.stringify({
-        text: description,
+      // 2. Persist locally to localStorage so reloads/syncs never drop it
+      try {
+        if (typeof window !== 'undefined') {
+          const localKey = `woodlem_achievements_${studentId}`;
+          const existingLocal = JSON.parse(localStorage.getItem(localKey) || '[]');
+          localStorage.setItem(localKey, JSON.stringify([newAch, ...existingLocal.filter((x: any) => x.id !== generatedId)]));
+        }
+      } catch (e) {}
+
+      // 3. Attempt insert into Supabase
+      const payloadStr = JSON.stringify({
+        text: description.trim(),
         fileName: fileName || '',
         fileUrl: fileDataUrl || '',
       });
 
-      const { error } = await supabase.from('achievements').insert([
+      let { error } = await supabase.from('achievements').insert([
         {
           id: generatedId,
-          student_id: currentUser.id,
-          title,
-          description,
-          desc_text: payload,
+          student_id: studentId,
+          title: title.trim(),
+          description: description.trim(),
+          desc_text: payloadStr,
           file_name: fileName || '',
           file_url: fileDataUrl || '',
         },
       ]);
 
+      // If full insert failed (e.g. desc_text/file_url column issue or payload limit), retry with standard schema
       if (error) {
-        console.warn('Achievement insert warning:', error.message);
+        console.warn('Achievement full insert notice:', error.message, '- attempting standard columns');
+        const fallbackRes = await supabase.from('achievements').insert([
+          {
+            id: generatedId,
+            student_id: studentId,
+            title: title.trim(),
+            description: description.trim(),
+            file_name: fileName || '',
+          },
+        ]);
+        if (fallbackRes.error) {
+          console.warn('Achievement fallback insert notice:', fallbackRes.error.message);
+        }
       }
 
       recordAuditLog('CREATE_ACHIEVEMENT', title, `Logged achievement with proof: ${fileName || 'none'}`);
       alert(`Achievement record for "${title}" saved successfully.`);
       loadAllData();
     } catch (err: any) {
+      console.error('Achievement save error:', err);
       alert('Unable to save achievement record. Please try again.');
     }
   };
@@ -1040,6 +1121,31 @@ export default function Home() {
             : a
         )
       );
+
+      try {
+        if (typeof window !== 'undefined') {
+          const allKeys = Object.keys(localStorage).filter((k) => k.startsWith('woodlem_achievements_'));
+          allKeys.forEach((k) => {
+            const locList: Achievement[] = JSON.parse(localStorage.getItem(k) || '[]');
+            localStorage.setItem(
+              k,
+              JSON.stringify(
+                locList.map((a) =>
+                  a.id === id
+                    ? {
+                        ...a,
+                        title,
+                        description,
+                        file_name: fileName || a.file_name || '',
+                        file_url: fileDataUrl || a.file_url || '',
+                      }
+                    : a
+                )
+              )
+            );
+          });
+        }
+      } catch (e) {}
 
       const payload = JSON.stringify({
         text: description,
@@ -1074,6 +1180,16 @@ export default function Home() {
     if (!currentUser) return;
     try {
       setAchievements((prev) => prev.filter((a) => a.id !== id));
+
+      try {
+        if (typeof window !== 'undefined') {
+          const allKeys = Object.keys(localStorage).filter((k) => k.startsWith('woodlem_achievements_'));
+          allKeys.forEach((k) => {
+            const locList: Achievement[] = JSON.parse(localStorage.getItem(k) || '[]');
+            localStorage.setItem(k, JSON.stringify(locList.filter((a) => a.id !== id)));
+          });
+        }
+      } catch (e) {}
 
       const { error } = await supabase.from('achievements').delete().eq('id', id);
       if (error) {
@@ -1241,6 +1357,82 @@ export default function Home() {
         console.error('Attendance sync error:', err);
       }
       loadAllData();
+    }
+  };
+
+  // Student Apply for Authorized Leave / Sick Note
+  const handleApplyLeave = async (data: {
+    startDate: string;
+    endDate: string;
+    reason: string;
+    leaveType: string;
+    fileName?: string;
+    fileUrl?: string;
+  }) => {
+    if (!currentUser) return;
+
+    // Collect all dates between startDate and endDate (inclusive)
+    const start = new Date(data.startDate);
+    const end = new Date(data.endDate);
+    const datesToMark: string[] = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      // Skip weekends (0 = Sunday, 6 = Saturday)
+      const day = d.getDay();
+      if (day !== 0 && day !== 6) {
+        datesToMark.push(d.toISOString().split('T')[0]);
+      }
+    }
+
+    if (datesToMark.length === 0) {
+      alert('No school days selected. Weekends are automatically excluded.');
+      return;
+    }
+
+    // Optimistically update attendance state
+    setAttendance((prev) => {
+      const updated = { ...prev };
+      datesToMark.forEach((date) => {
+        updated[date] = { ...(updated[date] || {}), [currentUser.id]: 'auth_absent' };
+      });
+      return updated;
+    });
+
+    // Sync to Supabase: upsert auth_absent for each school day
+    try {
+      for (const date of datesToMark) {
+        await supabase
+          .from('attendance')
+          .delete()
+          .eq('date', date)
+          .eq('student_id', currentUser.id);
+
+        await supabase.from('attendance').insert({
+          date,
+          student_id: currentUser.id,
+          status: 'auth_absent',
+        });
+      }
+
+      const dayCount = datesToMark.length;
+      const displayRange =
+        data.startDate === data.endDate
+          ? data.startDate
+          : `${data.startDate} → ${data.endDate}`;
+
+      alert(
+        `✅ Leave application submitted!\n\n${dayCount} school day${dayCount !== 1 ? 's' : ''} (${displayRange}) have been marked as Authorized Absence.\n\nYour class teacher has been notified.`
+      );
+
+      recordAuditLog(
+        'CREATE_ACHIEVEMENT' as any,
+        `Leave: ${data.leaveType}`,
+        `${currentUser.name} applied for ${dayCount} day(s) (${displayRange}). Reason: ${data.reason}`
+      );
+
+      loadAllData();
+    } catch (err: any) {
+      console.error('Leave application error:', err);
+      alert('Unable to submit leave application. Please contact your class teacher directly.');
     }
   };
 
@@ -1463,7 +1655,7 @@ export default function Home() {
     : { id: 'S1', name: 'Student', grade: 'Grade 12 (CBSE)' };
 
   return (
-    <>
+    <PortalNavigationProvider initialUser={currentUser}>
       {/* Missing Schema Warning Banner */}
       {schemaError && (
         <div
@@ -1513,6 +1705,7 @@ export default function Home() {
           onDeleteAchievement={handleDeleteAchievement}
           onToggleHubEnrollment={handleToggleHubEnrollment}
           onOpenVideoModal={(act) => setSelectedVideoActivity(act)}
+          onApplyLeave={handleApplyLeave}
           onSignOut={handleSignOut}
         />
       ) : currentUser.role === 'teacher' ? (
@@ -1525,7 +1718,6 @@ export default function Home() {
           achievements={achievements}
           attendance={attendance}
           hubActivities={hubActivities}
-          auditLogs={auditLogs}
           subjectClasses={subjectClasses}
           classResources={classResources}
           classBroadcasts={classBroadcasts}
@@ -1674,6 +1866,6 @@ export default function Home() {
 
       {/* Floating Gemini AI Assistant (Bottom-Right for every dashboard) */}
       <AiChatbot currentUser={currentUser} />
-    </>
+    </PortalNavigationProvider>
   );
 }

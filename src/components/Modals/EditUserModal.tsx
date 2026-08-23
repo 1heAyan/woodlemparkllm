@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { UserProfile } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 
@@ -32,6 +32,7 @@ interface EditUserModalProps {
 export const EditUserModal: React.FC<EditUserModalProps> = ({
   isOpen,
   user,
+  profiles = [],
   onClose,
   onSubmit,
 }) => {
@@ -80,11 +81,32 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
     }
   }, [user]);
 
+  const targetClassKey = `${grade}-${section}`;
+
+  const existingClassTeacher = useMemo(() => {
+    if (role !== 'teacher' || !isClassTeacher || !user) return null;
+    return profiles.find((p) => {
+      if (p.id === user.id || (p.email && user.email && p.email.toLowerCase() === user.email.toLowerCase())) {
+        return false;
+      }
+      if (p.role !== 'teacher') return false;
+      const cleanG = (p.grade || '').replace(/[^0-9]/g, '');
+      const cleanS = (p.class_letter || '').toUpperCase().trim();
+      const assigned = (p.assigned_class || (cleanG && cleanS ? `${cleanG}-${cleanS}` : '')).replace(/^Grade\s*/i, '');
+      return assigned === targetClassKey;
+    });
+  }, [profiles, role, isClassTeacher, targetClassKey, user]);
+
   if (!isOpen || !user) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim()) return;
+
+    if (role === 'teacher' && isClassTeacher && existingClassTeacher) {
+      alert(`Cannot assign as Class Teacher: Grade ${grade}-${section} is already assigned to ${existingClassTeacher.name} (${existingClassTeacher.subject || 'Faculty'}). Each class section can only have one Class Teacher.`);
+      return;
+    }
 
     let cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail.includes('@')) {
@@ -318,17 +340,52 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                     <p style={{ fontSize: 12, color: '#2C6E6A', fontWeight: 600, margin: 0 }}>
                       Class Teacher for: <strong>Grade {grade} — Section {section}</strong>
                     </p>
+
+                    {existingClassTeacher && (
+                      <div
+                        style={{
+                          padding: '10px 12px',
+                          borderRadius: 6,
+                          background: '#FDF1F0',
+                          border: '1.5px solid #F5C6CB',
+                          color: '#A83B38',
+                          fontSize: 12,
+                          lineHeight: 1.45,
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: 8,
+                        }}
+                      >
+                        <span style={{ fontSize: 15, flexShrink: 0 }}>⚠️</span>
+                        <div>
+                          <strong>Class Teacher Conflict:</strong><br />
+                          <strong>{existingClassTeacher.name}</strong> ({existingClassTeacher.subject || 'Faculty'}) is already the designated Class Teacher for <strong>Grade {grade}-{section}</strong>.<br />
+                          <span style={{ fontSize: 11, color: '#782826' }}>
+                            A class can only have one Class Teacher. Please reassign {existingClassTeacher.name} or choose another section.
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20 }}>
+          {/* Submit Buttons */}
+          <div className="modal-footer" style={{ marginTop: 24 }}>
             <button type="button" className="btn-secondary" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary" style={{ padding: '10px 24px' }}>
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={role === 'teacher' && isClassTeacher && !!existingClassTeacher}
+              style={{
+                opacity: role === 'teacher' && isClassTeacher && !!existingClassTeacher ? 0.6 : 1,
+                cursor: role === 'teacher' && isClassTeacher && !!existingClassTeacher ? 'not-allowed' : 'pointer',
+              }}
+            >
               Save Changes
             </button>
           </div>
