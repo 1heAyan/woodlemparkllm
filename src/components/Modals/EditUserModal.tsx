@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { UserProfile } from '@/lib/supabaseClient';
+import { UserProfile, ParentDocument } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { Eye, EyeOff, Lock, FileText, CheckCircle2, Clock, AlertCircle, AlertTriangle } from 'lucide-react';
 
 const GRADES = ['9', '10', '11', '12'] as const;
 const SECTIONS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)); // A through Z
@@ -25,6 +26,7 @@ interface EditUserModalProps {
   isOpen: boolean;
   user: UserProfile | null;
   profiles: UserProfile[];
+  parentDocuments?: ParentDocument[];
   onClose: () => void;
   onSubmit: (updatedUser: UserProfile) => void;
 }
@@ -33,6 +35,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
   isOpen,
   user,
   profiles = [],
+  parentDocuments = [],
   onClose,
   onSubmit,
 }) => {
@@ -40,6 +43,8 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'student' | 'teacher' | 'admin' | 'parent'>('student');
   const [userCode, setUserCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   // Student & Teacher Grade & Section
   const [grade, setGrade] = useState<'9' | '10' | '11' | '12'>('12');
@@ -69,12 +74,21 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
     );
   }, [studentProfiles, studentSearchTerm]);
 
+  // Scoped documents: ONLY for this parent's linked wards
+  const parentDocs = useMemo(() => {
+    if (role !== 'parent') return [];
+    const linkedSet = new Set(selectedStudentIds);
+    return parentDocuments.filter((d) => linkedSet.has(d.student_id));
+  }, [role, selectedStudentIds, parentDocuments]);
+
   useEffect(() => {
     if (user) {
       setName(user.name || '');
       setEmail(user.email || '');
       setRole(user.role || 'student');
       setUserCode(user.user_code || user.admission_number || '');
+      setPassword(user.temp_password || 'woodlem123');
+      setShowPassword(false);
       setSelectedStudentIds(user.linked_student_ids || []);
       setStudentSearchTerm('');
 
@@ -126,7 +140,9 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
     if (!name.trim() || !email.trim()) return;
 
     if (role === 'teacher' && isClassTeacher && existingClassTeacher) {
-      alert(`Cannot assign as Class Teacher: Grade ${grade}-${section} is already assigned to ${existingClassTeacher.name} (${existingClassTeacher.subject || 'Faculty'}). Each class section can only have one Class Teacher.`);
+      alert(
+        `Cannot assign as Class Teacher: Grade ${grade}-${section} is already assigned to ${existingClassTeacher.name} (${existingClassTeacher.subject || 'Faculty'}). Each class section can only have one Class Teacher.`
+      );
       return;
     }
 
@@ -136,8 +152,8 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
     }
 
     const assignedClassStr = role === 'teacher' && isClassTeacher ? `${grade}-${section}` : null;
-    const finalGrade = role === 'student' ? grade : (role === 'teacher' && isClassTeacher ? grade : '');
-    const finalSection = role === 'student' ? section : (role === 'teacher' && isClassTeacher ? section : '');
+    const finalGrade = role === 'student' ? grade : role === 'teacher' && isClassTeacher ? grade : '';
+    const finalSection = role === 'student' ? section : role === 'teacher' && isClassTeacher ? section : '';
 
     onSubmit({
       ...user,
@@ -146,6 +162,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       role,
       user_code: userCode.trim(),
       admission_number: userCode.trim(),
+      temp_password: password.trim() || user.temp_password || 'woodlem123',
       grade: finalGrade,
       class_letter: finalSection,
       subject: role === 'teacher' ? subject : null,
@@ -160,18 +177,20 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
-            <h2 className="modal-title">Edit User Account</h2>
+            <h2 className="modal-title">Edit User Account &amp; Credentials</h2>
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
-              Update profile details, role, and academic cohort mappings.
+              View and update profile credentials, login passwords, and cohort mappings.
             </p>
           </div>
-          <button type="button" className="close-modal" onClick={onClose}>&times;</button>
+          <button type="button" className="close-modal" onClick={onClose}>
+            &times;
+          </button>
         </div>
 
         <form onSubmit={handleSubmit}>
           {/* Role */}
           <div className="form-group">
-            <label className="form-label">Role</label>
+            <label className="form-label">Account Role</label>
             <CustomSelect
               value={role}
               onChange={(val) => setRole(val as any)}
@@ -211,7 +230,11 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
           {/* User Code / Admission Number */}
           <div className="form-group">
             <label className="form-label">
-              {role === 'student' ? 'Admission Number' : role === 'teacher' ? 'Employee Code' : 'User Reference Code'}
+              {role === 'student'
+                ? 'Admission Number'
+                : role === 'teacher'
+                ? 'Employee Code'
+                : 'User Reference Code'}
             </label>
             <input
               type="text"
@@ -220,6 +243,96 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
               onChange={(e) => setUserCode(e.target.value)}
               required
             />
+          </div>
+
+          {/* ── PASSWORD MANAGEMENT SECTION ── */}
+          <div
+            style={{
+              background: '#FAF9F6',
+              border: '1px solid #E8E5DF',
+              borderRadius: 8,
+              padding: '14px 16px',
+              marginBottom: 16,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 8,
+              }}
+            >
+              <label
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: 'var(--neutral-dark)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  margin: 0,
+                }}
+              >
+                <Lock size={14} style={{ color: '#2C6E6A' }} />
+                Account Login Password
+              </label>
+              <button
+                type="button"
+                onClick={() => setPassword('woodlem123')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#2C6E6A',
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  padding: 0,
+                }}
+              >
+                Reset to Default (woodlem123)
+              </button>
+            </div>
+
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                className="form-input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter account password (min 6 characters)"
+                style={{
+                  paddingRight: 40,
+                  fontFamily: showPassword ? 'inherit' : 'monospace',
+                  letterSpacing: showPassword ? 'normal' : '0.12em',
+                  background: '#FFFFFF',
+                }}
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                title={showPassword ? 'Hide Password' : 'Show Password'}
+                style={{
+                  position: 'absolute',
+                  right: 10,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#6B6963',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 4,
+                }}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+            <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+              You can view and modify this user&apos;s password directly. Default is <strong>woodlem123</strong>.
+            </p>
           </div>
 
           {/* ── STUDENT COHORT FIELDS ── */}
@@ -233,7 +346,16 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                 marginTop: 4,
               }}
             >
-              <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <p
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: 'var(--text-secondary)',
+                  marginBottom: 12,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}
+              >
                 Student Class Assignment (Grades 9–12)
               </p>
 
@@ -248,15 +370,14 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                       onClick={() => setGrade(g)}
                       style={{
                         flex: 1,
-                        padding: '10px 0',
-                        borderRadius: 8,
-                        border: grade === g ? '2px solid #2C6E6A' : '1.5px solid #CBD5E1',
-                        background: grade === g ? '#EAF3EF' : '#fff',
-                        color: grade === g ? '#20554E' : '#64748B',
-                        fontWeight: 700,
+                        padding: '8px',
+                        borderRadius: 6,
+                        border: grade === g ? '2px solid #2C6E6A' : '1px solid var(--border-color)',
+                        background: grade === g ? '#EAF3EF' : '#FFFFFF',
+                        color: grade === g ? '#2D6E5D' : 'var(--neutral-dark)',
+                        fontWeight: grade === g ? 700 : 500,
                         fontSize: 13,
                         cursor: 'pointer',
-                        transition: 'all 0.15s',
                       }}
                     >
                       Grade {g}
@@ -267,7 +388,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
 
               {/* Section dropdown */}
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Section (A through Z)</label>
+                <label className="form-label">Section (A–Z)</label>
                 <CustomSelect
                   value={section}
                   onChange={(val) => setSection(val)}
@@ -276,14 +397,25 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                     label: `Section ${s}`,
                   }))}
                 />
-                <p style={{ fontSize: 12, color: '#64748B', marginTop: 8 }}>
-                  Assigned to: <strong>Grade {grade} — Section {section}</strong>
-                </p>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: '8px 12px',
+                  background: '#EAF3EF',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  color: '#2D6E5D',
+                  fontWeight: 600,
+                }}
+              >
+                Assigned Cohort: <strong>Grade {grade}-{section}</strong>
               </div>
             </div>
           )}
 
-          {/* ── TEACHER FIELDS ── */}
+          {/* ── TEACHER FIELDS: SUBJECT & HOMEROOM ── */}
           {role === 'teacher' && (
             <div
               style={{
@@ -294,36 +426,74 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                 marginTop: 4,
               }}
             >
-              <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Faculty &amp; Class Teacher Assignment
+              <p
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: 'var(--text-secondary)',
+                  marginBottom: 12,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}
+              >
+                Faculty Subject &amp; Class Teacher Designation
               </p>
 
               {/* Subject */}
               <div className="form-group">
-                <label className="form-label">Teaching Discipline / Subject <span style={{ color: '#EF4444' }}>*</span></label>
+                <label className="form-label">Subject Specialization</label>
                 <CustomSelect
                   value={subject}
                   onChange={(val) => setSubject(val)}
-                  options={SUBJECTS}
+                  options={SUBJECTS.map((s) => ({ value: s, label: s }))}
                 />
               </div>
 
               {/* Class Teacher Toggle */}
-              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #E2E8F0' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+              <div
+                style={{
+                  borderTop: '1px solid var(--border-color)',
+                  paddingTop: 12,
+                  marginTop: 8,
+                }}
+              >
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: 'var(--neutral-dark)',
+                  }}
+                >
                   <input
                     type="checkbox"
                     checked={isClassTeacher}
                     onChange={(e) => setIsClassTeacher(e.target.checked)}
-                    style={{ width: 18, height: 18, accentColor: '#2C6E6A', cursor: 'pointer' }}
+                    style={{ width: 16, height: 16, accentColor: '#2C6E6A', cursor: 'pointer' }}
                   />
-                  <span>Assign as Homeroom Class Teacher</span>
+                  <span>Designate as Homeroom Class Teacher</span>
                 </label>
 
                 {isClassTeacher && (
-                  <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12, padding: '12px', background: '#FFFFFF', borderRadius: 8, border: '1px solid #E2E8F0' }}>
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: '12px',
+                      background: '#FFFFFF',
+                      borderRadius: 8,
+                      border: '1px solid #D1E5DE',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                    }}
+                  >
                     <div>
-                      <label className="form-label" style={{ fontSize: 12 }}>Assigned Grade</label>
+                      <label className="form-label" style={{ fontSize: 12 }}>
+                        Assigned Grade
+                      </label>
                       <div style={{ display: 'flex', gap: 6 }}>
                         {GRADES.map((g) => (
                           <button
@@ -332,13 +502,13 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                             onClick={() => setGrade(g)}
                             style={{
                               flex: 1,
-                              padding: '8px 0',
-                              borderRadius: 6,
-                              border: grade === g ? '2px solid #2C6E6A' : '1px solid #CBD5E1',
+                              padding: '6px',
+                              borderRadius: 4,
+                              border: grade === g ? '2px solid #2C6E6A' : '1px solid var(--border-color)',
                               background: grade === g ? '#EAF3EF' : '#FFFFFF',
-                              color: grade === g ? '#20554E' : '#64748B',
-                              fontWeight: 700,
-                              fontSize: 12.5,
+                              color: grade === g ? '#2D6E5D' : 'var(--neutral-dark)',
+                              fontWeight: grade === g ? 700 : 500,
+                              fontSize: 12,
                               cursor: 'pointer',
                             }}
                           >
@@ -349,7 +519,9 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                     </div>
 
                     <div>
-                      <label className="form-label" style={{ fontSize: 12 }}>Assigned Section (A–Z)</label>
+                      <label className="form-label" style={{ fontSize: 12 }}>
+                        Assigned Section (A–Z)
+                      </label>
                       <CustomSelect
                         value={section}
                         onChange={(val) => setSection(val)}
@@ -379,12 +551,17 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                           gap: 8,
                         }}
                       >
-                        <span style={{ fontSize: 15, flexShrink: 0 }}>⚠️</span>
+                        <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
                         <div>
-                          <strong>Class Teacher Conflict:</strong><br />
-                          <strong>{existingClassTeacher.name}</strong> ({existingClassTeacher.subject || 'Faculty'}) is already the designated Class Teacher for <strong>Grade {grade}-{section}</strong>.<br />
+                          <strong>Class Teacher Conflict:</strong>
+                          <br />
+                          <strong>{existingClassTeacher.name}</strong> (
+                          {existingClassTeacher.subject || 'Faculty'}) is already the designated Class Teacher
+                          for <strong>Grade {grade}-{section}</strong>.
+                          <br />
                           <span style={{ fontSize: 11, color: '#782826' }}>
-                            A class can only have one Class Teacher. Please reassign {existingClassTeacher.name} or choose another section.
+                            A class can only have one Class Teacher. Please reassign {existingClassTeacher.name} or
+                            choose another section.
                           </span>
                         </div>
                       </div>
@@ -395,103 +572,253 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
             </div>
           )}
 
-          {/* ── PARENT FIELDS: LINK STUDENT(S) ── */}
+          {/* ── PARENT FIELDS: LINK STUDENT(S) & SUBMITTED DOCUMENTS ── */}
           {role === 'parent' && (
-            <div
-              style={{
-                background: '#F0F9F7',
-                border: '1px solid #C7E4D8',
-                borderRadius: 10,
-                padding: '16px',
-                marginTop: 4,
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <p style={{ fontSize: 12, fontWeight: 700, color: '#265E5A', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Linked Student / Ward(s)
-                </p>
-                <span style={{ fontSize: 11, fontWeight: 600, color: '#2D6E5D', background: '#D6EFE5', padding: '2px 8px', borderRadius: 12 }}>
-                  {selectedStudentIds.length} Linked
-                </span>
-              </div>
-              <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.4 }}>
-                Select or update the student(s) this parent account has access to.
-              </p>
-
-              {/* Student Search */}
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Search student by name, grade, or admission no..."
-                value={studentSearchTerm}
-                onChange={(e) => setStudentSearchTerm(e.target.value)}
-                style={{ fontSize: 12.5, padding: '8px 12px', background: '#FFFFFF', marginBottom: 10 }}
-              />
-
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 4 }}>
+              {/* Linked Wards Section */}
               <div
                 style={{
-                  maxHeight: 180,
-                  overflowY: 'auto',
-                  border: '1px solid #D1E5DE',
-                  borderRadius: 8,
-                  background: '#FFFFFF',
-                  padding: '4px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 4,
+                  background: '#F0F9F7',
+                  border: '1px solid #C7E4D8',
+                  borderRadius: 10,
+                  padding: '16px',
                 }}
               >
-                {filteredStudentProfiles.length === 0 ? (
-                  <div style={{ padding: '16px', textAlign: 'center', fontSize: 12, color: 'var(--text-secondary)' }}>
-                    No students found matching search.
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: 8,
+                  }}
+                >
+                  <p
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: '#265E5A',
+                      margin: 0,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                    }}
+                  >
+                    Linked Student / Ward(s)
+                  </p>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: '#2D6E5D',
+                      background: '#D6EFE5',
+                      padding: '2px 8px',
+                      borderRadius: 12,
+                    }}
+                  >
+                    {selectedStudentIds.length} Linked
+                  </span>
+                </div>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.4 }}>
+                  Select or update the student(s) this parent account is linked to.
+                </p>
+
+                {/* Student Search */}
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Search student by name, grade, or admission no..."
+                  value={studentSearchTerm}
+                  onChange={(e) => setStudentSearchTerm(e.target.value)}
+                  style={{ fontSize: 12.5, padding: '8px 12px', background: '#FFFFFF', marginBottom: 10 }}
+                />
+
+                <div
+                  style={{
+                    maxHeight: 180,
+                    overflowY: 'auto',
+                    border: '1px solid #D1E5DE',
+                    borderRadius: 8,
+                    background: '#FFFFFF',
+                    padding: '4px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                  }}
+                >
+                  {filteredStudentProfiles.length === 0 ? (
+                    <div style={{ padding: '16px', textAlign: 'center', fontSize: 12, color: 'var(--text-secondary)' }}>
+                      No students found matching search.
+                    </div>
+                  ) : (
+                    filteredStudentProfiles.map((student) => {
+                      const isSelected = selectedStudentIds.includes(student.id);
+                      const gradeStr = student.grade ? `Grade ${student.grade.replace(/[^0-9]/g, '')}` : '';
+                      const secStr = student.class_letter ? `-${student.class_letter.toUpperCase()}` : '';
+                      const admStr = student.admission_number || student.user_code || 'No Code';
+
+                      return (
+                        <label
+                          key={student.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            padding: '8px 10px',
+                            borderRadius: 6,
+                            background: isSelected ? '#EAF3F1' : 'transparent',
+                            border: isSelected ? '1px solid #B8D9D4' : '1px solid transparent',
+                            cursor: 'pointer',
+                            transition: 'background 0.1s',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedStudentIds((prev) => [...prev, student.id]);
+                              } else {
+                                setSelectedStudentIds((prev) => prev.filter((id) => id !== student.id));
+                              }
+                            }}
+                            style={{ width: 16, height: 16, accentColor: '#2C6E6A', cursor: 'pointer' }}
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                              {student.name}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'flex', gap: 8, marginTop: 1 }}>
+                              <span>
+                                {gradeStr}
+                                {secStr}
+                              </span>
+                              <span>•</span>
+                              <span style={{ fontFamily: 'monospace' }}>{admStr}</span>
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Submitted Clearance Documents Section */}
+              <div
+                style={{
+                  background: '#FFFFFF',
+                  border: '1px solid #E8E5DF',
+                  borderRadius: 10,
+                  padding: '16px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: 10,
+                  }}
+                >
+                  <p
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: '#265E5A',
+                      margin: 0,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                    }}
+                  >
+                    Submitted Clearance Documents ({parentDocs.length})
+                  </p>
+                  <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                    Scoped to this parent&apos;s linked wards only
+                  </span>
+                </div>
+
+                {parentDocs.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '18px 14px',
+                      textAlign: 'center',
+                      background: '#FAF9F6',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <FileText size={14} />
+                    <span>No clearance documents submitted yet for this parent&apos;s linked wards.</span>
                   </div>
                 ) : (
-                  filteredStudentProfiles.map((student) => {
-                    const isSelected = selectedStudentIds.includes(student.id);
-                    const gradeStr = student.grade ? `Grade ${student.grade.replace(/[^0-9]/g, '')}` : '';
-                    const secStr = student.class_letter ? `-${student.class_letter.toUpperCase()}` : '';
-                    const admStr = student.admission_number || student.user_code || 'No Code';
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {parentDocs.map((doc) => {
+                      const ward = studentProfiles.find((s) => s.id === doc.student_id);
+                      const wardName = ward ? ward.name : 'Linked Ward';
+                      const wardGrade = ward?.grade
+                        ? ` (Grade ${ward.grade.replace(/[^0-9]/g, '')}-${ward.class_letter || ''})`
+                        : '';
 
-                    return (
-                      <label
-                        key={student.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                          padding: '8px 10px',
-                          borderRadius: 6,
-                          background: isSelected ? '#EAF3F1' : 'transparent',
-                          border: isSelected ? '1px solid #B8D9D4' : '1px solid transparent',
-                          cursor: 'pointer',
-                          transition: 'background 0.1s',
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedStudentIds((prev) => [...prev, student.id]);
-                            } else {
-                              setSelectedStudentIds((prev) => prev.filter((id) => id !== student.id));
-                            }
+                      return (
+                        <div
+                          key={doc.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '10px 14px',
+                            background: '#FAF9F6',
+                            border: '1px solid #E8E5DF',
+                            borderRadius: 8,
                           }}
-                          style={{ width: 16, height: 16, accentColor: '#2C6E6A', cursor: 'pointer' }}
-                        />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>
-                            {student.name}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                            <div
+                              style={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: 6,
+                                background: '#EAF3EF',
+                                color: '#2D6E5D',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
+                              <FileText size={16} />
+                            </div>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                {doc.doc_type}
+                              </div>
+                              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                                Ward: <strong>{wardName}{wardGrade}</strong> • {doc.file_name}
+                                {doc.uploaded_at ? ` • ${doc.uploaded_at}` : ''}
+                              </div>
+                            </div>
                           </div>
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'flex', gap: 8, marginTop: 1 }}>
-                            <span>{gradeStr}{secStr}</span>
-                            <span>•</span>
-                            <span style={{ fontFamily: 'monospace' }}>{admStr}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                            <span
+                              style={{
+                                fontSize: 10.5,
+                                fontWeight: 700,
+                                padding: '2px 7px',
+                                borderRadius: 4,
+                                background: doc.status === 'submitted' ? '#EAF3EF' : '#FEF3C7',
+                                color: doc.status === 'submitted' ? '#2D6E5D' : '#92400E',
+                                border: doc.status === 'submitted' ? '1px solid #C7E4D8' : '1px solid #FDE68A',
+                                textTransform: 'capitalize',
+                              }}
+                            >
+                              {doc.status || 'submitted'}
+                            </span>
                           </div>
                         </div>
-                      </label>
-                    );
-                  })
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             </div>

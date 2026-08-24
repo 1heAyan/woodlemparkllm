@@ -381,6 +381,49 @@ CREATE TABLE IF NOT EXISTS public.student_syllabus_progress (
     UNIQUE(student_id, topic_id)
 );
 
+-- 20. In-school assessment register (teacher-entered marks; private unless individually released)
+CREATE TABLE IF NOT EXISTS public.offline_assessments (
+    id TEXT PRIMARY KEY,
+    class_id TEXT NOT NULL REFERENCES public.subject_classes(id) ON DELETE CASCADE,
+    teacher_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    assessment_date DATE NOT NULL,
+    maximum_marks NUMERIC NOT NULL CHECK (maximum_marks > 0),
+    notes TEXT DEFAULT '',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.offline_assessment_marks (
+    id TEXT PRIMARY KEY,
+    assessment_id TEXT NOT NULL REFERENCES public.offline_assessments(id) ON DELETE CASCADE,
+    student_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    marks NUMERIC CHECK (marks >= 0),
+    teacher_note TEXT DEFAULT '',
+    is_visible_to_student BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(assessment_id, student_id)
+);
+
+ALTER TABLE public.offline_assessments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.offline_assessment_marks ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Teachers manage their assessment registers" ON public.offline_assessments;
+CREATE POLICY "Teachers manage their assessment registers" ON public.offline_assessments
+  FOR ALL USING (teacher_id = auth.uid()) WITH CHECK (teacher_id = auth.uid());
+
+DROP POLICY IF EXISTS "Students view released assessment details" ON public.offline_assessments;
+CREATE POLICY "Students view released assessment details" ON public.offline_assessments
+  FOR SELECT USING (EXISTS (SELECT 1 FROM public.offline_assessment_marks m WHERE m.assessment_id = id AND m.student_id = auth.uid() AND m.is_visible_to_student = TRUE));
+
+DROP POLICY IF EXISTS "Teachers manage marks in their registers" ON public.offline_assessment_marks;
+CREATE POLICY "Teachers manage marks in their registers" ON public.offline_assessment_marks
+  FOR ALL USING (EXISTS (SELECT 1 FROM public.offline_assessments a WHERE a.id = assessment_id AND a.teacher_id = auth.uid()))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.offline_assessments a WHERE a.id = assessment_id AND a.teacher_id = auth.uid()));
+
+DROP POLICY IF EXISTS "Students view released individual marks" ON public.offline_assessment_marks;
+CREATE POLICY "Students view released individual marks" ON public.offline_assessment_marks
+  FOR SELECT USING (student_id = auth.uid() AND is_visible_to_student = TRUE);
+
 -- Enable RLS on all new tables
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.subject_classes ENABLE ROW LEVEL SECURITY;

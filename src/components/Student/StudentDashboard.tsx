@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Award, Calendar, Settings, LifeBuoy, BookOpen, LogOut, MessageSquare, Megaphone, Pin, PinOff, SlidersHorizontal, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Award, Calendar, Settings, LifeBuoy, BookOpen, LogOut, MessageSquare, Megaphone, Pin, PinOff, SlidersHorizontal, Check, FileText, Video, Link2, FolderOpen, User } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import {
@@ -15,6 +15,7 @@ import {
   ClassResource,
   ClassBroadcast,
   ResourceType,
+  supabase,
 } from '@/lib/supabaseClient';
 import { SubmitAssignmentModal } from '../Modals/SubmitAssignmentModal';
 import { ExamPortalView } from './ExamPortalView';
@@ -94,7 +95,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [activeNavType, setActiveNavType] = useState<'class' | 'homeroom_circulars' | 'awards' | 'attendance' | 'hub' | 'settings' | 'support'>('class');
   
   // Tabs inside a subject classroom: 'broadcasts' | 'resources' | 'tasks' | 'syllabus'
-  const [classSubTab, setClassSubTab] = useState<'broadcasts' | 'resources' | 'tasks' | 'syllabus'>('broadcasts');
+  const [classSubTab, setClassSubTab] = useState<'broadcasts' | 'resources' | 'tasks' | 'marks' | 'syllabus'>('broadcasts');
+  const [releasedMarks, setReleasedMarks] = useState<any[]>([]);
   
   const [hubFilter, setHubFilter] = useState('');
 
@@ -118,6 +120,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   
   // Edge-style Sidebar State Controller
   const sidebar = useSidebarState('auto-hide');
+
+  useEffect(() => {
+    supabase.from('offline_assessment_marks').select('marks, teacher_note, offline_assessments(title, assessment_date, maximum_marks, class_id)').eq('student_id', currentStudent.id).eq('is_visible_to_student', true)
+      .then(({ data }) => setReleasedMarks(data || []));
+  }, [currentStudent.id]);
 
   // Homeroom circulars search & filter state
   const [hrSearchQuery, setHrSearchQuery] = useState('');
@@ -303,8 +310,15 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   }, [thisClassResources, resTypeFilter, resSearchQuery]);
 
   // Helper: check if a test/assignment belongs strictly to the currently viewed subject class
-  const isItemForActiveClass = (itemClassName?: string, itemTitle?: string) => {
+  const isItemForActiveClass = (itemClassName?: string, itemTitle?: string, itemTeacherId?: string) => {
     if (!activeClassObj || !itemClassName) return false;
+
+    // ── PRIMARY ISOLATION GATE: if teacher_id is stamped on the item, it MUST match
+    // the teacher who owns this subject class. This prevents cross-teacher data leakage.
+    if (itemTeacherId && activeClassObj.teacher_id) {
+      if (itemTeacherId !== activeClassObj.teacher_id) return false;
+    }
+
     const itemCn = itemClassName.toLowerCase().trim();
     const className = activeClassObj.name.toLowerCase().trim();
     const subjectName = (activeClassObj.subject || '').toLowerCase().trim();
@@ -337,7 +351,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   // Filter tests and assignments for the active subject class ONLY
   const myTests = useMemo(() => {
     if (!activeClassObj) return [];
-    return tests.filter((t) => isItemForActiveClass(t.class_name, t.title));
+    return tests.filter((t) => isItemForActiveClass(t.class_name, t.title, t.teacher_id));
   }, [tests, activeClassObj]);
 
   const myAssignments = useMemo(() => {
@@ -756,6 +770,13 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 >
                   Class Tests
                   <span className="tab-count">{myTests.length + myAssignments.length}</span>
+                </button>
+                <button
+                  className={`tab-btn ${classSubTab === 'marks' ? 'active' : ''}`}
+                  onClick={() => setClassSubTab('marks')}
+                >
+                  My Marks
+                  <span className="tab-count">{releasedMarks.filter((m: any) => m.offline_assessments?.class_id === activeClassObj?.id).length}</span>
                 </button>
                 <button
                   className={`tab-btn ${classSubTab === 'syllabus' ? 'active' : ''}`}
@@ -1192,7 +1213,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 </div>
               )}
 
-              {/* SUBTAB 3: 📝 ASSESSMENTS & HOMEWORK */}
+              {/* SUBTAB 3: ASSESSMENTS & HOMEWORK */}
               {classSubTab === 'tasks' && (
                 <div>
                   <h3 className="section-title" style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>
@@ -1292,6 +1313,16 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                         );
                       })
                     )}
+                  </div>
+                </div>
+              )}
+
+              {classSubTab === 'marks' && (
+                <div>
+                  <h3 className="section-title" style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Released marks</h3>
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16 }}>Only marks your teacher has released to you are shown here.</p>
+                  <div className="card-list">
+                    {releasedMarks.filter((m: any) => m.offline_assessments?.class_id === activeClassObj?.id).length === 0 ? <div className="panel-block" style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>No marks have been released for this class yet.</div> : releasedMarks.filter((m: any) => m.offline_assessments?.class_id === activeClassObj?.id).map((m: any, index) => <div className="item-card" key={index} style={{ padding: '16px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><span className="badge badge-test" style={{ marginBottom: 5, fontSize: 9.5 }}>In-school assessment</span><h4 style={{ fontSize: 14, margin: '0 0 3px' }}>{m.offline_assessments?.title}</h4><span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{m.offline_assessments?.assessment_date && new Date(m.offline_assessments.assessment_date + 'T00:00:00').toLocaleDateString()}</span>{m.teacher_note && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 5 }}>Teacher note: {m.teacher_note}</div>}</div><div style={{ fontSize: 18, fontWeight: 700, color: '#3D7A6E' }}>{m.marks}<span style={{ fontSize: 12, color: 'var(--text-secondary)' }}> / {m.offline_assessments?.maximum_marks}</span></div></div>)}
                   </div>
                 </div>
               )}
@@ -1890,7 +1921,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                       transition: 'all 0.2s',
                     }}
                   >
-                    <span>📢 Notices &amp; Circulars</span>
+                    <Megaphone size={14} />
+                    <span>Notices &amp; Circulars</span>
                     <span
                       style={{
                         fontSize: 10,
@@ -1924,7 +1956,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                       transition: 'all 0.2s',
                     }}
                   >
-                    <span>📚 Class Materials &amp; Timetables</span>
+                    <BookOpen size={14} />
+                    <span>Class Materials &amp; Timetables</span>
                     <span
                       style={{
                         fontSize: 10,
@@ -2008,9 +2041,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                           fontSize: 28,
                           marginBottom: 16,
                           boxShadow: '0 4px 12px rgba(44, 110, 106, 0.12)',
+                          color: '#2C6E6A',
                         }}
                       >
-                        📢
+                        <Megaphone size={28} />
                       </div>
                       <h3 style={{ fontSize: 17, fontWeight: 800, margin: 0, color: 'var(--neutral-dark)' }}>
                         {hrSearchQuery || hrPriorityFilter !== 'all'
@@ -2068,8 +2102,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                                   width: 36,
                                   height: 36,
                                   borderRadius: '50%',
-                                  background: '#2C6E6A',
-                                  color: '#FFFFFF',
+                                  background: '#EAF3EF',
+                                  color: '#2D6E5D',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
@@ -2077,7 +2111,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                                   fontWeight: 800,
                                 }}
                               >
-                                👨‍🏫
+                                <User size={18} />
                               </div>
                               <div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -2109,17 +2143,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                             <div style={{ display: 'flex', gap: 6 }}>
                               {isPinned && (
                                 <span style={{ fontSize: 10.5, fontWeight: 800, padding: '3px 8px', borderRadius: 4, background: '#FEF7EC', color: '#9E6C1B', border: '1px solid #F5DEB3' }}>
-                                  📌 PINNED
+                                  PINNED
                                 </span>
                               )}
                               {isUrgent && (
                                 <span style={{ fontSize: 10.5, fontWeight: 800, padding: '3px 8px', borderRadius: 4, background: '#FDF1F0', color: '#A83B38', border: '1px solid #F5C6CB' }}>
-                                  🚨 URGENT
+                                  URGENT
                                 </span>
                               )}
                               {isImportant && (
                                 <span style={{ fontSize: 10.5, fontWeight: 800, padding: '3px 8px', borderRadius: 4, background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE' }}>
-                                  ⭐ IMPORTANT
+                                  IMPORTANT
                                 </span>
                               )}
                             </div>
@@ -2168,12 +2202,12 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          fontSize: 28,
                           marginBottom: 16,
+                          color: '#9E6C1B',
                           boxShadow: '0 4px 12px rgba(212, 163, 115, 0.15)',
                         }}
                       >
-                        📂
+                        <FolderOpen size={30} />
                       </div>
                       <h3 style={{ fontSize: 17, fontWeight: 800, margin: 0, color: 'var(--neutral-dark)' }}>
                         {hrSearchQuery ? 'No matching materials found' : 'No Class Materials Uploaded Yet'}
@@ -2187,23 +2221,23 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   ) : (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
                       {filteredHomeroomResources.map((res) => {
-                        let typeIcon = '📄';
+                        let typeIcon = <FileText size={18} />;
                         let typeBg = '#EAF3EF';
                         let typeColor = '#2D6E5D';
                         if (res.resource_type === 'pdf') {
-                          typeIcon = '📕';
+                          typeIcon = <FileText size={18} />;
                           typeBg = '#FDF1F0';
                           typeColor = '#A83B38';
                         } else if (res.resource_type === 'slides') {
-                          typeIcon = '📊';
+                          typeIcon = <BookOpen size={18} />;
                           typeBg = '#FEF7EC';
                           typeColor = '#9E6C1B';
                         } else if (res.resource_type === 'video') {
-                          typeIcon = '🎥';
+                          typeIcon = <Video size={18} />;
                           typeBg = '#F3EFFA';
                           typeColor = '#7C5CBF';
                         } else if (res.resource_type === 'link') {
-                          typeIcon = '🔗';
+                          typeIcon = <Link2 size={18} />;
                           typeBg = '#EFF6FF';
                           typeColor = '#1E40AF';
                         }

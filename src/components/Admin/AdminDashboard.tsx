@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, SlidersHorizontal, Check, UserCheck, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, SlidersHorizontal, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import { UserProfile, ParentDocument, HubActivity, ParentStudentLinkRequest } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
+import { UserDetailView } from '@/components/Admin/UserDetailView';
 import { formatShortFileName, openFileInNewTab, downloadFile } from '@/lib/fileHelper';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 
@@ -20,6 +21,7 @@ interface AdminDashboardProps {
   onOpenProvisionModal: () => void;
   onOpenBulkModal: () => void;
   onEditUser: (user: UserProfile) => void;
+  onUpdateUser?: (updatedUser: UserProfile) => Promise<void> | void;
   onDeleteUser: (userId: string) => void;
   onApproveLinkRequest?: (requestId: string) => Promise<void>;
   onRejectLinkRequest?: (requestId: string) => Promise<void>;
@@ -28,7 +30,7 @@ interface AdminDashboardProps {
   onRefreshData?: () => void;
 }
 
-type AdminTab = 'overview' | 'directory' | 'link_requests' | 'classes' | 'documents' | 'hub' | 'settings' | 'support' | 'system';
+type AdminTab = 'overview' | 'directory' | 'link_requests' | 'classes' | 'hub' | 'settings' | 'support' | 'system';
 
 const VALID_GRADES = ['9', '10', '11', '12'] as const;
 const BASE_SECTIONS = ['A', 'B', 'C', 'D'] as const;
@@ -42,6 +44,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onOpenProvisionModal,
   onOpenBulkModal,
   onEditUser,
+  onUpdateUser,
   onDeleteUser,
   onApproveLinkRequest,
   onRejectLinkRequest,
@@ -57,7 +60,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [docStudentFilter, setDocStudentFilter] = useState('');
   const [selectedClassInspect, setSelectedClassInspect] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserProfile | null>(null);
   const sidebar = useSidebarState('auto-hide');
+
+  const handleInitiateEditUser = (u: UserProfile) => {
+    setSelectedUserForEdit(u);
+  };
 
   const pendingLinkRequests = useMemo(() => linkRequests.filter((r) => r.status === 'pending'), [linkRequests]);
 
@@ -72,8 +80,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setActiveTab('directory');
       } else if (target.view === 'classes') {
         setActiveTab('classes');
-      } else if (target.view === 'documents') {
-        setActiveTab('documents');
       } else if (target.view === 'hub') {
         setActiveTab('hub');
       } else if (target.view === 'settings') {
@@ -405,7 +411,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 18 }}>⚡</span>
+            <Zap size={18} style={{ color: '#D97706', flexShrink: 0 }} />
             <div>
               <strong style={{ color: '#8A5D16', fontSize: 13 }}>
                 {pendingLinkRequests.length} Parent-Student Link Request{pendingLinkRequests.length > 1 ? 's' : ''} Awaiting Approval
@@ -552,7 +558,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {[
               { title: 'User Directory Management', desc: `${profiles.length} total profiles registered`, tab: 'directory' as const },
               { title: 'Section Roster & Class Teachers', desc: `${activeClassList.length} active cohorts`, tab: 'classes' as const },
-              { title: 'Parent Clearance & Documents', desc: `${parentDocuments.length} files submitted`, tab: 'documents' as const },
+              { title: 'Parent-Student Link Requests', desc: `${pendingLinkRequests.length} pending review`, tab: 'link_requests' as const },
               { title: 'Holistic Development Hub', desc: `${hubActivities.length} published programs`, tab: 'hub' as const },
               { title: 'System Environment & Diagnostics', desc: 'Secure Cloud Platform', tab: 'system' as const },
             ].map((item) => (
@@ -627,7 +633,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <td style={{ ...tdStyle, fontSize: 11.5, color: '#55534E' }}>{formatUserAssignment(p)}</td>
                   <td style={{ ...tdStyle, textAlign: 'right' }}>
                     <button
-                      onClick={() => onEditUser(p)}
+                      onClick={() => handleInitiateEditUser(p)}
                       style={{
                         padding: '3px 8px',
                         fontSize: 11,
@@ -885,26 +891,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </td>
                   <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button
-                      onClick={() => setActiveTab('settings')}
+                      onClick={() => handleInitiateEditUser(p)}
                       style={{
-                        padding: '3px 8px',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        border: '1px solid #C7E4D8',
-                        borderRadius: 4,
-                        background: '#EAF3EF',
-                        color: '#2D6E5D',
-                        cursor: 'pointer',
-                        marginRight: 4,
-                      }}
-                      title="Manage / Reset User Password"
-                    >
-                      Reset Password
-                    </button>
-                    <button
-                      onClick={() => onEditUser(p)}
-                      style={{
-                        padding: '3px 8px',
+                        padding: '3px 10px',
                         fontSize: 11,
                         fontWeight: 600,
                         border: '1px solid var(--border-color)',
@@ -912,7 +901,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         background: '#FFFFFF',
                         color: 'var(--neutral-dark)',
                         cursor: 'pointer',
-                        marginRight: 4,
+                        marginRight: 6,
                       }}
                     >
                       Edit
@@ -1072,7 +1061,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>{st.admission_number || st.user_code || '—'}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                       <button
-                        onClick={() => onEditUser(st)}
+                        onClick={() => handleInitiateEditUser(st)}
                         style={{
                           padding: '2px 8px',
                           fontSize: 10.5,
@@ -1435,32 +1424,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 <button
                                   onClick={() => onApproveLinkRequest && onApproveLinkRequest(req.id)}
                                   style={{
-                                    padding: '4px 10px',
-                                    fontSize: 11,
+                                    padding: '5px 12px',
+                                    fontSize: 11.5,
                                     fontWeight: 700,
                                     background: '#2C6E6A',
                                     color: '#FFFFFF',
                                     border: 'none',
-                                    borderRadius: 4,
+                                    borderRadius: 5,
                                     cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
                                   }}
                                 >
-                                  ✓ Approve &amp; Link
+                                  <Check size={12} /> Approve &amp; Link
                                 </button>
                                 <button
                                   onClick={() => onRejectLinkRequest && onRejectLinkRequest(req.id)}
                                   style={{
-                                    padding: '4px 8px',
-                                    fontSize: 11,
+                                    padding: '5px 9px',
+                                    fontSize: 11.5,
                                     fontWeight: 600,
                                     background: '#FDF1F0',
                                     color: '#A83B38',
                                     border: '1px solid #F5C6CB',
-                                    borderRadius: 4,
+                                    borderRadius: 5,
                                     cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
                                   }}
                                 >
-                                  ✕ Reject
+                                  <X size={12} /> Reject
                                 </button>
                               </div>
                             ) : (
@@ -1643,7 +1638,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   gap: 4,
                                 }}
                               >
-                                ✓ Approve &amp; Link
+                                <Check size={12} /> Approve &amp; Link
                               </button>
                               <button
                                 onClick={() => onRejectLinkRequest && onRejectLinkRequest(req.id)}
@@ -1656,14 +1651,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   border: '1px solid #F5C6CB',
                                   borderRadius: 5,
                                   cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
                                 }}
                               >
-                                ✕ Reject
+                                <X size={12} /> Reject
                               </button>
                             </div>
                           ) : (
-                            <span style={{ fontSize: 11.5, fontWeight: 600, color: isApproved ? '#2D6E5D' : '#A83B38' }}>
-                              {isApproved ? '✓ Linked to Parent' : 'Rejected'}
+                            <span style={{ fontSize: 11.5, fontWeight: 600, color: isApproved ? '#2D6E5D' : '#A83B38', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              {isApproved ? (<><Check size={12} /> Linked to Parent</>) : 'Rejected'}
                             </span>
                           )}
                         </td>
@@ -1788,7 +1786,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       isAlert: pendingLinkRequests.length > 0,
     },
     { id: 'classes', label: 'CLASSES & SECTIONS', count: activeClassList.length },
-    { id: 'documents', label: 'DOCUMENTS', count: parentDocuments.length },
     { id: 'hub', label: 'HOLISTIC HUB', count: hubActivities.length },
     { id: 'settings', label: 'SETTINGS & PASSWORDS' },
     { id: 'support', label: 'HELP & SUPPORT' },
@@ -1839,7 +1836,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
         {/* PROFILE CARD */}
-        {!sidebar.isCollapsed && (
+        {sidebar.isCollapsed ? (
+          <div style={{ padding: '12px 0 6px', display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
+            <div
+              title={`Administrator • ${currentUser.name || 'Admin'}`}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 8,
+                background: '#1A1A1A',
+                color: '#FFFFFF',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 13,
+                fontWeight: 800,
+              }}
+            >
+              {(currentUser.name || 'A').charAt(0).toUpperCase()}
+            </div>
+          </div>
+        ) : (
           <div style={{
             margin: '12px 12px 0',
             border: '1px solid #E8E5DF',
@@ -1872,36 +1889,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
 
-        {/* ASK GEMINI AI BUTTON */}
-        {!sidebar.isCollapsed && (
-          <div style={{ padding: '10px 12px 0', flexShrink: 0 }}>
-            <button
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                background: '#F0EEFF',
-                border: '1px solid #D4CAFF',
-                borderRadius: 7,
-                padding: '8px 12px',
-                cursor: 'pointer',
-                transition: 'background 0.15s ease',
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#E8E1FF')}
-              onMouseLeave={e => (e.currentTarget.style.background = '#F0EEFF')}
-              onClick={() => {/* Gemini trigger */}}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#5B21B6' }}>
-                <span style={{ fontSize: 14 }}>✦</span> Ask Gemini AI
-              </span>
-              <span style={{ fontSize: 10.5, fontWeight: 600, color: '#8B6FCC', background: '#DDD5FF', borderRadius: 4, padding: '2px 5px' }}>⌘K</span>
-            </button>
-          </div>
-        )}
-
-        {/* NAVIGATION SECTION */}
-        <div style={{ padding: sidebar.isCollapsed ? '12px 0 0' : '16px 0 0', flexShrink: 0 }}>
+        {/* NAVIGATION SECTION HEADER */}
+        <div style={{ padding: sidebar.isCollapsed ? '8px 0 0' : '16px 0 0', flexShrink: 0 }}>
           {!sidebar.isCollapsed && (
             <div style={{
               fontSize: 10,
@@ -1927,45 +1916,100 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }}>
           {tabs.map((tab) => {
             const isActive = activeTab === tab.id;
+
+            const getIcon = () => {
+              switch (tab.id) {
+                case 'overview': return <LayoutDashboard size={16} />;
+                case 'directory': return <Users size={16} />;
+                case 'link_requests': return <UserCheck size={16} />;
+                case 'classes': return <BookOpen size={16} />;
+                case 'hub': return <Award size={16} />;
+                case 'settings': return <Settings size={16} />;
+                case 'support': return <LifeBuoy size={16} />;
+                case 'system': return <Server size={16} />;
+              }
+            };
+
             return (
               <div key={tab.id} style={{ position: 'relative' }}>
                 <button
-                  onClick={() => { setActiveTab(tab.id); sidebar.handleNavClick(); }}
+                  onClick={() => { setActiveTab(tab.id); setSelectedUserForEdit(null); sidebar.handleNavClick(); }}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: sidebar.isCollapsed ? 'center' : 'space-between',
-                    padding: sidebar.isCollapsed ? '0' : '9px 10px',
+                    padding: sidebar.isCollapsed ? '0' : '9px 12px',
                     width: sidebar.isCollapsed ? 40 : '100%',
                     height: sidebar.isCollapsed ? 40 : 'auto',
-                    margin: sidebar.isCollapsed ? '2px auto' : '1px 0',
+                    margin: sidebar.isCollapsed ? '4px auto' : '2px 0',
                     background: isActive ? '#1A1A1A' : 'transparent',
                     border: 'none',
-                    borderRadius: 6,
+                    borderRadius: 7,
                     cursor: 'pointer',
                     textAlign: 'left' as const,
-                    transition: 'background 0.12s ease',
+                    transition: 'all 0.12s ease',
                   }}
                   onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = '#F3F2EF'; }}
                   onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
                   title={sidebar.isCollapsed ? tab.label : undefined}
                 >
                   {sidebar.isCollapsed ? (
-                    /* Collapsed: show first letter of label */
-                    <span style={{ fontSize: 11, fontWeight: 800, color: isActive ? '#FFFFFF' : '#6B6963', letterSpacing: '0.02em' }}>
-                      {tab.label.charAt(0)}
-                    </span>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: isActive ? '#FFFFFF' : '#5A5854',
+                      }}>
+                        {getIcon()}
+                      </span>
+                      {tab.count !== undefined && tab.count > 0 && (
+                        <span style={{
+                          position: 'absolute',
+                          top: -6,
+                          right: -8,
+                          fontSize: 8.5,
+                          fontWeight: 800,
+                          color: tab.isAlert ? '#92400E' : isActive ? '#1A1A1A' : '#FFFFFF',
+                          background: tab.isAlert ? '#FDE68A' : isActive ? '#FFFFFF' : '#1A1A1A',
+                          border: tab.isAlert ? '1px solid #F59E0B' : '1px solid #FFFFFF',
+                          borderRadius: 8,
+                          padding: '0 3px',
+                          minWidth: 13,
+                          height: 13,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}>
+                          {tab.count}
+                        </span>
+                      )}
+                    </div>
                   ) : (
                     <>
-                      <span style={{
-                        fontSize: 11.5,
-                        fontWeight: isActive ? 700 : 600,
-                        letterSpacing: '0.04em',
-                        color: isActive ? '#FFFFFF' : '#3A3834',
-                        textTransform: 'uppercase',
-                      }}>
-                        {tab.label}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                        <span style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: isActive ? '#FFFFFF' : '#6B6963',
+                          flexShrink: 0,
+                        }}>
+                          {getIcon()}
+                        </span>
+                        <span style={{
+                          fontSize: 11.5,
+                          fontWeight: isActive ? 700 : 600,
+                          letterSpacing: '0.04em',
+                          color: isActive ? '#FFFFFF' : '#3A3834',
+                          textTransform: 'uppercase',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}>
+                          {tab.label}
+                        </span>
+                      </div>
                       {tab.count !== undefined && (
                         <span style={{
                           fontSize: 10.5,
@@ -1984,7 +2028,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   )}
                 </button>
                 {sidebar.isCollapsed && (
-                  <div className="sidebar-tooltip">{tab.label}</div>
+                  <div className="sidebar-tooltip">
+                    {tab.label} {tab.count !== undefined ? `(${tab.count})` : ''}
+                  </div>
                 )}
               </div>
             );
@@ -2059,6 +2105,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--neutral-dark)' }}>
               {tabs.find((t) => t.id === activeTab)?.label}
+              {selectedUserForEdit ? ` / EDIT USER: ${selectedUserForEdit.name}` : ''}
             </span>
           </div>
 
@@ -2074,19 +2121,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         {/* Scrollable Viewport Content */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
-          {activeTab === 'overview' && renderOverview()}
-          {activeTab === 'directory' && renderUserDirectory()}
-          {activeTab === 'link_requests' && renderLinkRequests()}
-          {activeTab === 'classes' && renderClasses()}
-          {activeTab === 'documents' && renderDocuments()}
-          {activeTab === 'hub' && renderHub()}
-          {activeTab === 'settings' && (
-            <SettingsView currentUser={currentUser} profiles={profiles} onRefreshData={onRefreshData} />
+          {selectedUserForEdit ? (
+            <UserDetailView
+              user={selectedUserForEdit}
+              profiles={profiles}
+              parentDocuments={parentDocuments}
+              onBack={() => setSelectedUserForEdit(null)}
+              onSave={async (updated) => {
+                if (onUpdateUser) {
+                  await onUpdateUser(updated);
+                } else {
+                  onEditUser(updated);
+                }
+                setSelectedUserForEdit(updated);
+              }}
+              onDelete={(userId) => {
+                onDeleteUser(userId);
+                setSelectedUserForEdit(null);
+              }}
+            />
+          ) : (
+            <>
+              {activeTab === 'overview' && renderOverview()}
+              {activeTab === 'directory' && renderUserDirectory()}
+              {activeTab === 'link_requests' && renderLinkRequests()}
+              {activeTab === 'classes' && renderClasses()}
+              {activeTab === 'hub' && renderHub()}
+              {activeTab === 'settings' && (
+                <SettingsView currentUser={currentUser} profiles={profiles} onRefreshData={onRefreshData} />
+              )}
+              {activeTab === 'support' && (
+                <SupportView currentUser={currentUser} />
+              )}
+              {activeTab === 'system' && renderSystem()}
+            </>
           )}
-          {activeTab === 'support' && (
-            <SupportView currentUser={currentUser} />
-          )}
-          {activeTab === 'system' && renderSystem()}
         </div>
       </main>
     </div>

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { TestItem, TestQuestion, UserProfile } from '@/lib/supabaseClient';
+import { Clock, Check, AlertTriangle } from 'lucide-react';
 
 interface ExamPortalViewProps {
   test: TestItem;
@@ -402,7 +403,7 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
                 transition: 'all 0.2s',
               }}
             >
-              <span style={{ fontSize: 16 }}>⏱</span>
+              <Clock size={16} />
               <span>{formatTime(timeLeft)}</span>
             </div>
           )}
@@ -512,7 +513,7 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
                   fontWeight: 800,
                 }}
               >
-                ✓
+                <Check size={36} />
               </div>
 
               <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#0F172A' }}>
@@ -931,7 +932,7 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
                 fontWeight: 900,
               }}
             >
-              ⚠
+              <AlertTriangle size={28} />
             </div>
             <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#1E293B' }}>
               Security &amp; Proctoring Warning

@@ -44,7 +44,7 @@ export function useSidebarState(defaultMode: SidebarMode = 'auto-hide') {
       try {
         localStorage.setItem(STORAGE_KEY, next);
       } catch (e) {}
-      showFeedback(next === 'expanded' ? '📌 Sidebar Pinned (Always Open)' : '⚡ Auto-Hide (Hover ~1.2s to open)');
+      showFeedback(next === 'expanded' ? 'Sidebar Pinned (Always Open)' : 'Auto-Hide (Hover ~1.2s to open)');
       return next;
     });
     setIsHovered(false);

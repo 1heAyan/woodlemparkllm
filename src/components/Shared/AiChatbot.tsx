@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { UserProfile } from '@/lib/supabaseClient';
 import { usePortalNavigation, PortalNavigationTarget, ChatMessage } from '@/lib/PortalNavigationContext';
+import { ArrowUpRight, X, RotateCcw, Send, Sparkles, Bot, ChevronRight } from 'lucide-react';
 
 interface AiChatbotProps {
   currentUser?: UserProfile | null;
@@ -10,15 +11,9 @@ interface AiChatbotProps {
 
 export const AiChatbot: React.FC<AiChatbotProps> = ({ currentUser: propUser }) => {
   const {
-    isAiPanelOpen,
-    setIsAiPanelOpen,
-    toggleAiPanel,
-    currentUser: contextUser,
-    navigateTo,
-    messages,
-    setMessages,
-    clearChatHistory,
-    activeNavNotification,
+    isAiPanelOpen, setIsAiPanelOpen, toggleAiPanel,
+    currentUser: contextUser, navigateTo,
+    messages, setMessages, clearChatHistory, activeNavNotification,
   } = usePortalNavigation();
 
   const user = propUser || contextUser;
@@ -29,832 +24,382 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({ currentUser: propUser }) =
   const [isLoading, setIsLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isHovered, setIsHovered] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  useEffect(() => { setIsMounted(true); }, []);
 
   useEffect(() => {
     if (isAiPanelOpen) {
-      scrollToBottom();
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 100);
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      setTimeout(() => { inputRef.current?.focus(); }, 150);
     }
   }, [isAiPanelOpen, messages, isLoading]);
 
-  // Quick Action Prompts tailored to user role
   const quickPrompts = useMemo(() => {
     switch (role) {
-      case 'student':
-        return [
-          { text: 'How do I submit my homework?', label: '📝 Submit Homework' },
-          { text: 'Where are lecture notes & slides?', label: '📚 Study Notes' },
-          { text: 'How do I take online assessments?', label: '⏱️ Start Exam' },
-          { text: 'How do I change my password?', label: '🔑 Password' },
-          { text: 'How do I log my achievements?', label: '🏆 Log Award' },
-        ];
-      case 'teacher':
-        return [
-          { text: 'How do I upload learning resources?', label: '📁 Upload Notes' },
-          { text: 'How do I take homeroom attendance?', label: '📋 Roll Call' },
-          { text: 'How do I post a classroom notice?', label: '📢 Post Notice' },
-          { text: 'How do I publish an assessment?', label: '✍️ Create Test' },
-          { text: 'How do I review student submissions?', label: '⭐ Grade Work' },
-        ];
-      case 'admin':
-        return [
-          { text: 'How do I reset a student password?', label: '🔑 Reset Password' },
-          { text: 'How do I bulk import users with Excel?', label: '📊 Bulk Import' },
-          { text: 'How do I provision a new user?', label: '👤 Add User' },
-          { text: 'How do I check cohort capacities?', label: '🏫 Cohorts' },
-          { text: 'How do I review parent documents?', label: '📄 Parent Docs' },
-        ];
-      case 'parent':
-        return [
-          { text: "How do I check my child's attendance?", label: '📊 Attendance' },
-          { text: 'How do I upload medical and clearance forms?', label: '📄 Upload Forms' },
-          { text: 'What extracurricular programs are available?', label: '🌟 Holistic Hub' },
-          { text: 'How do I contact the school helpdesk?', label: '🎫 Helpdesk' },
-        ];
-      default:
-        return [
-          { text: 'How do I submit homework?', label: '📝 Homework' },
-          { text: 'How do I change my password?', label: '🔑 Password' },
-          { text: 'Where is the school helpdesk?', label: '🎫 Support' },
-        ];
+      case 'student': return [
+        { text: 'How do I submit my homework?', label: 'Submit Homework' },
+        { text: 'Where are lecture notes & slides?', label: 'Study Notes' },
+        { text: 'How do I take online assessments?', label: 'Start Exam' },
+        { text: 'How do I change my password?', label: 'Password' },
+        { text: 'How do I log my achievements?', label: 'Log Award' },
+      ];
+      case 'teacher': return [
+        { text: 'How do I upload learning resources?', label: 'Upload Notes' },
+        { text: 'How do I take homeroom attendance?', label: 'Roll Call' },
+        { text: 'How do I post a classroom notice?', label: 'Post Notice' },
+        { text: 'How do I publish an assessment?', label: 'Create Test' },
+        { text: 'How do I review student submissions?', label: 'Grade Work' },
+      ];
+      case 'admin': return [
+        { text: 'How do I reset a student password?', label: 'Reset Password' },
+        { text: 'How do I bulk import users with Excel?', label: 'Bulk Import' },
+        { text: 'How do I provision a new user?', label: 'Add User' },
+        { text: 'How do I check cohort capacities?', label: 'Cohorts' },
+        { text: 'How do I review parent documents?', label: 'Parent Docs' },
+      ];
+      case 'parent': return [
+        { text: "How do I check my child's attendance?", label: 'Attendance' },
+        { text: 'How do I upload medical and clearance forms?', label: 'Upload Forms' },
+        { text: 'What extracurricular programs are available?', label: 'Holistic Hub' },
+        { text: 'How do I contact the school helpdesk?', label: 'Helpdesk' },
+      ];
+      default: return [
+        { text: 'How do I submit homework?', label: 'Homework' },
+        { text: 'How do I change my password?', label: 'Password' },
+        { text: 'Where is the school helpdesk?', label: 'Support' },
+      ];
     }
   }, [role]);
 
-  // Parse nav tokens e.g. [[nav:class:tasks|Go to Tasks & Assessments ↗]]
-  const parseNavToken = (rawToken: string): { target: PortalNavigationTarget; label: string; icon: string } | null => {
-    // Format: [[nav:SPEC|Label]]
+  const parseNavToken = (rawToken: string): { target: PortalNavigationTarget; label: string } | null => {
     const match = rawToken.match(/^\[\[nav:([^|]+)\|([^\]]+)\]\]$/);
     if (!match) return null;
-
     const spec = match[1].trim();
-    const label = match[2].trim();
+    const label = match[2].trim().replace(/\s*\u2197$/, '');
     const parts = spec.split(':');
-
     let target: PortalNavigationTarget = {};
-    let icon = '🔗';
-
     const type = parts[0];
-
     if (type === 'class') {
-      const sub = parts[1] || 'tasks';
-      target = { view: 'class', subTab: sub };
-      if (sub === 'tasks') icon = '📝';
-      else if (sub === 'resources') icon = '📚';
-      else if (sub === 'syllabus') icon = '📋';
-      else if (sub === 'broadcasts') icon = '📢';
-      else icon = '🏫';
+      target = { view: 'class', subTab: parts[1] || 'tasks' };
     } else if (type === 'view') {
-      const v = parts[1];
-      const sub = parts[2];
-      if (v === 'awards') {
-        target = { view: 'awards' };
-        icon = '🏆';
-      } else if (v === 'attendance') {
-        if (role === 'teacher') {
-          target = { view: 'homeroom_attendance', subTab: sub || 'history' };
-        } else {
-          target = { view: 'attendance' };
-        }
-        icon = '📊';
-      } else if (v === 'hub') {
-        target = { view: 'hub' };
-        icon = '🌟';
-      } else if (v === 'settings') {
-        target = { view: 'settings' };
-        icon = '⚙️';
-      } else if (v === 'support') {
-        target = { view: 'support' };
-        icon = '🎫';
-      } else if (v === 'directory') {
-        target = { view: 'directory' };
-        icon = '👥';
-      } else if (v === 'classes') {
-        target = { view: 'classes' };
-        icon = '🏫';
-      } else if (v === 'documents') {
-        target = { view: 'documents' };
-        icon = '📄';
-      } else if (v === 'progress') {
-        target = { view: 'progress' };
-        icon = '📈';
-      } else {
-        target = { view: v };
-      }
+      const v = parts[1]; const sub = parts[2];
+      if (v === 'awards') target = { view: 'awards' };
+      else if (v === 'attendance') target = role === 'teacher' ? { view: 'homeroom_attendance', subTab: sub || 'history' } : { view: 'attendance' };
+      else if (v === 'hub') target = { view: 'hub' };
+      else if (v === 'settings') target = { view: 'settings' };
+      else if (v === 'support') target = { view: 'support' };
+      else if (v === 'directory') target = { view: 'directory' };
+      else if (v === 'classes') target = { view: 'classes' };
+      else if (v === 'documents') target = { view: 'documents' };
+      else if (v === 'progress') target = { view: 'progress' };
+      else target = { view: v };
     } else if (type === 'modal') {
       const modal = parts[1];
-      if (modal === 'provision_user') {
-        target = { modalAction: 'provision_user' };
-        icon = '👤';
-      } else if (modal === 'bulk_import') {
-        target = { modalAction: 'bulk_import' };
-        icon = '📥';
-      }
+      if (modal === 'provision_user') target = { modalAction: 'provision_user' };
+      else if (modal === 'bulk_import') target = { modalAction: 'bulk_import' };
     }
-
-    return { target, label, icon };
+    return { target, label };
   };
 
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || inputMessage).trim();
     if (!text || isLoading) return;
-
     const userMsg: ChatMessage = {
-      id: `msg-${Date.now()}`,
-      sender: 'user',
-      text,
+      id: `msg-${Date.now()}`, sender: 'user', text,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
-
     setMessages((prev) => [...prev, userMsg]);
     setInputMessage('');
     setIsLoading(true);
-
     try {
       const historyPayload = messages.slice(-6).map((m) => ({
-        role: m.sender === 'user' ? 'user' : 'assistant',
-        content: m.text,
+        role: m.sender === 'user' ? 'user' : 'assistant', content: m.text,
       }));
-
       const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: text,
-          history: historyPayload,
-          userRole: role,
-          userName: userName,
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, history: historyPayload, userRole: role, userName }),
       });
-
       if (res.ok) {
         const data = await res.json();
-        const assistantMsg: ChatMessage = {
-          id: `ai-${Date.now()}`,
-          sender: 'assistant',
+        setMessages((prev) => [...prev, {
+          id: `ai-${Date.now()}`, sender: 'assistant',
           text: data.reply || 'I am here to guide you with the Woodlem portal.',
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-        setMessages((prev) => [...prev, assistantMsg]);
-      } else {
-        throw new Error('API response not ok');
-      }
-    } catch (e) {
-      const fallbackMsg: ChatMessage = {
-        id: `ai-err-${Date.now()}`,
-        sender: 'assistant',
-        text: `I can assist you with homework, study materials, attendance, holistic hub activities, and password settings.
-
-[[nav:class:tasks|Assessments & Tasks ↗]] [[nav:class:resources|Learning Resources ↗]] [[nav:view:settings|Password Settings ↗]]`,
+        }]);
+      } else throw new Error('API not ok');
+    } catch {
+      setMessages((prev) => [...prev, {
+        id: `ai-err-${Date.now()}`, sender: 'assistant',
+        text: 'I can assist you with homework, study materials, attendance, holistic hub activities, and password settings.\n\n[[nav:class:tasks|Assessments]] [[nav:class:resources|Resources]] [[nav:view:settings|Settings]]',
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages((prev) => [...prev, fallbackMsg]);
+      }]);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleCopyText = (id: string, text: string) => {
-    // Strip nav tokens from copied text for clean reading
     const cleanText = text.replace(/\[\[nav:[^|]+\|([^\]]+)\]\]/g, '$1');
     navigator.clipboard.writeText(cleanText);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 1800);
   };
 
-  // Helper to format text, numbered steps, bolding, and clickable deep-links
   const renderFormattedText = (rawText: string) => {
-    const lines = rawText.split('\n');
-
-    return lines.map((line, lineIdx) => {
+    return rawText.split('\n').map((line, lineIdx) => {
       const trimmed = line.trim();
-      if (!trimmed) {
-        return <div key={lineIdx} style={{ height: 6 }} />;
-      }
-
-      // Check if the line is purely navigation tokens or contains nav tokens
+      if (!trimmed) return <div key={lineIdx} style={{ height: 6 }} />;
       const navTokenRegex = /(\[\[nav:[^|]+\|[^\]]+\]\])/g;
       const parts = line.split(navTokenRegex);
-
       const isNumbered = /^\d+\.\s/.test(trimmed);
-      const isBullet = /^[-*•]\s/.test(trimmed);
-
+      const isBullet = /^[-*\u2022]\s/.test(trimmed);
       const renderParts = parts.map((part, pIdx) => {
-        // If part is a navigation token
         if (part.startsWith('[[nav:') && part.endsWith(']]')) {
           const navParsed = parseNavToken(part);
           if (navParsed) {
             return (
               <button
-                key={pIdx}
-                type="button"
-                className="ai-nav-badge-btn"
+                key={pIdx} type="button"
                 onClick={() => navigateTo(navParsed.target)}
-                title={`Click to jump to ${navParsed.label}`}
                 style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  margin: '4px 4px 4px 0',
-                  padding: '5px 12px',
-                  borderRadius: 16,
-                  background: 'linear-gradient(135deg, #EAF3EF 0%, #DCEDE6 100%)',
-                  border: '1px solid #B4DFD1',
-                  color: '#1B5B53',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                  transition: 'all 0.15s ease',
-                  verticalAlign: 'middle',
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  margin: '3px 4px 3px 0', padding: '4px 10px',
+                  borderRadius: 6, background: '#F0FDF4', border: '1px solid #BBF7D0',
+                  color: '#15803D', fontSize: 11.5, fontWeight: 600,
+                  cursor: 'pointer', transition: 'all 0.15s ease', verticalAlign: 'middle',
                 }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#2C6E6A';
-                  e.currentTarget.style.color = '#FFFFFF';
-                  e.currentTarget.style.borderColor = '#2C6E6A';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                  e.currentTarget.style.boxShadow = '0 3px 8px rgba(44,110,106,0.25)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, #EAF3EF 0%, #DCEDE6 100%)';
-                  e.currentTarget.style.color = '#1B5B53';
-                  e.currentTarget.style.borderColor = '#B4DFD1';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)';
-                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#2C6E6A'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#2C6E6A'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#F0FDF4'; e.currentTarget.style.color = '#15803D'; e.currentTarget.style.borderColor = '#BBF7D0'; }}
               >
-                <span>{navParsed.icon}</span>
                 <span>{navParsed.label}</span>
+                <ArrowUpRight size={11} style={{ flexShrink: 0 }} />
               </button>
             );
           }
         }
-
-        // Parse bold segments **text**
-        const boldParts = part.split(/(\*\*.*?\*\*)/g);
-        return boldParts.map((subPart, sIdx) => {
-          if (subPart.startsWith('**') && subPart.endsWith('**')) {
-            return (
-              <strong key={`${pIdx}-${sIdx}`} style={{ fontWeight: 700, color: 'inherit' }}>
-                {subPart.slice(2, -2)}
-              </strong>
-            );
-          }
+        return part.split(/(\*\*.*?\*\*)/g).map((subPart, sIdx) => {
+          if (subPart.startsWith('**') && subPart.endsWith('**'))
+            return <strong key={`${pIdx}-${sIdx}`} style={{ fontWeight: 600 }}>{subPart.slice(2, -2)}</strong>;
           return subPart;
         });
       });
-
-      if (isNumbered || isBullet) {
-        return (
-          <div
-            key={lineIdx}
-            style={{
-              paddingLeft: 14,
-              textIndent: -14,
-              margin: '3px 0',
-              lineHeight: 1.5,
-            }}
-          >
-            {renderParts}
-          </div>
-        );
-      }
-
-      return (
-        <p key={lineIdx} style={{ margin: '3px 0', lineHeight: 1.5 }}>
-          {renderParts}
-        </p>
-      );
+      if (isNumbered || isBullet)
+        return <div key={lineIdx} style={{ paddingLeft: 14, textIndent: -14, margin: '3px 0', lineHeight: 1.6 }}>{renderParts}</div>;
+      return <p key={lineIdx} style={{ margin: '3px 0', lineHeight: 1.6 }}>{renderParts}</p>;
     });
   };
 
-  const [isMounted, setIsMounted] = useState(false);
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  if (!isMounted) {
-    return null;
-  }
+  if (!isMounted) return null;
 
   return (
     <>
-      {/* 1. DOCKED / PERSISTENT ANTIGRAVITY SIDE PANEL */}
+      {/* PUSH-CONTENT SIDE PANEL */}
       <div
-        className={`antigravity-copilot-drawer ${isAiPanelOpen ? 'open' : ''}`}
+        className="woodlem-ai-panel"
         style={{
-          position: 'fixed',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: 420,
-          maxWidth: 'calc(100vw - 20px)',
-          height: '100vh',
+          width: isAiPanelOpen ? 380 : 0,
+          minWidth: isAiPanelOpen ? 380 : 0,
+          height: '100%',
+          overflow: 'hidden',
+          flexShrink: 0,
+          transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1), min-width 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+          borderLeft: isAiPanelOpen ? '1px solid #E5E7EB' : 'none',
           background: '#FFFFFF',
-          borderLeft: '1px solid var(--border-color)',
-          boxShadow: isAiPanelOpen ? '-8px 0 32px rgba(15, 23, 42, 0.12), -2px 0 8px rgba(0,0,0,0.04)' : 'none',
           display: 'flex',
           flexDirection: 'column',
-          zIndex: 9999,
-          transform: isAiPanelOpen ? 'translateX(0)' : 'translateX(105%)',
-          transition: 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.28s ease',
-          fontFamily: 'var(--font-label, sans-serif)',
+          zIndex: 10,
         }}
       >
-        {/* Antigravity Header with Google Gemini Glow */}
         <div
+          className="woodlem-ai-shell"
           style={{
-            padding: '16px 20px',
-            background: 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)',
-            color: '#FFFFFF',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            borderBottom: '1px solid rgba(255,255,255,0.08)',
-            flexShrink: 0,
+            width: 380, height: '100%', display: 'flex', flexDirection: 'column',
+            opacity: isAiPanelOpen ? 1 : 0,
+            transition: 'opacity 0.2s ease',
+            pointerEvents: isAiPanelOpen ? 'auto' : 'none',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {/* Gemini Aura Animated Star Badge */}
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: '50%',
-                background: 'rgba(255, 255, 255, 0.08)',
-                border: '1.5px solid rgba(155, 81, 224, 0.4)',
-                boxShadow: '0 0 16px rgba(84, 87, 254, 0.4)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
-                  fill="url(#gemini-header-aura)"
-                />
-                <defs>
-                  <linearGradient id="gemini-header-aura" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
-                    <stop stopColor="#1BA1E3" />
-                    <stop offset="0.35" stopColor="#5457FE" />
-                    <stop offset="0.7" stopColor="#9B51E0" />
-                    <stop offset="1" stopColor="#E879F9" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
-
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 14.5, fontWeight: 700, letterSpacing: '0.01em', lineHeight: 1.2 }}>
-                  Woodlem Copilot
-                </span>
-                <span
-                  style={{
-                    fontSize: 9.5,
-                    fontWeight: 700,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.06em',
-                    padding: '2px 6px',
-                    borderRadius: 4,
-                    background: 'rgba(84, 87, 254, 0.22)',
-                    color: '#C4B5FD',
-                    border: '1px solid rgba(196, 181, 253, 0.3)',
-                  }}
-                >
-                  AI Guide
-                </span>
+          {/* HEADER */}
+          <div className="woodlem-ai-header" style={{ padding: '14px 16px', borderBottom: '1px solid #F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            <div className="woodlem-ai-orb woodlem-ai-orb-one" />
+            <div className="woodlem-ai-orb woodlem-ai-orb-two" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div className="woodlem-ai-avatar" style={{ width: 30, height: 30, borderRadius: 8, background: 'linear-gradient(135deg, #2C6E6A 0%, #3B82F6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Bot size={16} strokeWidth={2.25} />
               </div>
-              <div style={{ fontSize: 11, color: '#94A3B8', display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981', display: 'inline-block' }} />
-                <span>{isLoading ? 'Neural Engine Thinking...' : 'Gemini 2.5 Flash · Interactive Guide'}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Top Actions: Shortcut hint, Clear Chat, Close */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span
-              style={{
-                fontSize: 10.5,
-                fontWeight: 600,
-                color: '#94A3B8',
-                background: 'rgba(255,255,255,0.06)',
-                padding: '3px 7px',
-                borderRadius: 4,
-                border: '1px solid rgba(255,255,255,0.1)',
-                display: 'none',
-              }}
-              className="keyboard-shortcut-pill"
-            >
-              ⌘K
-            </span>
-
-            <button
-              type="button"
-              onClick={clearChatHistory}
-              style={{
-                background: 'rgba(255,255,255,0.08)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                color: '#E2E8F0',
-                fontSize: 11,
-                fontWeight: 600,
-                borderRadius: 6,
-                cursor: 'pointer',
-                padding: '4px 9px',
-                transition: 'background 0.15s ease',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.16)')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
-              title="Reset conversation"
-            >
-              Clear
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsAiPanelOpen(false)}
-              style={{
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                color: '#CBD5E1',
-                fontSize: 16,
-                lineHeight: 1,
-                cursor: 'pointer',
-                padding: '5px 8px',
-                borderRadius: 6,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(239,68,68,0.2)';
-                e.currentTarget.style.color = '#FCA5A5';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
-                e.currentTarget.style.color = '#CBD5E1';
-              }}
-              title="Close panel (⌘K)"
-            >
-              &times;
-            </button>
-          </div>
-        </div>
-
-        {/* User Context Strip */}
-        <div
-          style={{
-            padding: '8px 18px',
-            background: '#F1F5F9',
-            borderBottom: '1px solid #E2E8F0',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            fontSize: 11.5,
-            color: '#475569',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontWeight: 700, color: '#1E293B', textTransform: 'capitalize' }}>
-              {role}: {userName}
-            </span>
-            {user?.grade && (
-              <span style={{ padding: '1px 5px', borderRadius: 3, background: '#E2E8F0', fontSize: 10, fontWeight: 700 }}>
-                Gr. {user.grade}-{user.class_letter || 'A'}
-              </span>
-            )}
-          </div>
-          <span style={{ fontSize: 11, color: '#64748B' }}>
-            Click links to jump to pages
-          </span>
-        </div>
-
-        {/* Real-time Navigation Toast Notification */}
-        {activeNavNotification && (
-          <div
-            style={{
-              padding: '8px 16px',
-              background: '#2C6E6A',
-              color: '#FFFFFF',
-              fontSize: 12,
-              fontWeight: 600,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              boxShadow: '0 2px 8px rgba(44,110,106,0.3)',
-              animation: 'fadeIn 0.2s ease',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#6EE7B7' }} />
-              <span>{activeNavNotification}</span>
-            </div>
-            <span style={{ fontSize: 11, opacity: 0.8 }}>Live View Switched</span>
-          </div>
-        )}
-
-        {/* Message Stream */}
-        <div
-          style={{
-            flex: 1,
-            padding: '18px',
-            overflowY: 'auto',
-            background: '#FAF9F6',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 16,
-          }}
-        >
-          {messages.map((m) => {
-            const isAssistant = m.sender === 'assistant';
-            return (
-              <div
-                key={m.id}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: isAssistant ? 'flex-start' : 'flex-end',
-                  position: 'relative',
-                }}
-              >
-                <div
-                  style={{
-                    maxWidth: '92%',
-                    padding: '12px 16px',
-                    borderRadius: isAssistant ? '14px 14px 14px 2px' : '14px 14px 2px 14px',
-                    background: isAssistant ? '#FFFFFF' : '#2C6E6A',
-                    color: isAssistant ? 'var(--neutral-dark, #2D2C2A)' : '#FFFFFF',
-                    border: isAssistant ? '1px solid var(--border-color, #E5E3DF)' : 'none',
-                    fontSize: 13,
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
-                  }}
-                >
-                  {renderFormattedText(m.text)}
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, padding: '0 4px' }}>
-                  <span suppressHydrationWarning style={{ fontSize: 10, color: '#9E9B95' }}>{m.time}</span>
-                  {isAssistant && m.id !== 'welcome-msg' && (
-                    <button
-                      type="button"
-                      onClick={() => handleCopyText(m.id, m.text)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: copiedId === m.id ? '#10B981' : '#9E9B95',
-                        fontSize: 10,
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        padding: 0,
-                      }}
-                    >
-                      {copiedId === m.id ? 'Copied' : 'Copy'}
-                    </button>
-                  )}
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: '#111827', letterSpacing: '-0.01em' }}>Woodlem Copilot</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 1 }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: isLoading ? '#F59E0B' : '#10B981', display: 'inline-block' }} />
+                  <span style={{ fontSize: 11, color: '#9CA3AF' }}>{isLoading ? 'Thinking...' : 'AI Guide \u00b7 Gemini 2.5'}</span>
                 </div>
               </div>
-            );
-          })}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <button type="button" onClick={clearChatHistory} title="Clear conversation"
+                style={{ background: 'none', border: '1px solid #E5E7EB', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: '#6B7280', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, transition: 'all 0.15s ease' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#F9FAFB'; e.currentTarget.style.color = '#374151'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#6B7280'; }}
+              ><RotateCcw size={11} /> Clear</button>
+              <button type="button" onClick={() => setIsAiPanelOpen(false)} title="Close"
+                style={{ background: 'none', border: '1px solid #E5E7EB', borderRadius: 6, padding: 5, cursor: 'pointer', color: '#6B7280', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s ease' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#FEF2F2'; e.currentTarget.style.borderColor = '#FCA5A5'; e.currentTarget.style.color = '#DC2626'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.borderColor = '#E5E7EB'; e.currentTarget.style.color = '#6B7280'; }}
+              ><X size={13} /></button>
+            </div>
+          </div>
 
-          {isLoading && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '12px 16px',
-                background: '#FFFFFF',
-                border: '1px solid var(--border-color, #E5E3DF)',
-                borderRadius: '14px 14px 14px 2px',
-                width: 'fit-content',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
-              }}
-            >
-              {/* Gemini Pulsing Gradient Dots */}
-              <div style={{ display: 'flex', gap: 4 }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#1BA1E3', animation: 'dotPulse 1s infinite alternate 0s' }} />
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#5457FE', animation: 'dotPulse 1s infinite alternate 0.2s' }} />
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#9B51E0', animation: 'dotPulse 1s infinite alternate 0.4s' }} />
-              </div>
-              <span style={{ fontSize: 12.5, color: '#64748B', fontWeight: 500 }}>
-                Synthesizing step-by-step guidance...
-              </span>
+          {/* CONTEXT BAR */}
+          <div className="woodlem-ai-context" style={{ padding: '7px 16px', borderBottom: '1px solid #F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, background: '#FAFAFA' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: '#F3F4F6', color: '#374151', textTransform: 'capitalize' }}>{role}</span>
+              <span style={{ fontSize: 11.5, color: '#6B7280' }}>{userName}</span>
+              {user?.grade && <span style={{ fontSize: 10.5, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: '#EFF6FF', color: '#2563EB' }}>Gr.{user.grade}</span>}
+            </div>
+            <span style={{ fontSize: 10, color: '#D1D5DB' }}>Click links to navigate</span>
+          </div>
+
+          {/* NAV TOAST */}
+          {activeNavNotification && (
+            <div style={{ padding: '7px 14px', background: '#F0FDF4', borderBottom: '1px solid #BBF7D0', color: '#15803D', fontSize: 11.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22C55E', flexShrink: 0 }} />
+              {activeNavNotification}
             </div>
           )}
 
-          <div ref={messagesEndRef} />
-        </div>
+          {/* MESSAGES */}
+          <div className="woodlem-ai-messages" style={{ flex: 1, padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14, background: '#FAFAFA' }}>
+            {messages.length <= 1 && !isLoading && (
+              <div className="woodlem-ai-welcome">
+                <div className="woodlem-ai-welcome-icon"><Sparkles size={18} /></div>
+                <div>
+                  <strong>How can I help today?</strong>
+                  <span>Choose a shortcut below or ask me anything about Woodlem.</span>
+                </div>
+              </div>
+            )}
+            {messages.map((m) => {
+              const isAssistant = m.sender === 'assistant';
+              return (
+                <div key={m.id} style={{ display: 'flex', flexDirection: 'column', alignItems: isAssistant ? 'flex-start' : 'flex-end' }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#C4C9D4', marginBottom: 3 }}>{isAssistant ? 'Copilot' : 'You'}</div>
+                  <div style={{
+                    maxWidth: '88%', padding: '10px 14px', fontSize: 13, lineHeight: 1.65,
+                    borderRadius: isAssistant ? '2px 12px 12px 12px' : '12px 2px 12px 12px',
+                    background: isAssistant ? '#FFFFFF' : '#2C6E6A',
+                    color: isAssistant ? '#1F2937' : '#FFFFFF',
+                    border: isAssistant ? '1px solid #E5E7EB' : 'none',
+                    boxShadow: isAssistant ? '0 1px 3px rgba(0,0,0,0.04)' : '0 2px 8px rgba(44,110,106,0.22)',
+                  }}>{renderFormattedText(m.text)}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
+                    <span suppressHydrationWarning style={{ fontSize: 10, color: '#D1D5DB' }}>{m.time}</span>
+                    {isAssistant && m.id !== 'welcome-msg' && (
+                      <button type="button" onClick={() => handleCopyText(m.id, m.text)}
+                        style={{ background: 'none', border: 'none', color: copiedId === m.id ? '#10B981' : '#D1D5DB', fontSize: 10, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+                        {copiedId === m.id ? 'Copied' : 'Copy'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
 
-        {/* Quick Action Prompts Bar */}
-        <div
-          style={{
-            padding: '10px 14px',
-            background: '#FFFFFF',
-            borderTop: '1px solid #ECEAE5',
-            display: 'flex',
-            gap: 6,
-            overflowX: 'auto',
-            whiteSpace: 'nowrap',
-            flexShrink: 0,
-          }}
-        >
-          {quickPrompts.map((item, idx) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => handleSendMessage(item.text)}
-              disabled={isLoading}
-              style={{
-                padding: '6px 12px',
-                fontSize: 11.5,
-                fontWeight: 600,
-                color: '#2C6E6A',
-                background: '#EAF3EF',
-                border: '1px solid #C7E4D8',
-                borderRadius: 16,
-                cursor: 'pointer',
-                flexShrink: 0,
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = '#DCEDE6')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = '#EAF3EF')}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+            {isLoading && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: '#C4C9D4', marginBottom: 3 }}>Copilot</div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '10px 14px', background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: '2px 12px 12px 12px' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#2C6E6A', animation: 'aiDotPulse 1s infinite alternate 0s' }} />
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#3B82F6', animation: 'aiDotPulse 1s infinite alternate 0.2s' }} />
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#8B5CF6', animation: 'aiDotPulse 1s infinite alternate 0.4s' }} />
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
 
-        {/* Chat Input Bar */}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSendMessage();
-          }}
-          style={{
-            padding: '14px 16px',
-            background: '#FFFFFF',
-            borderTop: '1px solid var(--border-color, #E5E3DF)',
-            display: 'flex',
-            gap: 10,
-            alignItems: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <input
-            ref={inputRef}
-            type="text"
-            placeholder="Ask anything or request page guidance..."
-            value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
-            disabled={isLoading}
-            style={{
-              flex: 1,
-              padding: '10px 14px',
-              fontSize: 13,
-              border: '1px solid var(--border-color, #E5E3DF)',
-              borderRadius: 8,
-              outline: 'none',
-              background: '#FAF9F6',
-              fontFamily: 'inherit',
-            }}
-          />
-          <button
-            type="submit"
-            disabled={!inputMessage.trim() || isLoading}
-            style={{
-              padding: '10px 16px',
-              fontSize: 12.5,
-              fontWeight: 700,
-              color: '#FFFFFF',
-              background: inputMessage.trim() && !isLoading
-                ? 'linear-gradient(135deg, #1BA1E3 0%, #5457FE 100%)'
-                : '#CBD5E1',
-              border: 'none',
-              borderRadius: 8,
-              cursor: inputMessage.trim() && !isLoading ? 'pointer' : 'default',
-              boxShadow: inputMessage.trim() && !isLoading ? '0 2px 8px rgba(84, 87, 254, 0.3)' : 'none',
-              transition: 'all 0.15s ease',
-              whiteSpace: 'nowrap',
-            }}
+          {/* QUICK PROMPTS */}
+          <div style={{ padding: '9px 12px', background: '#FFFFFF', borderTop: '1px solid #F3F4F6', display: 'flex', gap: 5, overflowX: 'auto', flexShrink: 0 }}>
+            {quickPrompts.map((item, idx) => (
+              <button className="woodlem-ai-prompt" key={idx} type="button" onClick={() => handleSendMessage(item.text)} disabled={isLoading}
+                style={{ padding: '4px 10px', fontSize: 11.5, fontWeight: 500, color: '#374151', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 6, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap', transition: 'all 0.15s ease' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#F3F4F6'; e.currentTarget.style.borderColor = '#D1D5DB'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#F9FAFB'; e.currentTarget.style.borderColor = '#E5E7EB'; }}
+              ><span>{item.label}</span><ChevronRight size={12} /></button>
+            ))}
+          </div>
+
+          {/* INPUT */}
+          <form className="woodlem-ai-composer" onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }}
+            style={{ padding: '11px 12px', background: '#FFFFFF', borderTop: '1px solid #F3F4F6', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}
           >
-            Ask AI
-          </button>
-        </form>
+            <input className="woodlem-ai-input" ref={inputRef} type="text" placeholder="Ask anything about Woodlem..."
+              value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} disabled={isLoading}
+              style={{ flex: 1, padding: '9px 12px', fontSize: 13, border: '1px solid #E5E7EB', borderRadius: 8, outline: 'none', background: '#F9FAFB', fontFamily: 'inherit', color: '#111827', transition: 'border-color 0.15s' }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = '#2C6E6A')}
+              onBlur={(e) => (e.currentTarget.style.borderColor = '#E5E7EB')}
+            />
+            <button className="woodlem-ai-send" type="submit" disabled={!inputMessage.trim() || isLoading}
+              style={{ width: 34, height: 34, borderRadius: 8, border: 'none', background: inputMessage.trim() && !isLoading ? 'linear-gradient(135deg, #2C6E6A 0%, #3B82F6 100%)' : '#E5E7EB', cursor: inputMessage.trim() && !isLoading ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s ease', boxShadow: inputMessage.trim() && !isLoading ? '0 2px 8px rgba(44,110,106,0.3)' : 'none' }}
+            ><Send size={13} color={inputMessage.trim() && !isLoading ? '#FFFFFF' : '#9CA3AF'} /></button>
+          </form>
+        </div>
       </div>
 
-      {/* 2. FLOATING SPARKLE TRIGGER (When Panel is Closed) */}
+      {/* FLOATING TRIGGER */}
       {!isAiPanelOpen && (
-        <button
-          type="button"
-          onClick={toggleAiPanel}
-          onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => setIsHovered(false)}
-          style={{
-            position: 'fixed',
-            bottom: 24,
-            right: 24,
-            zIndex: 9990,
-            width: 52,
-            height: 52,
-            borderRadius: '50%',
-            background: 'rgba(15, 23, 42, 0.94)',
-            backdropFilter: 'blur(16px)',
-            WebkitBackdropFilter: 'blur(16px)',
-            border: '1.5px solid rgba(255, 255, 255, 0.18)',
-            boxShadow: isHovered
-              ? '0 12px 32px rgba(84, 87, 254, 0.42), 0 4px 14px rgba(0, 0, 0, 0.45)'
-              : '0 8px 24px rgba(84, 87, 254, 0.25), 0 2px 8px rgba(0, 0, 0, 0.2)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            transition: 'all 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-            transform: isHovered ? 'scale(1.1) translateY(-3px)' : 'scale(1) translateY(0)',
-            padding: 0,
-          }}
-          title="Open Woodlem Gemini AI Copilot (⌘K)"
+        <button className="woodlem-ai-launcher" type="button" onClick={toggleAiPanel}
+          onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}
+          title="Open AI Copilot"
+          style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9990, width: 42, height: 42, borderRadius: 10, background: '#FFFFFF', border: '1.5px solid #E5E7EB', boxShadow: isHovered ? '0 8px 24px rgba(0,0,0,0.14)' : '0 4px 12px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)', transform: isHovered ? 'scale(1.07) translateY(-2px)' : 'scale(1)', padding: 0 }}
         >
-          {/* Subtle Radial Backlight */}
-          <div
-            style={{
-              position: 'absolute',
-              inset: 4,
-              borderRadius: '50%',
-              background: 'radial-gradient(circle at 40% 35%, rgba(255,255,255,0.18) 0%, transparent 65%)',
-              pointerEvents: 'none',
-            }}
-          />
-
-          {/* Authentic Google Gemini 4-Point Curved Sparkle Star */}
-          <svg
-            width="28"
-            height="28"
-            viewBox="0 0 24 24"
-            fill="none"
-            style={{
-              transform: isHovered ? 'rotate(15deg) scale(1.08)' : 'rotate(0deg) scale(1)',
-              transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)',
-              filter: 'drop-shadow(0 0 6px rgba(155, 81, 224, 0.6))',
-            }}
-          >
-            <path
-              d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
-              fill="url(#gemini-sparkle-trigger)"
-            />
-            <path
-              d="M18.5 3C18.5 5.5 16 7 13.5 7C16 7 18.5 8.5 18.5 11C18.5 8.5 21 7 23.5 7C21 7 18.5 5.5 18.5 3Z"
-              fill="#E879F9"
-              opacity="0.9"
-            />
-            <defs>
-              <linearGradient id="gemini-sparkle-trigger" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
-                <stop stopColor="#1BA1E3" />
-                <stop offset="0.35" stopColor="#5457FE" />
-                <stop offset="0.7" stopColor="#9B51E0" />
-                <stop offset="1" stopColor="#E879F9" />
-              </linearGradient>
-            </defs>
-          </svg>
-
-          {/* Active Online Indicator */}
-          <span
-            style={{
-              position: 'absolute',
-              top: 3,
-              right: 3,
-              width: 9,
-              height: 9,
-              borderRadius: '50%',
-              background: '#10B981',
-              boxShadow: '0 0 0 2px #0F172A, 0 0 8px #10B981',
-            }}
-          />
+          <div className="woodlem-ai-launcher-icon" style={{ width: 26, height: 26, borderRadius: 6, background: 'linear-gradient(135deg, #2C6E6A 0%, #3B82F6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Sparkles size={15} fill="white" />
+          </div>
+          <span style={{ position: 'absolute', top: -2, right: -2, width: 8, height: 8, borderRadius: '50%', background: '#10B981', border: '2px solid #FFFFFF' }} />
         </button>
       )}
 
-      {/* Global CSS Animation for Pulse */}
       <style jsx global>{`
-        @keyframes dotPulse {
-          0% {
-            transform: scale(0.6);
-            opacity: 0.5;
-          }
-          100% {
-            transform: scale(1.2);
-            opacity: 1;
-          }
+        .woodlem-ai-panel { background: var(--neutral-bg) !important; border-left: 1px solid var(--border-color) !important; box-shadow: -12px 0 32px rgba(45, 44, 42, .045); }
+        .woodlem-ai-shell { background: var(--neutral-bg) !important; }
+        .woodlem-ai-header { position: relative; overflow: hidden; padding: 17px 16px !important; background: #fffdf9 !important; border-bottom: 1px solid var(--border-color) !important; color: var(--neutral-dark); }
+        .woodlem-ai-header > *:not(.woodlem-ai-orb) { position: relative; z-index: 1; }
+        .woodlem-ai-header [style*="color: #111827"] { color: var(--neutral-dark) !important; font-size: 14px !important; }
+        .woodlem-ai-header [style*="color: #9CA3AF"] { color: var(--text-secondary) !important; }
+        .woodlem-ai-header button { background: #fff !important; border-color: var(--border-color) !important; color: var(--text-secondary) !important; }
+        .woodlem-ai-avatar { width: 36px !important; height: 36px !important; border-radius: 11px !important; background: #2d2c2a !important; box-shadow: 0 6px 13px rgba(45,44,42,.16); color: #fff; }
+        .woodlem-ai-orb { position: absolute; border-radius: 999px; opacity: .45; animation: aiOrbFloat 7s ease-in-out infinite; pointer-events: none; }
+        .woodlem-ai-orb-one { width: 95px; height: 95px; background: #f5e7dc; right: -37px; top: -48px; }
+        .woodlem-ai-orb-two { width: 52px; height: 52px; background: #edf3ef; left: 118px; bottom: -40px; animation-delay: -3s; }
+        .woodlem-ai-context { background: #fffdf9 !important; padding: 8px 16px !important; border-bottom: 1px solid var(--border-color) !important; }
+        .woodlem-ai-context [style*="background: #F3F4F6"] { background: var(--secondary-light) !important; color: #476b6b !important; }
+        .woodlem-ai-messages { background: radial-gradient(circle at 92% 1%, #f8eee8 0, transparent 26%), var(--neutral-bg) !important; padding: 18px 16px !important; gap: 16px !important; }
+        .woodlem-ai-welcome { display: flex; align-items: center; gap: 11px; padding: 12px; border: 1px solid #eadfd7; border-radius: 12px; background: #fffdf9; box-shadow: 0 7px 16px rgba(45,44,42,.035); animation: aiRise .45s ease-out both; }
+        .woodlem-ai-welcome-icon { width: 35px; height: 35px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; color: #fff; background: #d4a373; box-shadow: 0 5px 10px rgba(212,163,115,.2); }
+        .woodlem-ai-welcome strong { display: block; font: 700 12px var(--font-display); color: var(--neutral-dark); margin-bottom: 2px; }
+        .woodlem-ai-welcome span { display: block; color: var(--text-secondary); font-size: 11px; line-height: 1.35; }
+        .woodlem-ai-messages > div { animation: aiRise .3s ease-out both; }
+        .woodlem-ai-messages > div [style*="background: #FFFFFF"] { border-color: var(--border-color) !important; box-shadow: 0 3px 10px rgba(45,44,42,.035) !important; }
+        .woodlem-ai-messages > div [style*="background: #2C6E6A"] { background: #3d7a6e !important; box-shadow: 0 6px 15px rgba(61,122,110,.18) !important; }
+        .woodlem-ai-prompt { display: inline-flex !important; align-items: center; gap: 2px; border-radius: 7px !important; background: #fffdf9 !important; border-color: var(--border-color) !important; color: #5a5752 !important; }
+        .woodlem-ai-prompt:hover { color: #3d7a6e !important; border-color: #a8c7bf !important; background: var(--parent-light) !important; transform: translateY(-1px); }
+        .woodlem-ai-composer { padding: 12px !important; background: #fffdf9 !important; border-top: 1px solid var(--border-color) !important; }
+        .woodlem-ai-input { background: #f9f8f6 !important; border-color: var(--border-color) !important; border-radius: 9px !important; padding: 10px 12px !important; }
+        .woodlem-ai-input:focus { box-shadow: 0 0 0 3px rgba(107,142,142,.13); }
+        .woodlem-ai-send { border-radius: 11px !important; width: 38px !important; height: 38px !important; }
+        .woodlem-ai-launcher { width: 48px !important; height: 48px !important; border: 1px solid #4a4844 !important; border-radius: 13px !important; background: #2d2c2a !important; box-shadow: 0 9px 22px rgba(45,44,42,.22) !important; }
+        .woodlem-ai-launcher:before { content: ''; position: absolute; inset: -4px; border: 1px solid rgba(212,163,115,.58); border-radius: 16px; animation: aiRing 2.6s ease-out infinite; }
+        .woodlem-ai-launcher-icon { width: 32px !important; height: 32px !important; border-radius: 9px !important; background: #454340 !important; border: 1px solid rgba(255,255,255,.12); color: white; }
+        @keyframes aiRise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes aiOrbFloat { 50% { transform: translate(-10px, 10px) scale(1.08); } }
+        @keyframes aiRing { 0%, 35% { opacity: .8; transform: scale(.92); } 70%, 100% { opacity: 0; transform: scale(1.2); } }
+        @keyframes aiDotPulse {
+          0% { transform: scale(0.6); opacity: 0.4; }
+          100% { transform: scale(1.1); opacity: 1; }
         }
       `}</style>
     </>

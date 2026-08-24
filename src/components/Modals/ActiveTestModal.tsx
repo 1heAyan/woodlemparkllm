@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { TestItem } from '@/lib/supabaseClient';
+import { Clock, HelpCircle, Check, AlertCircle } from 'lucide-react';
 
 interface ActiveTestModalProps {
   isOpen: boolean;
@@ -82,12 +83,12 @@ export const ActiveTestModal: React.FC<ActiveTestModalProps> = ({
             {!isCompleted && (
               <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
                 {test.duration_minutes && (
-                  <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', fontWeight: 600 }}>
-                    ⏱ {test.duration_minutes} minutes
+                  <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Clock size={13} /> {test.duration_minutes} minutes
                   </span>
                 )}
-                <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', fontWeight: 600 }}>
-                  📝 {questions.length} questions
+                <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <HelpCircle size={13} /> {questions.length} questions
                 </span>
               </div>
             )}
@@ -103,8 +104,10 @@ export const ActiveTestModal: React.FC<ActiveTestModalProps> = ({
               <div style={{
                 width: 64, height: 64, borderRadius: '50%', background: '#EAF3EF', color: '#2D6E5D',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 28, margin: '0 auto 16px', fontWeight: 700,
-              }}>✓</div>
+                margin: '0 auto 16px',
+              }}>
+                <Check size={32} />
+              </div>
 
               <h3 style={{ fontSize: 18, fontWeight: 700, color: 'var(--neutral-dark)', margin: 0 }}>Class Test Submitted!</h3>
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, marginBottom: 20 }}>
@@ -136,8 +139,9 @@ export const ActiveTestModal: React.FC<ActiveTestModalProps> = ({
                 <div style={{
                   background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8,
                   padding: '12px 16px', fontSize: 12, color: '#92400E', marginBottom: 20,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 }}>
-                  ⏳ Open-ended answers will be reviewed and graded by your teacher.
+                  <AlertCircle size={14} /> Open-ended answers will be reviewed and graded by your teacher.
                 </div>
               )}
 
@@ -265,7 +269,7 @@ export const ActiveTestModal: React.FC<ActiveTestModalProps> = ({
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
               }}>
                 <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                  {answeredCount < questions.length ? `${questions.length - answeredCount} question(s) unanswered` : '✓ All questions answered'}
+                  {answeredCount < questions.length ? `${questions.length - answeredCount} question(s) unanswered` : 'All questions answered'}
                 </span>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button

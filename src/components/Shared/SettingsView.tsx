@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { supabase, createIsolatedSupabaseClient, UserProfile } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { Camera, Lock, Eye, EyeOff, Copy, Check } from 'lucide-react';
 
 interface SettingsViewProps {
   currentUser: UserProfile;
@@ -20,6 +21,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 }) => {
   const isAdmin = currentUser.role === 'admin';
   const [activeTab, setActiveTabState] = useState<'profile' | 'admin_passwords'>(() => {
+    // Non-admin users can never see admin_passwords tab — always default to profile
+    if (!currentUser || currentUser.role !== 'admin') return 'profile';
     if (typeof window !== 'undefined') {
       const saved = sessionStorage.getItem('woodlem_settings_active_tab');
       if (saved === 'admin_passwords' || saved === 'profile') return saved as any;
@@ -94,6 +97,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       reader.readAsDataURL(file);
     });
   };
+
+  // Guard: non-admin users must always be on 'profile' tab
+  useEffect(() => {
+    if (currentUser.role !== 'admin' && activeTab !== 'profile') {
+      setActiveTabState('profile');
+    }
+  }, [currentUser.role, activeTab]);
 
   // Sync avatar from Supabase currentUser
   useEffect(() => {
@@ -591,7 +601,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         transition: 'transform 0.2s',
                       }}
                     >
-                      📷
+                      <Camera size={14} />
                     </button>
                     <input
                       ref={avatarInputRef}
@@ -820,8 +830,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </div>
 
-              <div style={{ background: '#F0F4F4', padding: '12px 14px', borderRadius: 8, border: '1px solid #D0E0E0', fontSize: 12, color: '#3D7A6E', display: 'flex', gap: 8 }}>
-                <span>🔒</span>
+              <div style={{ background: '#F0F4F4', padding: '12px 14px', borderRadius: 8, border: '1px solid #D0E0E0', fontSize: 12, color: '#3D7A6E', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Lock size={14} style={{ flexShrink: 0 }} />
                 <span><strong>Password Policy:</strong> Minimum 6 characters. Must not match common weak phrases.</span>
               </div>
 
@@ -1049,7 +1059,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                   padding: '2px 4px',
                                 }}
                               >
-                                {isRevealed ? '🙈' : '👁️'}
+                                {isRevealed ? <EyeOff size={14} /> : <Eye size={14} />}
                               </button>
 
                               {/* Copy Button */}
@@ -1066,9 +1076,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                   fontWeight: 600,
                                   padding: '2px 7px',
                                   color: copiedUserId === u.id ? '#2D6E5D' : 'var(--neutral-dark)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
                                 }}
                               >
-                                {copiedUserId === u.id ? '✓ Copied' : '📋 Copy'}
+                                {copiedUserId === u.id ? (
+                                  <>
+                                    <Check size={12} />
+                                    Copied
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy size={12} />
+                                    Copy
+                                  </>
+                                )}
                               </button>
                             </div>
                             <div style={{ marginTop: 3 }}>

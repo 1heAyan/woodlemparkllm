@@ -663,6 +663,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             top: 0,
             zIndex: 100,
             flexShrink: 0,
+            overflow: 'hidden',
           }}
         >
           {/* Decorative background blobs */}
@@ -856,13 +857,13 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                 border: '1px solid #F9C846',
               }}
             >
-              ⏳ Awaiting Approval
+              Awaiting Approval
             </span>
           </div>
         )}
 
         {/* CONTENT BODY */}
-        <div className="content-body" style={{ padding: '28px 36px' }}>
+        <div className="content-body" style={{ padding: '28px 36px', overflowX: 'hidden', maxWidth: '100%', boxSizing: 'border-box' }}>
           {/* EMPTY STATE IF NO CHILD LINKED (Shown for student-specific academic tabs) */}
           {!activeChild && activeTab !== 'settings' && activeTab !== 'support' && activeTab !== 'hub' && (
             <div
@@ -1682,7 +1683,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                           className={`badge ${isSubmitted ? 'badge-submitted' : 'badge-pending'}`}
                           style={{ margin: 0 }}
                         >
-                          {isSubmitted ? '✓ Submitted' : '⏳ Pending'}
+                          {isSubmitted ? 'Submitted' : 'Pending'}
                         </span>
                       </div>
                       <div>
@@ -1821,7 +1822,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                               color: isEnrolled ? 'var(--doc-submitted)' : 'var(--text-secondary)',
                             }}
                           >
-                            {isEnrolled ? '✓ Your child is enrolled' : 'Not enrolled'}
+                            {isEnrolled ? 'Enrolled' : 'Not enrolled'}
                           </span>
                         </div>
                       </div>

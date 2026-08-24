@@ -2,6 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { FileText, Paperclip } from 'lucide-react';
 
 interface ApplyLeaveModalProps {
   isOpen: boolean;
@@ -221,7 +222,7 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 18 }}>📄</span>
+                  <FileText size={20} style={{ color: '#2C6E6A', flexShrink: 0 }} />
                   <div>
                     <div style={{ fontSize: 12.5, fontWeight: 700, color: '#20554E' }}>
                       {attachedFile.name}
@@ -259,6 +260,10 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
                   cursor: 'pointer',
                   background: '#FAF9F6',
                   transition: 'border-color 0.2s',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 4,
                 }}
               >
                 <input
@@ -268,7 +273,7 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
                   onChange={handleFileChange}
                   style={{ display: 'none' }}
                 />
-                <div style={{ fontSize: 20, marginBottom: 4 }}>📎</div>
+                <Paperclip size={20} style={{ color: 'var(--text-secondary)', marginBottom: 2 }} />
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>
                   Click to upload Doctor&apos;s Prescription or Medical Note
                 </div>

@@ -172,6 +172,7 @@ export default function Home() {
         let durationMinutes: number = t.duration_minutes || 30;
         let mediaUrl: string | undefined = t.media_url || undefined;
         let totalMarks: number | undefined = t.total_marks || undefined;
+        let teacherId: string | undefined = t.teacher_id || undefined;
 
         if (t.subject && (t.subject.startsWith('{') || t.subject.startsWith('['))) {
           try {
@@ -180,6 +181,8 @@ export default function Home() {
             if (parsed.duration_minutes !== undefined) durationMinutes = parsed.duration_minutes;
             if (parsed.media_url !== undefined) mediaUrl = parsed.media_url;
             if (parsed.total_marks !== undefined) totalMarks = parsed.total_marks;
+            // Fallback: extract teacher_id from JSON blob if not a top-level column
+            if (!teacherId && parsed.teacher_id) teacherId = parsed.teacher_id;
           } catch (e) {}
         }
 
@@ -187,6 +190,7 @@ export default function Home() {
           id: t.id,
           title: t.title,
           class_name: t.class_name,
+          teacher_id: teacherId,
           created_at: t.created_at,
           questions,
           duration_minutes: durationMinutes,
@@ -642,6 +646,7 @@ export default function Home() {
         role: updatedUser.role,
         user_code: updatedUser.user_code?.trim() || '',
         admission_number: (updatedUser.admission_number || updatedUser.user_code || '').trim(),
+        temp_password: updatedUser.temp_password?.trim() || 'woodlem123',
         grade: updatedUser.grade ?? '',
         class_letter: updatedUser.class_letter ?? '',
         subject: updatedUser.subject ?? null,
@@ -753,32 +758,57 @@ export default function Home() {
       id: `test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title,
       class_name: className,
+      teacher_id: currentUser?.id,
       duration_minutes: durationMinutes,
       questions,
       media_url: mediaUrl,
       total_marks: questions.reduce((sum, q) => sum + (q.points || 1), 0),
     };
 
+    // Store teacher_id both as top-level column (if it exists in the table)
+    // AND inside the subject JSON blob as a guaranteed fallback.
+    const subjectJson = JSON.stringify({
+      duration_minutes: durationMinutes,
+      questions,
+      media_url: mediaUrl,
+      total_marks: newTest.total_marks,
+      teacher_id: currentUser?.id,  // ← embedded fallback
+    });
+
+    // Try insert with top-level teacher_id column first
     const supabasePayload = {
       id: newTest.id,
       title: newTest.title,
       class_name: newTest.class_name,
-      subject: JSON.stringify({
-        duration_minutes: durationMinutes,
-        questions,
-        media_url: mediaUrl,
-        total_marks: newTest.total_marks,
-      }),
+      teacher_id: currentUser?.id,
+      subject: subjectJson,
     };
 
     setTests((prev) => [newTest, ...prev]);
     try {
       const { error } = await supabase.from('tests').insert([supabasePayload]);
       if (error) {
-        console.error('Supabase error inserting test:', error);
+        // teacher_id column might not exist yet — retry without it (teacher_id is in subject JSON)
+        const fallbackPayload = {
+          id: newTest.id,
+          title: newTest.title,
+          class_name: newTest.class_name,
+          subject: subjectJson,
+        };
+        const { error: error2 } = await supabase.from('tests').insert([fallbackPayload]);
+        if (error2) {
+          console.error('Supabase error inserting test (fallback):', error2);
+          // Revert local state so user knows it didn't save
+          setTests((prev) => prev.filter((t) => t.id !== newTest.id));
+          alert('Failed to save the test to the database. Please try again.');
+          return;
+        }
       }
     } catch (e) {
       console.error('Failed to save test:', e);
+      setTests((prev) => prev.filter((t) => t.id !== newTest.id));
+      alert('Failed to save the test. Please check your connection.');
+      return;
     }
 
     recordAuditLog(
@@ -2095,6 +2125,7 @@ export default function Home() {
         </div>
       )}
 
+      <div style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
       {!isMounted ? (
         <div style={{ minHeight: '100vh', width: '100vw', background: '#FAF9F6' }} />
       ) : currentUser === null ? (
@@ -2189,6 +2220,7 @@ export default function Home() {
           onOpenProvisionModal={() => setIsProvisionUserOpen(true)}
           onOpenBulkModal={() => setIsBulkImportOpen(true)}
           onEditUser={(user) => setEditingUser(user)}
+          onUpdateUser={handleUpdateUser}
           onDeleteUser={handleDeleteUser}
           onApproveLinkRequest={handleApproveLinkRequest}
           onRejectLinkRequest={handleRejectLinkRequest}
@@ -2220,6 +2252,10 @@ export default function Home() {
           onSignOut={handleSignOut}
         />
       )}
+
+      {/* AI Copilot — flex sibling, pushes dashboard content */}
+      <AiChatbot currentUser={currentUser} />
+      </div>
 
       {/* Modals */}
       <VideoPlayerModal
@@ -2296,6 +2332,7 @@ export default function Home() {
         isOpen={!!editingUser}
         user={editingUser}
         profiles={profiles}
+        parentDocuments={parentDocuments}
         onClose={() => setEditingUser(null)}
         onSubmit={handleUpdateUser}
       />
@@ -2310,8 +2347,6 @@ export default function Home() {
         />
       )}
 
-      {/* Floating Gemini AI Assistant (Bottom-Right for every dashboard) */}
-      <AiChatbot currentUser={currentUser} />
     </PortalNavigationProvider>
   );
 }

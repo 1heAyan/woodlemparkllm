@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { UserProfile } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { AlertTriangle } from 'lucide-react';
 
 const GRADES = ['9', '10', '11', '12'] as const;
 const SECTIONS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)); // A through Z
@@ -408,7 +409,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
                           gap: 8,
                         }}
                       >
-                        <span style={{ fontSize: 15, flexShrink: 0 }}>⚠️</span>
+                        <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
                         <div>
                           <strong>Class Teacher Conflict:</strong><br />
                           <strong>{existingClassTeacher.name}</strong> ({existingClassTeacher.subject || 'Faculty'}) is already the designated Class Teacher for <strong>Grade {grade}-{section}</strong>.<br />

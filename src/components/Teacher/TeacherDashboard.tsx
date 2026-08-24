@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Users, Award, BookOpen, UserCheck, MessageSquare, LayoutDashboard, Calendar, Settings, LifeBuoy, LogOut, Megaphone, FileText, Pin, PinOff, SlidersHorizontal, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Users, Award, BookOpen, UserCheck, MessageSquare, LayoutDashboard, Calendar, Settings, LifeBuoy, LogOut, Megaphone, FileText, Pin, PinOff, SlidersHorizontal, Check, Video, Link2, X, Plus } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import {
@@ -22,6 +22,7 @@ import { ReviewTestResultsModal, TestResultRecord } from '../Modals/ReviewTestRe
 import { GradeAssignmentModal, AssignmentSubmissionRecord } from '../Modals/GradeAssignmentModal';
 import { ViewFileModal } from '../Modals/ViewFileModal';
 import { EditSubjectClassModal } from '../Modals/EditSubjectClassModal';
+import { MarkEntryModal } from '../Modals/MarkEntryModal';
 import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
@@ -140,6 +141,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const sidebar = useSidebarState('auto-hide');
   const [selectedReviewTest, setSelectedReviewTest] = useState<TestItem | null>(null);
   const [selectedGradeAssignment, setSelectedGradeAssignment] = useState<AssignmentItem | null>(null);
+  const [isMarkEntryOpen, setIsMarkEntryOpen] = useState(false);
   // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'hub' | 'settings' | 'support'
   const [activeNavMode, setActiveNavMode] = useState<'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'hub' | 'settings' | 'support'>('class');
 
@@ -479,14 +481,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     setTimeout(() => setSaveFeedback(''), 4000);
   };
 
-  // Filter tests and assignments for active class
+  // Filter tests and assignments for active class — scoped to this teacher only
   const classTests = useMemo(() => {
     if (!activeClassObj) return [];
     return tests.filter((t) => {
+      // Primary isolation: if teacher_id is stamped, must match this teacher
+      if (t.teacher_id && currentUser?.id && t.teacher_id !== currentUser.id) return false;
       if (!t.class_name || t.class_name === 'All Classes' || t.class_name === 'General') return true;
       return t.class_name.includes(activeClassObj.class_name) || t.class_name.includes(activeClassObj.name);
     });
-  }, [tests, activeClassObj]);
+  }, [tests, activeClassObj, currentUser]);
 
   const classAssignments = useMemo(() => {
     if (!activeClassObj) return [];
@@ -1151,6 +1155,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
       {/* MAIN CONTENT VIEWPORT */}
       <main className="main-content">
+        {isMarkEntryOpen ? (
+          <div style={{ padding: '28px 32px', height: '100%', overflowY: 'auto' }}>
+            <MarkEntryModal
+              inline
+              isOpen
+              onClose={() => setIsMarkEntryOpen(false)}
+              classRoom={activeClassObj}
+              teacher={currentUser}
+              profiles={profiles}
+            />
+          </div>
+        ) : <>
         {/* VIEW 1: SUBJECT CLASSROOM VIEW */}
         {activeNavMode === 'class' && (
           <>
@@ -1219,6 +1235,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         style={{ padding: '7px 12px', fontSize: 12 }}
                       >
                         + Homework
+                      </button>
+                      <button
+                        className="btn-secondary"
+                        onClick={() => setIsMarkEntryOpen(true)}
+                        style={{ padding: '7px 12px', fontSize: 12 }}
+                      >
+                        Mark Entry
                       </button>
                       <button
                         className="btn-primary"
@@ -1752,9 +1775,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           type="button"
                           className="btn-primary"
                           onClick={() => setIsResourceFormExpanded(!isResourceFormExpanded)}
-                          style={{ padding: '8px 16px', fontSize: 12.5 }}
+                          style={{ padding: '8px 16px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
                         >
-                          {isResourceFormExpanded ? '✕ Close Form' : '+ Upload New Resource'}
+                          {isResourceFormExpanded ? (<><X size={13} /> Close Form</>) : '+ Upload New Resource'}
                         </button>
                       </div>
 
@@ -2171,7 +2194,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </div>
                   )}
 
-                  {/* SUBTAB 3: 📝 TASKS & ASSESSMENTS (Tests & Assignments) */}
+                  {/* SUBTAB 3: TASKS & ASSESSMENTS (Tests & Assignments) */}
                   {classSubTab === 'tasks' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                       {/* Class Stats */}
@@ -2210,24 +2233,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           <h3 className="section-title" style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>
                             Class Tests &amp; Homework for {activeClassObj.name}
                           </h3>
-                          <div style={{ display: 'flex', gap: 8 }}>
-                            <button
-                              type="button"
-                              className="btn-secondary"
-                              onClick={() => onOpenCreateAssignmentModal(`${activeClassObj.name} (${activeClassObj.class_name})`)}
-                              style={{ padding: '5px 12px', fontSize: 11.5 }}
-                            >
-                              + Homework
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-primary"
-                              onClick={() => onOpenCreateTestModal(`${activeClassObj.name} (${activeClassObj.class_name})`)}
-                              style={{ padding: '5px 14px', fontSize: 11.5 }}
-                            >
-                              + Create Class Test
-                            </button>
-                          </div>
                         </div>
                         <div className="card-list">
                           {classTests.length === 0 && classAssignments.length === 0 ? (
@@ -2380,7 +2385,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </div>
                   )}
 
-                  {/* SUBTAB 4: 📖 SYLLABUS COVERAGE */}
+                  {/* SUBTAB 4: SYLLABUS COVERAGE */}
                   {classSubTab === 'syllabus' && (
                     <div>
                       <div className="panel-block" style={{ padding: '20px 24px', marginBottom: 20 }}>
@@ -2481,9 +2486,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                             onDeleteTopic(term.id, topic.id);
                                           }
                                         }}
-                                        style={{ padding: '2px 6px', fontSize: 10, fontWeight: 600, border: '1px solid #F5C6CB', borderRadius: 3, background: '#FDF1F0', color: '#A83B38', cursor: 'pointer' }}
+                                        style={{ padding: '2px 6px', fontSize: 10, fontWeight: 600, border: '1px solid #F5C6CB', borderRadius: 3, background: '#FDF1F0', color: '#A83B38', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                       >
-                                        ✕
+                                        <X size={10} />
                                       </button>
                                     </div>
                                   </div>
@@ -2496,7 +2501,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </div>
                   )}
 
-                  {/* SUBTAB 5: 👥 STUDENT ROSTER (Full-Page Inline Management) */}
+                  {/* SUBTAB 5: STUDENT ROSTER (Full-Page Inline Management) */}
                   {classSubTab === 'roster' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                       <div
@@ -2525,9 +2530,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           type="button"
                           className="btn-primary"
                           onClick={() => setIsManageStudentsOpen(true)}
-                          style={{ padding: '6px 14px', fontSize: 12 }}
+                          style={{ padding: '6px 14px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
                         >
-                          ⚙️ Quick Manage Roster
+                          <Settings size={13} /> Quick Manage Roster
                         </button>
                       </div>
 
@@ -3120,9 +3125,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                             </div>
                             <button
                               onClick={() => setViewingHistoryStudentId('')}
-                              style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, background: '#FAF9F6', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer' }}
+                              style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, background: '#FAF9F6', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                             >
-                              Close History Drawer ✕
+                              Close History Drawer <X size={12} />
                             </button>
                           </div>
 
@@ -3813,7 +3818,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       transition: 'all 0.2s',
                     }}
                   >
-                    <span>📢 Class Circulars &amp; Notices</span>
+                    <Megaphone size={14} />
+                    <span>Class Circulars &amp; Notices</span>
                     <span
                       style={{
                         fontSize: 10,
@@ -3847,7 +3853,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       transition: 'all 0.2s',
                     }}
                   >
-                    <span>📚 Class Materials &amp; Guides</span>
+                    <BookOpen size={14} />
+                    <span>Class Materials &amp; Guides</span>
                     <span
                       style={{
                         fontSize: 10,
@@ -3903,7 +3910,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           boxShadow: '0 4px 10px rgba(44, 110, 106, 0.2)',
                         }}
                       >
-                        📢
+                        <Megaphone size={18} />
                       </div>
                       <div>
                         <h4 style={{ fontSize: 15, fontWeight: 800, margin: 0, color: 'var(--neutral-dark)' }}>
@@ -3962,8 +3969,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                               }}
                             >
                               <option value="normal">Normal Notice</option>
-                              <option value="important">⭐ Important Circular</option>
-                              <option value="urgent">🚨 Urgent Action Required</option>
+                              <option value="important">Important Circular</option>
+                              <option value="urgent">Urgent Action Required</option>
                             </select>
                           </div>
 
@@ -3988,7 +3995,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                               style={{ accentColor: '#D4A373' }}
                             />
                             <span style={{ fontWeight: 700, color: hrBcIsPinned ? '#9E6C1B' : 'var(--neutral-dark)' }}>
-                              📌 Pin to top
+                              Pin to top
                             </span>
                           </label>
                         </div>
@@ -4056,17 +4063,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                                   {isPinned && (
                                     <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: '#FEF7EC', color: '#9E6C1B', border: '1px solid #F5DEB3' }}>
-                                      📌 PINNED
+                                      PINNED
                                     </span>
                                   )}
                                   {isUrgent && (
                                     <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: '#FDF1F0', color: '#A83B38', border: '1px solid #F5C6CB' }}>
-                                      🚨 URGENT
+                                      URGENT
                                     </span>
                                   )}
                                   {isImportant && (
                                     <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE' }}>
-                                      ⭐ IMPORTANT
+                                      IMPORTANT
                                     </span>
                                   )}
                                   <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
@@ -4095,7 +4102,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                       cursor: 'pointer',
                                     }}
                                   >
-                                    {bc.is_pinned ? '📌 Unpin' : '📌 Pin'}
+                                    {bc.is_pinned ? 'Unpin' : 'Pin'}
                                   </button>
                                 )}
                                 {onDeleteBroadcast && (
@@ -4153,9 +4160,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           type="button"
                           className="btn-secondary"
                           onClick={() => setHrIsResourceFormExpanded(false)}
-                          style={{ padding: '5px 12px', fontSize: 11.5 }}
+                          style={{ padding: '5px 12px', fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}
                         >
-                          ✕ Close
+                          <X size={12} /> Close
                         </button>
                       </div>
 
@@ -4176,11 +4183,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                             className="form-input"
                             style={{ fontSize: 12.5, padding: '9px 12px' }}
                           >
-                            <option value="pdf">📄 PDF Document</option>
-                            <option value="doc">📝 Word / Text Doc</option>
-                            <option value="slides">📊 Presentation Slides</option>
-                            <option value="worksheet">📋 Spreadsheet / Form</option>
-                            <option value="link">🔗 Web Link / Form URL</option>
+                            <option value="pdf">PDF Document</option>
+                            <option value="doc">Word / Text Doc</option>
+                            <option value="slides">Presentation Slides</option>
+                            <option value="worksheet">Spreadsheet / Form</option>
+                            <option value="link">Web Link / Form URL</option>
                           </select>
                         </div>
 
@@ -4265,23 +4272,23 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     ) : (
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
                         {filteredHrResources.map((res) => {
-                          let typeIcon = '📄';
+                          let typeIcon = <FileText size={18} />;
                           let typeBg = '#EAF3EF';
                           let typeColor = '#2D6E5D';
                           if (res.resource_type === 'pdf') {
-                            typeIcon = '📕';
+                            typeIcon = <FileText size={18} />;
                             typeBg = '#FDF1F0';
                             typeColor = '#A83B38';
                           } else if (res.resource_type === 'slides') {
-                            typeIcon = '📊';
+                            typeIcon = <BookOpen size={18} />;
                             typeBg = '#FEF7EC';
                             typeColor = '#9E6C1B';
                           } else if (res.resource_type === 'video') {
-                            typeIcon = '🎥';
+                            typeIcon = <Video size={18} />;
                             typeBg = '#F3EFFA';
                             typeColor = '#7C5CBF';
                           } else if (res.resource_type === 'link') {
-                            typeIcon = '🔗';
+                            typeIcon = <Link2 size={18} />;
                             typeBg = '#EFF6FF';
                             typeColor = '#1E40AF';
                           }
@@ -4294,39 +4301,43 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                 border: '1px solid var(--border-color)',
                                 borderRadius: 10,
                                 padding: '18px 20px',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
                                 display: 'flex',
                                 flexDirection: 'column',
                                 justifyContent: 'space-between',
                                 gap: 14,
-                                boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
                               }}
                             >
                               <div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                                  <span
-                                    style={{
-                                      fontSize: 10.5,
-                                      fontWeight: 800,
-                                      padding: '2px 8px',
-                                      borderRadius: 4,
-                                      background: typeBg,
-                                      color: typeColor,
-                                      textTransform: 'uppercase',
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: 4,
-                                    }}
-                                  >
-                                    <span>{typeIcon}</span>
-                                    <span>{res.resource_type}</span>
-                                  </span>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div
+                                      style={{
+                                        width: 32,
+                                        height: 32,
+                                        borderRadius: 6,
+                                        background: typeBg,
+                                        color: typeColor,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: 14,
+                                      }}
+                                    >
+                                      {typeIcon}
+                                    </div>
+                                    <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', padding: '2px 7px', borderRadius: 4, background: typeBg, color: typeColor }}>
+                                      {res.resource_type}
+                                    </span>
+                                  </div>
                                   {res.topic_tag && (
-                                    <span style={{ fontSize: 10.5, color: '#2C6E6A', fontWeight: 700, background: '#FAF9F6', padding: '2px 6px', borderRadius: 4, border: '1px solid #ECEAE5' }}>
-                                      #{res.topic_tag}
+                                    <span style={{ fontSize: 11, color: 'var(--text-secondary)', background: '#FAF9F6', padding: '2px 7px', borderRadius: 4, border: '1px solid var(--border-color)' }}>
+                                      {res.topic_tag}
                                     </span>
                                   )}
                                 </div>
-                                <h4 style={{ fontSize: 14.5, fontWeight: 800, margin: '0 0 6px', color: 'var(--neutral-dark)' }}>
+
+                                <h4 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 6px', color: 'var(--neutral-dark)' }}>
                                   {res.title}
                                 </h4>
                                 {res.description && (
@@ -4336,78 +4347,61 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                 )}
                               </div>
 
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTop: '1px solid #ECEAE5' }}>
+                              <div style={{ borderTop: '1px solid #ECEAE5', paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                  {res.created_at ? new Date(res.created_at).toLocaleDateString() : 'Active Resource'}
+                                </span>
                                 <div style={{ display: 'flex', gap: 6 }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      openFileInNewTab({
-                                        fileName: res.file_name || res.title,
-                                        fileUrl: res.file_url,
-                                        externalLink: res.external_link,
-                                        title: res.title,
-                                      });
-                                    }}
-                                    style={{
-                                      padding: '5px 12px',
-                                      fontSize: 11.5,
-                                      fontWeight: 700,
-                                      background: '#2C6E6A',
-                                      color: '#FFFFFF',
-                                      border: 'none',
-                                      borderRadius: 4,
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    Open ↗
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      downloadFile({
-                                        fileName: res.file_name || `${res.title}.pdf`,
-                                        fileUrl: res.file_url,
-                                        externalLink: res.external_link,
-                                      });
-                                    }}
-                                    title="Download File"
-                                    style={{
-                                      padding: '5px 9px',
-                                      fontSize: 11.5,
-                                      fontWeight: 700,
-                                      background: '#FAF9F6',
-                                      color: 'var(--neutral-dark)',
-                                      border: '1px solid var(--border-color)',
-                                      borderRadius: 4,
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    ↓
-                                  </button>
+                                  {res.file_url || res.external_link ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (res.file_url) {
+                                          openFileInNewTab({
+                                            fileUrl: res.file_url,
+                                            fileName: res.file_name || res.title,
+                                            title: res.title,
+                                          });
+                                        } else if (res.external_link) {
+                                          window.open(res.external_link, '_blank');
+                                        }
+                                      }}
+                                      style={{
+                                        padding: '4px 10px',
+                                        fontSize: 11.5,
+                                        fontWeight: 600,
+                                        background: '#EAF3EF',
+                                        border: '1px solid #C7E4D8',
+                                        color: '#2C6E6A',
+                                        borderRadius: 4,
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      Open ↗
+                                    </button>
+                                  ) : null}
+                                  {onDeleteResource && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (confirm(`Delete resource "${res.title}"?`)) {
+                                          onDeleteResource(res.id);
+                                        }
+                                      }}
+                                      style={{
+                                        padding: '4px 8px',
+                                        fontSize: 11,
+                                        color: '#DC2626',
+                                        background: '#FEF2F2',
+                                        border: '1px solid #FECACA',
+                                        borderRadius: 4,
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      Delete
+                                    </button>
+                                  )}
                                 </div>
-
-                                {onDeleteResource && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (confirm(`Delete resource "${res.title}"?`)) {
-                                        onDeleteResource(res.id);
-                                      }
-                                    }}
-                                    style={{
-                                      padding: '4px 8px',
-                                      fontSize: 11,
-                                      fontWeight: 600,
-                                      background: '#FDF1F0',
-                                      border: '1px solid #F5C6CB',
-                                      color: '#A83B38',
-                                      borderRadius: 4,
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    Delete
-                                  </button>
-                                )}
                               </div>
                             </div>
                           );
@@ -4421,24 +4415,37 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           </>
         )}
 
-
-        {/* VIEW 5: HOLISTIC HUB (TEACHER'S PUBLISHED ACTIVITIES ONLY) */}
+        {/* ══════════════════════════════════════════════════════════════════════ */}
+        {/* VIEW 5: HOLISTIC DEVELOPMENT HUB                                    */}
+        {/* ══════════════════════════════════════════════════════════════════════ */}
         {activeNavMode === 'hub' && (
           <>
             <header className="content-header">
-              <div className="header-top">
+              <div className="header-top" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#2C6E6A', letterSpacing: '0.06em' }}>
-                    CO-CURRICULAR HUB · FACULTY COORDINATOR
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#F3E8FF', color: '#7C3AED', border: '1px solid #E9D5FF', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      CO-CURRICULAR &amp; LEADERSHIP
+                    </span>
                   </div>
                   <h1 className="page-title" style={{ margin: '2px 0 0' }}>
-                    My Published Activities &amp; Programmes ({myHubActivities.length})
+                    Woodlem Holistic Development Hub
                   </h1>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                    Propose, coordinate, and track co-curricular activities, competitions, leadership workshops, and clubs.
+                  </p>
                 </div>
 
-                <button className="btn-primary" onClick={onOpenCreateHubActivityModal} style={{ padding: '7px 14px', fontSize: 12 }}>
-                  + Publish Activity
-                </button>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <button
+                    className="btn-primary"
+                    onClick={onOpenCreateHubActivityModal}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', fontSize: 13 }}
+                  >
+                    <Plus size={16} />
+                    <span>Publish Activity</span>
+                  </button>
+                </div>
               </div>
             </header>
 
@@ -4446,7 +4453,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               <div className="hub-grid">
                 {myHubActivities.length === 0 ? (
                   <div className="panel-block" style={{ gridColumn: '1 / -1', padding: '40px 24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13, background: '#FFFFFF', borderRadius: 8, border: '1px dashed var(--border-color)' }}>
-                    <div style={{ fontSize: 24, marginBottom: 8 }}>🏅</div>
+                    <Award size={32} style={{ margin: '0 auto 8px', color: '#D97706' }} />
                     <div style={{ fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 4 }}>
                       No Co-Curricular Programmes Published Yet
                     </div>
@@ -4497,6 +4504,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             <SupportView currentUser={currentUser} />
           </div>
         )}
+        </>}
       </main>
 
       {/* MANAGE CLASS ENROLLMENT MODAL */}
@@ -4554,6 +4562,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         onSave={(classId, updatedData) => onUpdateSubjectClass(classId, updatedData)}
         onDelete={(classId) => onDeleteSubjectClass(classId)}
       />
+
     </div>
   );
 };

@@ -74,6 +74,7 @@ export interface TestItem {
   id: string;
   title: string;
   class_name?: string;
+  teacher_id?: string;  // owner teacher — used to isolate tests per teacher
   created_at?: string;
   questions?: TestQuestion[];
   duration_minutes?: number;

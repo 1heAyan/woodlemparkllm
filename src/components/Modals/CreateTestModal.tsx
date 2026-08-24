@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { TestQuestion } from '@/lib/supabaseClient';
+import { Paperclip, Image as ImageIcon, Check, X } from 'lucide-react';
 
 const ALL_SECTIONS = [
   '9-A', '9-B', '9-C', '9-D',
@@ -87,11 +88,10 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
     setQuestions((prev) =>
       prev.map((q, i) => {
         if (i !== qIdx) return q;
-        const oldOpt = q.options[optIdx];
         const opts = [...q.options];
         opts[optIdx] = text;
-        const newCorrect = q.correct === oldOpt ? text : q.correct;
-        return { ...q, options: opts, correct: newCorrect };
+        // correct is stored as index tag — no need to chase text
+        return { ...q, options: opts };
       })
     );
   };
@@ -124,17 +124,24 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
           alert(`All options for Question ${i + 1} must be filled.`);
           return;
         }
-        if (!questions[i].correct) {
+        if (!questions[i].correct || !questions[i].correct.startsWith('__idx__')) {
           alert(`Please select the correct answer for Question ${i + 1} using the radio button.`);
           return;
         }
       }
     }
+    // Resolve index tags back to option text before saving
+    const resolvedQuestions = questions.map((q) => {
+      if (q.type !== 'mcq' || !q.correct.startsWith('__idx__')) return q;
+      const idx = parseInt(q.correct.replace('__idx__', ''), 10);
+      const resolvedText = q.options[idx] ?? q.correct;
+      return { ...q, correct: resolvedText };
+    });
     onSubmit({
       title: title.trim(),
       className: activeClass || selectedClass,
       durationMinutes,
-      questions,
+      questions: resolvedQuestions,
       mediaUrl: mediaUrl || undefined,
     });
     setTitle('');
@@ -318,7 +325,9 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
                     style={{ height: 42, width: 42, objectFit: 'cover', borderRadius: 4 }}
                   />
                   <div style={{ flex: 1 }}>
-                    <div style={{ color: '#2C6E6A', fontWeight: 700 }}>Header Image Attached ✓</div>
+                    <div style={{ color: '#2C6E6A', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      Header Image Attached <Check size={14} />
+                    </div>
                     <div style={{ fontSize: 11, color: '#64748B' }}>Click to change or replace</div>
                   </div>
                   <button
@@ -343,7 +352,7 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
                 </>
               ) : (
                 <>
-                  <span style={{ fontSize: 18 }}>📎</span>
+                  <Paperclip size={18} style={{ color: '#64748B' }} />
                   <span>Click to attach an image or diagram for the test header</span>
                 </>
               )}
@@ -545,7 +554,9 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
                             alt=""
                             style={{ height: 32, width: 32, objectFit: 'cover', borderRadius: 3 }}
                           />
-                          <span style={{ color: '#2C6E6A', fontWeight: 600 }}>Diagram / Figure attached ✓</span>
+                          <span style={{ color: '#2C6E6A', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            Diagram / Figure attached <Check size={13} />
+                          </span>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -559,13 +570,18 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
                               cursor: 'pointer',
                               fontSize: 12,
                               padding: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 2,
                             }}
                           >
-                            ✕ Remove
+                            <X size={12} /> Remove
                           </button>
                         </>
                       ) : (
-                        <>🖼 Attach diagram/image to this question (optional)</>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <ImageIcon size={14} /> Attach diagram/image to this question (optional)
+                        </span>
                       )}
                       <input
                         type="file"
@@ -593,7 +609,8 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
                         Options — Click radio button to mark the correct answer
                       </div>
                       {q.options.map((opt, optIdx) => {
-                        const isCorrect = q.correct === opt && opt.trim() !== '';
+                        const idxTag = `__idx__${optIdx}`;
+                        const isCorrect = q.correct === idxTag;
                         const letter = String.fromCharCode(65 + optIdx);
 
                         return (
@@ -614,7 +631,7 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
                               type="radio"
                               name={`correct-${q.id}`}
                               checked={isCorrect}
-                              onChange={() => updateQ(qIdx, { correct: opt })}
+                              onChange={() => updateQ(qIdx, { correct: idxTag })}
                               style={{ accentColor: '#10B981', cursor: 'pointer', width: 16, height: 16 }}
                               title="Mark as correct answer"
                             />
@@ -651,9 +668,12 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
                                   color: '#059669',
                                   paddingRight: 4,
                                   whiteSpace: 'nowrap',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 3,
                                 }}
                               >
-                                ✓ Correct Answer
+                                <Check size={12} /> Correct Answer
                               </span>
                             )}
                           </div>

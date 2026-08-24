@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { Lock } from 'lucide-react';
 
 interface CreateHubActivityModalProps {
   isOpen: boolean;
@@ -188,8 +189,8 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({
                 gap: 6,
               }}
             >
-              <span>🔒 Target Audience:</span>
-              <span>Grade {effectiveClass} (Visible only to students in your class)</span>
+              <Lock size={13} style={{ flexShrink: 0 }} />
+              <span>Target Audience: Grade {effectiveClass} (Visible only to students in your class)</span>
             </div>
           ) : (
             <div className="form-group">

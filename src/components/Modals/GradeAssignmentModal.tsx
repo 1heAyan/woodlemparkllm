@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { AssignmentItem, UserProfile } from '@/lib/supabaseClient';
 import { ViewFileModal } from './ViewFileModal';
 import { openFileInNewTab, downloadFile } from '@/lib/fileHelper';
+import { X } from 'lucide-react';
 
 export interface AssignmentSubmissionRecord {
   assignment_id: string;
@@ -282,9 +283,9 @@ export const GradeAssignmentModal: React.FC<GradeAssignmentModalProps> = ({
                             </button>
                             <button
                               onClick={() => setEditingStudentId(null)}
-                              style={{ padding: '3px 6px', fontSize: 10.5, background: '#FAF9F6', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer' }}
+                              style={{ padding: '3px 6px', fontSize: 10.5, background: '#FAF9F6', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             >
-                              ✕
+                              <X size={12} />
                             </button>
                           </div>
                         ) : (
