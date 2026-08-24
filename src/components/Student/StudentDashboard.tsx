@@ -1,6 +1,9 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { ChevronLeft, ChevronRight, Award, Calendar, Settings, LifeBuoy, BookOpen, LogOut, MessageSquare, Megaphone, Pin, PinOff, SlidersHorizontal, Check } from 'lucide-react';
+import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
+import { useSidebarState } from '@/lib/useSidebarState';
 import {
   UserProfile,
   TestItem,
@@ -24,7 +27,7 @@ import { ViewFileModal } from '../Modals/ViewFileModal';
 import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
-import { openFileInNewTab, downloadFile } from '@/lib/fileHelper';
+import { openFileInNewTab, downloadFile, formatShortFileName } from '@/lib/fileHelper';
 import { ApplyLeaveModal } from '../Modals/ApplyLeaveModal';
 
 interface StudentDashboardProps {
@@ -112,45 +115,56 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   // Leave & Sick Note Modal state
   const [isApplyLeaveOpen, setIsApplyLeaveOpen] = useState(false);
+  
+  // Edge-style Sidebar State Controller
+  const sidebar = useSidebarState('auto-hide');
 
   // Homeroom circulars search & filter state
   const [hrSearchQuery, setHrSearchQuery] = useState('');
   const [hrPriorityFilter, setHrPriorityFilter] = useState<'all' | 'pinned' | 'urgent' | 'important'>('all');
 
-  // Sidebar profile photo (prioritizes Supabase cloud avatar_url)
-  const [sidebarAvatarUrl, setSidebarAvatarUrl] = useState<string | null>(() => currentStudent.avatar_url || null);
-  useEffect(() => {
-    if (currentStudent?.avatar_url) {
-      setSidebarAvatarUrl(currentStudent.avatar_url);
-    } else {
-      try {
-        const saved = localStorage.getItem(`woodlem_avatar_${currentStudent.id}`);
-        setSidebarAvatarUrl(saved || null);
-      } catch (e) {}
-    }
-  }, [currentStudent, activeNavType]);
+  // Sidebar profile photo (synced with Supabase cloud)
+  const sidebarAvatarUrl = currentStudent.avatar_url || null;
 
   // Student class metadata
   const cleanGrade = useMemo(() => (currentStudent.grade || '10').replace(/[^0-9]/g, '') || '10', [currentStudent.grade]);
   const cleanSection = useMemo(() => (currentStudent.class_letter || 'A').toUpperCase().trim() || 'A', [currentStudent.class_letter]);
   const studentClass = `${cleanGrade}-${cleanSection}`;
+  const studentAdmNo = useMemo(() => currentStudent.admission_number || currentStudent.user_code || `WPS-2024-${currentStudent.id.slice(0, 4).toUpperCase()}`, [currentStudent]);
 
   // Dynamic Subject Classrooms this student is enrolled in
   const myClasses = useMemo(() => {
     return subjectClasses.filter((c) => {
+      // Skip any seed/demo classes
       if (c.id.startsWith('class-seed-') || c.name === 'Physics 12-C' || c.name === 'Chemistry 12-C') {
         return false;
       }
       const enrolled = c.enrolled_student_ids || [];
-      if (enrolled.includes(currentStudent.id) || (currentStudent.email && enrolled.includes(currentStudent.email))) {
+
+      // Primary check: student explicitly enrolled by ID or email
+      if (
+        enrolled.includes(currentStudent.id) ||
+        (currentStudent.email && enrolled.includes(currentStudent.email))
+      ) {
         return true;
       }
+
+      // Fallback for legacy/existing classes with empty enrolled_student_ids:
+      // STRICT match — both grade number AND class letter must match exactly.
+      // This handles classes created before auto-enrollment was implemented.
       if (enrolled.length === 0 && c.class_name) {
-        return c.class_name.includes(studentClass) || c.class_name.includes(`Grade ${cleanGrade}`) || c.class_name === cleanGrade;
+        const cn = c.class_name.toLowerCase().replace(/grade\s*/gi, '').trim();
+        const cnParts = cn.split(/[-\s]+/);
+        const cnGrade = cnParts.find((p) => /^\d+$/.test(p)) || '';
+        const cnLetter = cnParts.find((p) => /^[a-z]$/.test(p))?.toUpperCase() || '';
+        const matchesGrade = cnGrade === cleanGrade;
+        const matchesLetter = !cnLetter || cnLetter === cleanSection;
+        return matchesGrade && matchesLetter;
       }
+
       return false;
     });
-  }, [subjectClasses, currentStudent.id, currentStudent.email, studentClass, cleanGrade]);
+  }, [subjectClasses, currentStudent.id, currentStudent.email, cleanGrade, cleanSection]);
 
   // Selected active classroom
   const [selectedClassId, setSelectedClassId] = useState<string>('');
@@ -288,25 +302,81 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     });
   }, [thisClassResources, resTypeFilter, resSearchQuery]);
 
+  // Helper: check if a test/assignment belongs strictly to the currently viewed subject class
+  const isItemForActiveClass = (itemClassName?: string, itemTitle?: string) => {
+    if (!activeClassObj || !itemClassName) return false;
+    const itemCn = itemClassName.toLowerCase().trim();
+    const className = activeClassObj.name.toLowerCase().trim();
+    const subjectName = (activeClassObj.subject || '').toLowerCase().trim();
+    const gradeSection = (activeClassObj.class_name || '').toLowerCase().replace(/grade\s*/gi, '').trim();
+
+    // 1. Exact string match (e.g. "Biology (12-B)" or "Physics 12-C")
+    if (itemCn === className || itemCn === `${className} (${gradeSection})` || itemCn === `${className} ${gradeSection}`) {
+      return true;
+    }
+
+    // 2. Check if the item explicitly mentions the subject/class title
+    const mentionsSubject =
+      (subjectName && itemCn.includes(subjectName)) ||
+      itemCn.includes(className) ||
+      (subjectName && itemTitle && itemTitle.toLowerCase().includes(subjectName));
+
+    if (mentionsSubject) {
+      // If a grade/section is specified on both, ensure they match
+      if (gradeSection) {
+        const itemGradeNum = itemCn.replace(/[^0-9]/g, '');
+        const classGradeNum = gradeSection.replace(/[^0-9]/g, '');
+        if (itemGradeNum && classGradeNum && itemGradeNum !== classGradeNum) return false;
+      }
+      return true;
+    }
+
+    return false;
+  };
+
   // Filter tests and assignments for the active subject class ONLY
   const myTests = useMemo(() => {
     if (!activeClassObj) return [];
-    return tests.filter((t) => {
-      if (!t.class_name || t.class_name === 'All Classes' || t.class_name === 'General') return true;
-      return t.class_name.includes(activeClassObj.class_name) || t.class_name.includes(activeClassObj.name) || t.class_name.includes(studentClass);
-    });
-  }, [tests, activeClassObj, studentClass]);
+    return tests.filter((t) => isItemForActiveClass(t.class_name, t.title));
+  }, [tests, activeClassObj]);
 
   const myAssignments = useMemo(() => {
     if (!activeClassObj) return [];
-    return assignments.filter((a) => {
-      if (!a.class_name || a.class_name === 'All Classes' || a.class_name === 'General') return true;
-      return a.class_name.includes(activeClassObj.class_name) || a.class_name.includes(activeClassObj.name) || a.class_name.includes(studentClass);
-    });
-  }, [assignments, activeClassObj, studentClass]);
+    return assignments.filter((a) => isItemForActiveClass(a.class_name, a.title));
+  }, [assignments, activeClassObj]);
 
-  // Syllabus progress for active class
-  const subjectSyllabus = useMemo(() => syllabus, [syllabus]);
+  // Syllabus progress for active class ONLY (does not leak terms from other subjects)
+  const subjectSyllabus = useMemo(() => {
+    if (!activeClassObj) return [];
+    const className = activeClassObj.name.toLowerCase().trim();
+    const subjectName = (activeClassObj.subject || '').toLowerCase().trim();
+    const gradeSection = (activeClassObj.class_name || '').toLowerCase().replace(/grade\s*/gi, '').trim();
+
+    return syllabus.filter((term) => {
+      // 1. Direct class_id link
+      if (term.class_id && term.class_id === activeClassObj.id) return true;
+
+      // 2. Term subject matches class subject or class name
+      if (term.subject) {
+        const tSub = term.subject.toLowerCase().trim();
+        const matchesSub = tSub === subjectName || tSub === className || className.includes(tSub) || (subjectName && subjectName.includes(tSub));
+        if (matchesSub) {
+          if (!term.class_name) return true;
+          const tCn = term.class_name.toLowerCase().replace(/grade\s*/gi, '').trim();
+          return !gradeSection || tCn.includes(gradeSection) || gradeSection.includes(tCn);
+        }
+        return false;
+      }
+
+      // 3. Term name contains subject name or class name explicitly
+      const tName = term.name.toLowerCase();
+      if (subjectName && tName.includes(subjectName)) return true;
+      if (className && tName.includes(className)) return true;
+
+      // Untagged terms from other subjects (like CS PT-1) do NOT leak into Biology
+      return false;
+    });
+  }, [syllabus, activeClassObj]);
 
   const { totalTopics, teacherDone, studentDone, teacherPct, studentPct } = useMemo(() => {
     let tot = 0;
@@ -349,11 +419,30 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     return { totalRecorded, presentCount, authAbsentCount, unauthAbsentCount, rate, history };
   }, [attendance, currentStudent.id]);
 
-  // Filter hub
+  // Filter hub – only show activities that target this student's class/grade
   const filteredHub = useMemo(() => {
-    if (!hubFilter) return hubActivities;
-    return hubActivities.filter((a) => a.type === hubFilter);
-  }, [hubActivities, hubFilter]);
+    const rawGrade = String(currentStudent.grade || '').trim();
+    const letterStr = String(currentStudent.class_letter || '').trim().toUpperCase();
+    // Extract just the number e.g. "Grade 12 (CBSE)" → "12", "12" → "12"
+    const gradeNum = rawGrade.match(/\d+/)?.[0] || '';
+    // e.g. "12-C"
+    const fullClass = gradeNum && letterStr ? `${gradeNum}-${letterStr}` : gradeNum;
+
+    const relevantActivities = hubActivities.filter((act) => {
+      const targets: string[] = act.target_grades || [];
+      // No restrictions → visible to all
+      if (targets.length === 0) return true;
+      return targets.some((t) => {
+        // Normalise: lowercase, strip spaces, strip "Grade" prefix
+        const norm = t.toLowerCase().replace(/\s+/g, '').replace(/^grade/, '');
+        // match full class "12-c" or just grade number "12"
+        return (fullClass && norm === fullClass.toLowerCase()) || (gradeNum && norm === gradeNum);
+      });
+    });
+
+    if (!hubFilter) return relevantActivities;
+    return relevantActivities.filter((a) => a.type === hubFilter);
+  }, [hubActivities, hubFilter, currentStudent.grade, currentStudent.class_letter]);
 
   // Filter achievements
   const myAchievements = useMemo(() => {
@@ -421,309 +510,204 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   return (
     <div className="app-viewport">
-      {/* SIDEBAR */}
-      <aside className="sidebar">
-        <div className="sidebar-header" style={{ padding: '24px 20px 16px' }}>
-          <div className="sidebar-brand" style={{ marginBottom: 16, textAlign: 'center' }}>
-            <img
-              src="/Jurf-Logo-1.png"
-              alt="Woodlem Park School"
-              className="sidebar-logo"
-              style={{ maxHeight: 44, width: 'auto', margin: '0 auto', display: 'block' }}
-            />
+      {/* REDESIGNED SIDEBAR */}
+      <aside
+        className={`sidebar ${sidebar.isCollapsed ? 'collapsed' : ''} ${sidebar.isHovered && sidebar.sidebarMode === 'auto-hide' ? 'auto-hide-hovered' : ''}`}
+        onMouseEnter={sidebar.handleMouseEnter}
+        onMouseLeave={sidebar.handleMouseLeave}
+        onDoubleClick={sidebar.togglePin}
+      >
+        {/* HEADER SECTION */}
+        <div className="sidebar-header">
+          <div className="sidebar-brand-row">
+            <WoodlemLogo collapsed={sidebar.isCollapsed} />
           </div>
 
-          {/* Student Profile Card */}
+          {/* REDESIGNED STUDENT INFORMATION SECTION */}
           <div
-            className="profile-card"
-            style={{
-              background: '#FAF9F6',
-              border: '1px solid var(--border-color)',
-              borderRadius: 8,
-              padding: '10px 12px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-            }}
+            className="sidebar-profile-box"
+            title={`${currentStudent.name} • Class ${cleanGrade} - Section ${cleanSection} • Admission No. ${studentAdmNo}`}
           >
-            <div
-              className="profile-avatar avatar-student"
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: '50%',
-                background: sidebarAvatarUrl ? 'transparent' : '#2C6E6A',
-                color: '#FFFFFF',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 13,
-                fontWeight: 700,
-                flexShrink: 0,
-                overflow: 'hidden',
-                border: sidebarAvatarUrl ? '2px solid #2C6E6A' : 'none',
-              }}
-            >
+            <div className="sidebar-profile-avatar avatar-student-themed">
               {sidebarAvatarUrl ? (
-                <img src={sidebarAvatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <img src={sidebarAvatarUrl} alt={currentStudent.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : (
                 (currentStudent.name || 'S').charAt(0).toUpperCase()
               )}
             </div>
-            <div style={{ overflow: 'hidden', flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+
+            <div className="profile-details-expanded">
+              <div className="sidebar-profile-name">
                 {currentStudent.name}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8' }}>
-                  Grade {cleanGrade}-{cleanSection}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                <span className="sidebar-profile-badge">
+                  Class {cleanGrade} • Section {cleanSection}
                 </span>
-                <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
-                  {currentStudent.admission_number || currentStudent.user_code || ''}
-                </span>
+              </div>
+              <div className="sidebar-profile-adm">
+                Admission No. {studentAdmNo}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Navigation Sections */}
-        <nav className="nav-menu" style={{ flex: 1, padding: '10px 12px', overflowY: 'auto' }}>
-          {/* AI COPILOT QUICK DOCK TRIGGER */}
-          <button
-            type="button"
-            className={`nav-item ${isAiPanelOpen ? 'active' : ''}`}
-            onClick={toggleAiPanel}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '9px 12px',
-              fontSize: 13,
-              borderRadius: 8,
-              marginBottom: 12,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              background: isAiPanelOpen
-                ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)'
-                : 'linear-gradient(135deg, rgba(84, 87, 254, 0.08) 0%, rgba(155, 81, 224, 0.08) 100%)',
-              border: isAiPanelOpen ? '1px solid #334155' : '1px solid rgba(155, 81, 224, 0.25)',
-              color: isAiPanelOpen ? '#FFFFFF' : '#4338CA',
-              fontWeight: 700,
-              cursor: 'pointer',
-              boxShadow: isAiPanelOpen ? '0 4px 12px rgba(15, 23, 42, 0.15)' : 'none',
-              transition: 'all 0.18s ease',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
-                  fill={isAiPanelOpen ? '#A78BFA' : 'url(#gemini-nav-icon)'}
-                />
-                <defs>
-                  <linearGradient id="gemini-nav-icon" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
-                    <stop stopColor="#1BA1E3" />
-                    <stop offset="0.5" stopColor="#5457FE" />
-                    <stop offset="1" stopColor="#9B51E0" />
-                  </linearGradient>
-                </defs>
-              </svg>
-              <span>Ask Gemini AI</span>
-            </div>
-            <span
-              style={{
-                fontSize: 9.5,
-                fontWeight: 700,
-                padding: '2px 6px',
-                borderRadius: 4,
-                background: isAiPanelOpen ? 'rgba(255, 255, 255, 0.15)' : '#E0E7FF',
-                color: isAiPanelOpen ? '#E0E7FF' : '#4338CA',
-              }}
+        {/* NAVIGATION MENU */}
+        <nav className="nav-menu">
+          {/* CLASS CIRCULARS */}
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`nav-item ${activeNavType === 'homeroom_circulars' ? 'active' : ''}`}
+              onClick={() => { setActiveNavType('homeroom_circulars'); sidebar.handleNavClick(); }}
             >
-              ⌘K
-            </span>
-          </button>
-
-          {/* 1. STUDENT MAIN / GENERAL PROFILE */}
-          <div className="nav-label" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em' }}>
-            STUDENT PROFILE &amp; RECORDS
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <Megaphone size={15} className="icon" style={{ color: activeNavType === 'homeroom_circulars' ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text" style={{ flex: 1 }}>Class Circulars</span>
+                {(myHomeroomBroadcasts.length + myHomeroomResources.length) > 0 && (
+                  <span className="sidebar-text" style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10, background: activeNavType === 'homeroom_circulars' ? '#2C6E6A' : '#FEF7EC', color: activeNavType === 'homeroom_circulars' ? '#FFFFFF' : '#9E6C1B' }}>
+                    {myHomeroomBroadcasts.length + myHomeroomResources.length}
+                  </span>
+                )}
+              </div>
+            </button>
+            {sidebar.isCollapsed && <div className="sidebar-tooltip">Class Circulars</div>}
           </div>
-          {/* 1.5 HOMEROOM CIRCULARS & NOTICES */}
-          <button
-            className={`nav-item ${activeNavType === 'homeroom_circulars' ? 'active' : ''}`}
-            onClick={() => setActiveNavType('homeroom_circulars')}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '8px 12px',
-              fontSize: 12.5,
-              borderRadius: 6,
-              marginBottom: 2,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>📢 Class Circulars</span>
-            </div>
-            {(myHomeroomBroadcasts.length + myHomeroomResources.length) > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10, background: activeNavType === 'homeroom_circulars' ? '#2C6E6A' : '#FEF7EC', color: activeNavType === 'homeroom_circulars' ? '#FFFFFF' : '#9E6C1B' }}>
-                {myHomeroomBroadcasts.length + myHomeroomResources.length}
-              </span>
-            )}
-          </button>
 
-          <button
-            className={`nav-item ${activeNavType === 'awards' ? 'active' : ''}`}
-            onClick={() => setActiveNavType('awards')}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '8px 12px',
-              fontSize: 12.5,
-              borderRadius: 6,
-              marginBottom: 2,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span>My Achievements</span>
-            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10, background: activeNavType === 'awards' ? '#2C6E6A' : '#EAF3EF', color: activeNavType === 'awards' ? '#FFFFFF' : '#2D6E5D' }}>
-              {myAchievements.length}
-            </span>
-          </button>
+          {/* MY ACHIEVEMENTS */}
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`nav-item ${activeNavType === 'awards' ? 'active' : ''}`}
+              onClick={() => { setActiveNavType('awards'); sidebar.handleNavClick(); }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <Award size={15} className="icon" style={{ color: activeNavType === 'awards' ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text" style={{ flex: 1 }}>My Achievements</span>
+                {myAchievements.length > 0 && (
+                  <span className="sidebar-text" style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10, background: activeNavType === 'awards' ? '#2C6E6A' : '#EAF3EF', color: activeNavType === 'awards' ? '#FFFFFF' : '#2D6E5D' }}>
+                    {myAchievements.length}
+                  </span>
+                )}
+              </div>
+            </button>
+            {sidebar.isCollapsed && <div className="sidebar-tooltip">My Achievements</div>}
+          </div>
 
-          <button
-            className={`nav-item ${activeNavType === 'attendance' ? 'active' : ''}`}
-            onClick={() => setActiveNavType('attendance')}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '8px 12px',
-              fontSize: 12.5,
-              borderRadius: 6,
-              marginBottom: 2,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span>Attendance Record</span>
-            <span style={{ fontSize: 10, fontWeight: 700, color: activeNavType === 'attendance' ? '#FFFFFF' : '#2C6E6A' }}>
-              {attendanceStats.rate}%
-            </span>
-          </button>
+          {/* ATTENDANCE RECORD */}
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`nav-item ${activeNavType === 'attendance' ? 'active' : ''}`}
+              onClick={() => { setActiveNavType('attendance'); sidebar.handleNavClick(); }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <Calendar size={15} className="icon" style={{ color: activeNavType === 'attendance' ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text">Attendance Record</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && <div className="sidebar-tooltip">Attendance Record</div>}
+          </div>
 
-          <button
-            className={`nav-item ${activeNavType === 'hub' ? 'active' : ''}`}
-            onClick={() => setActiveNavType('hub')}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '8px 12px',
-              fontSize: 12.5,
-              borderRadius: 6,
-              marginBottom: 2,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span>Holistic Hub</span>
-          </button>
+          {/* HOLISTIC HUB */}
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`nav-item ${activeNavType === 'hub' ? 'active' : ''}`}
+              onClick={() => { setActiveNavType('hub'); sidebar.handleNavClick(); }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <Award size={15} className="icon" style={{ color: activeNavType === 'hub' ? '#7C5CBF' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text">Holistic Hub</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && <div className="sidebar-tooltip">Holistic Hub</div>}
+          </div>
 
-          <button
-            className={`nav-item ${activeNavType === 'settings' ? 'active' : ''}`}
-            onClick={() => setActiveNavType('settings')}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '8px 12px',
-              fontSize: 12.5,
-              borderRadius: 6,
-              marginBottom: 2,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span>Settings &amp; Passwords</span>
-          </button>
-
-          <button
-            className={`nav-item ${activeNavType === 'support' ? 'active' : ''}`}
-            onClick={() => setActiveNavType('support')}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '8px 12px',
-              fontSize: 12.5,
-              borderRadius: 6,
-              marginBottom: 2,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span>Help &amp; Support</span>
-          </button>
-
-          {/* 2. SUBJECT CLASSROOMS */}
-          <div className="nav-label" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', marginTop: 18 }}>
-            MY SUBJECT CLASSROOMS ({myClasses.length})
+          {/* SUBJECT CLASSROOMS divider + label */}
+          <div className="sidebar-nav-divider" />
+          <div className="nav-label">
+            Classrooms ({myClasses.length})
           </div>
 
           {myClasses.length === 0 ? (
-            <div style={{ padding: '12px 8px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 11.5 }}>
+            <div className="sidebar-text" style={{ padding: '8px 8px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 11 }}>
               No classrooms enrolled yet.
             </div>
           ) : (
             myClasses.map((cls) => {
               const isSelected = activeNavType === 'class' && selectedClassId === cls.id;
               return (
-                <button
-                  key={cls.id}
-                  className={`nav-item ${isSelected ? 'active' : ''}`}
-                  onClick={() => {
-                    setSelectedClassId(cls.id);
-                    setActiveNavType('class');
-                  }}
-                  style={{
-                    width: '100%',
-                    textAlign: 'left',
-                    padding: '8px 12px',
-                    fontSize: 12.5,
-                    borderRadius: 6,
-                    marginBottom: 2,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <div style={{ overflow: 'hidden', paddingRight: 6 }}>
-                    <div style={{ fontWeight: isSelected ? 700 : 600, color: isSelected ? 'var(--neutral-dark)' : 'inherit', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {cls.name}
+                <div key={cls.id} className="sidebar-tooltip-wrapper">
+                  <button
+                    className={`nav-item ${isSelected ? 'active' : ''}`}
+                    onClick={() => { setSelectedClassId(cls.id); setActiveNavType('class'); sidebar.handleNavClick(); }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                      <BookOpen size={15} className="icon" style={{ color: isSelected ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
+                      <div className="sidebar-text" style={{ overflow: 'hidden', flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: isSelected ? 700 : 500, color: isSelected ? 'var(--neutral-dark)' : 'inherit', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 12.5 }}>
+                          {cls.name}
+                        </div>
+                        <div className="sidebar-classroom-sub">
+                          {cls.teacher_name}
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ fontSize: 10.5, color: isSelected ? '#2C6E6A' : 'var(--text-secondary)', fontWeight: isSelected ? 500 : 400 }}>
-                      Faculty: {cls.teacher_name}
-                    </div>
-                  </div>
-                  {isSelected && (
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#2C6E6A', flexShrink: 0 }}></span>
+                  </button>
+                  {sidebar.isCollapsed && (
+                    <div className="sidebar-tooltip">{cls.name} ({cls.teacher_name})</div>
                   )}
-                </button>
+                </div>
               );
             })
           )}
         </nav>
 
-        <div className="sidebar-footer" style={{ padding: '12px 16px', borderTop: '1px solid var(--border-color)' }}>
-          <button className="logout-btn-clean" onClick={onSignOut}>
-            Sign Out
-          </button>
+        {/* SIDEBAR FOOTER — Settings, Support, Sign Out */}
+        <div className="sidebar-footer">
+          {/* SETTINGS */}
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`logout-btn-clean ${activeNavType === 'settings' ? 'active' : ''}`}
+              onClick={() => { setActiveNavType('settings'); sidebar.handleNavClick(); }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <Settings size={15} className="icon" style={{ flexShrink: 0 }} />
+                <span className="sidebar-text">Settings</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && <div className="sidebar-tooltip">Settings &amp; Passwords</div>}
+          </div>
+
+          {/* HELP & SUPPORT */}
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`logout-btn-clean ${activeNavType === 'support' ? 'active' : ''}`}
+              onClick={() => { setActiveNavType('support'); sidebar.handleNavClick(); }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <LifeBuoy size={15} className="icon" style={{ flexShrink: 0 }} />
+                <span className="sidebar-text">Help &amp; Support</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && <div className="sidebar-tooltip">Help &amp; Support</div>}
+          </div>
+
+          {/* SIGN OUT */}
+          <div className="sidebar-tooltip-wrapper">
+            <button className="logout-btn-clean" onClick={onSignOut}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <LogOut size={15} className="icon" style={{ flexShrink: 0 }} />
+                <span className="sidebar-text">Sign Out</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && <div className="sidebar-tooltip">Sign Out</div>}
+          </div>
         </div>
+
+        {/* DOUBLE CLICK MODE FEEDBACK TOAST */}
+        {sidebar.feedbackToast && (
+          <div className="sidebar-feedback-toast">
+            {sidebar.feedbackToast}
+          </div>
+        )}
       </aside>
 
       {/* MAIN VIEWPORT */}
@@ -747,12 +731,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   </h1>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 6, padding: '6px 14px', textAlign: 'right' }}>
-                    <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Curriculum</div>
-                    <div style={{ fontSize: 13.5, fontWeight: 800, color: '#2C6E6A' }}>{studentPct}% Covered</div>
-                  </div>
-                </div>
+
               </div>
 
               {/* SUBJECT CLASS TABS: Stream, Resources, Assessments, Syllabus */}
@@ -775,7 +754,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   className={`tab-btn ${classSubTab === 'tasks' ? 'active' : ''}`}
                   onClick={() => setClassSubTab('tasks')}
                 >
-                  Assessments
+                  Class Tests
                   <span className="tab-count">{myTests.length + myAssignments.length}</span>
                 </button>
                 <button
@@ -1148,7 +1127,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
                               {/* File metadata */}
                               <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginBottom: 12 }}>
-                                {res.file_name && <span>{res.file_name}</span>}
+                                {res.file_name && <span title={res.file_name}>{formatShortFileName(res.file_name)}</span>}
                                 {res.file_size && <span> · {res.file_size}</span>}
                                 {res.created_at && <span> · {new Date(res.created_at).toLocaleDateString()}</span>}
                               </div>
@@ -1217,12 +1196,12 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               {classSubTab === 'tasks' && (
                 <div>
                   <h3 className="section-title" style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>
-                    Active Assessments for {activeClassObj ? activeClassObj.name : 'Class'}
+                    Active Class Tests for {activeClassObj ? activeClassObj.name : 'Class'}
                   </h3>
                   <div className="card-list" style={{ marginBottom: 28 }}>
                     {myTests.length === 0 ? (
                       <div className="panel-block" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-                        No assessments currently scheduled for this subject class.
+                        No class tests currently scheduled for this subject class.
                       </div>
                     ) : (
                       myTests.map((test) => {
@@ -1232,7 +1211,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                           <div className="item-card" key={test.id} style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div className="item-info">
                               <span className="badge badge-test" style={{ marginBottom: 4, fontSize: 9.5 }}>
-                                Assessment · {test.class_name || (activeClassObj ? activeClassObj.name : studentClass)}
+                                Class Test · {test.class_name || (activeClassObj ? activeClassObj.name : studentClass)}
                               </span>
                               <h4 style={{ fontSize: 14, margin: '0 0 2px' }}>{test.title}</h4>
                               {result?.feedback && (
@@ -1251,7 +1230,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                                 onClick={() => setActiveTestModal(test)}
                                 style={{ padding: '6px 14px', fontSize: 12 }}
                               >
-                                Take Assessment
+                                 Take Class Test
                               </button>
                             )}
                           </div>
@@ -1290,8 +1269,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
                             {submission ? (
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8' }}>
-                                  {submission.grade ? `Graded: ${submission.grade}` : `Submitted: ${submission.file_name || 'Work.pdf'}`}
+                                <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8' }} title={submission.file_name || ''}>
+                                  {submission.grade ? `Graded: ${submission.grade}` : `Submitted: ${formatShortFileName(submission.file_name || 'Work.pdf')}`}
                                 </span>
                                 <button
                                   onClick={() => setActiveSubmitModal(ass)}
@@ -1448,14 +1427,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 </div>
 
                 {myAchievements.length === 0 ? (
-                  <div className="panel-block" style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                  <div style={{ padding: '64px 24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                     <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px', color: 'var(--neutral-dark)' }}>No Achievements Recorded Yet</h3>
-                    <p style={{ fontSize: 12.5, maxWidth: 380, margin: '0 auto 16px' }}>
+                    <p style={{ fontSize: 13, maxWidth: 380, margin: '0 auto' }}>
                       Add your academic prizes, olympiad medals, sports certificates, and extracurricular honors.
                     </p>
-                    <button className="btn-primary" onClick={onAddAchievementClick} style={{ padding: '8px 18px', fontSize: 12 }}>
-                      + Add First Achievement
-                    </button>
                   </div>
                 ) : (
                   <div style={{ overflowX: 'auto', width: '100%' }}>
@@ -1757,31 +1733,32 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   filteredHub.map((act) => {
                     const isEnrolled = (act.enrolled_student_ids || []).includes(currentStudent.id);
                     return (
-                      <div className="hub-card" key={act.id} style={{ borderRadius: 10, border: '1px solid var(--border-color)' }}>
-                        <div className="hub-card-body" style={{ padding: '16px' }}>
-                          <span className="badge badge-hub" style={{ fontSize: 9.5, marginBottom: 6 }}>{act.type}</span>
-                          <div className="hub-card-title" style={{ fontSize: 14, fontWeight: 700 }}>{act.title}</div>
-                          <div className="hub-card-desc" style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '6px 0' }}>{act.description}</div>
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 8 }}>
-                            Date: <strong>{act.date}</strong> | Target: {(act.target_grades || []).join(', ') || 'All Grades'}
+                      <div className={`hub-card ${isEnrolled ? 'enrolled' : ''}`} key={act.id}>
+                        <div className="hub-card-media">
+                          <img src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600&auto=format&fit=crop&q=80" alt={act.title} />
+                        </div>
+                        <div className="hub-card-body">
+                          <span className="badge badge-hub">{act.type}</span>
+                          <div className="hub-card-title">{act.title}</div>
+                          <div className="hub-card-desc">{act.description}</div>
+                          <div className="hub-card-meta">
+                            <span className="hub-card-date">
+                              <svg className="svg-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                              {act.date}
+                            </span>
+                            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                              Target: {(act.target_grades || []).join(', ') || 'All Grades'}
+                            </span>
                           </div>
                         </div>
-                        <div className="hub-card-footer" style={{ padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-color)' }}>
-                          <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                        <div className="hub-card-footer">
+                          <span className="hub-card-enroll-count">
                             {(act.enrolled_student_ids || []).length} Enrolled
                           </span>
                           <button
                             onClick={() => handleHubEnroll(act.id, act.title)}
-                            style={{
-                              padding: '5px 12px',
-                              fontSize: 11.5,
-                              fontWeight: 600,
-                              borderRadius: 5,
-                              cursor: 'pointer',
-                              background: isEnrolled ? '#EAF3EF' : '#2D2C2A',
-                              color: isEnrolled ? '#2D6E5D' : '#FFFFFF',
-                              border: isEnrolled ? '1px solid #C7E4D8' : '1px solid #2D2C2A',
-                            }}
+                            className={isEnrolled ? 'btn-enrolled action-btn' : 'btn-hub action-btn'}
+                            style={{ padding: '6px 16px', fontWeight: 600 }}
                           >
                             {isEnrolled ? 'Enrolled' : 'Register / Apply'}
                           </button>

@@ -13,6 +13,25 @@ export interface FileItemPayload {
   submissionDate?: string;
 }
 
+/**
+ * Truncates long file names to first 1-2 words plus extension (e.g. "Narrated 'Abdullah... .png").
+ */
+export function formatShortFileName(fileName: string, maxWords = 2): string {
+  if (!fileName) return '';
+  const trimmed = fileName.trim();
+  const lastDotIndex = trimmed.lastIndexOf('.');
+  const ext = lastDotIndex !== -1 ? trimmed.slice(lastDotIndex) : '';
+  const base = lastDotIndex !== -1 ? trimmed.slice(0, lastDotIndex) : trimmed;
+
+  // Split base by spaces, underscores, or hyphens
+  const words = base.split(/[\s_\-]+/).filter(Boolean);
+  if (words.length <= maxWords && base.length <= 18) {
+    return trimmed;
+  }
+  const shortBase = words.slice(0, maxWords).join(' ');
+  return `${shortBase}...${ext}`;
+}
+
 // Convert base64 data URI to Blob
 function dataURItoBlob(dataURI: string): Blob {
   const byteString = atob(dataURI.split(',')[1]);

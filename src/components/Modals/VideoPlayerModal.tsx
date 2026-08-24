@@ -20,7 +20,7 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({ activity, on
 
   return (
     <div className="modal-overlay active" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 680 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="modal-title">{activity.type}</h2>
           <button type="button" className="close-modal" onClick={onClose}>&times;</button>

@@ -27,6 +27,7 @@ export interface UserProfile {
   class_letter?: string;
   subject?: string | null;       // Teacher's subject (e.g. "English", "Math")
   assigned_class?: string | null; // Class teacher assignment (e.g. "10-D") or null
+  linked_student_ids?: string[]; // For Parent: array of linked student IDs
   temp_password?: string;        // Admin preset / assigned credential
   avatar_url?: string;           // Custom profile picture
   created_at?: string;
@@ -37,13 +38,35 @@ export interface Student {
   name: string;
   email?: string;
   grade?: string;
+  class_letter?: string;
+  admission_number?: string;
+  user_code?: string;
+}
+
+export interface ParentStudentLinkRequest {
+  id: string;
+  parent_id: string;
+  parent_name: string;
+  parent_email: string;
+  student_id: string;
+  student_name: string;
+  student_admission_number: string;
+  student_grade?: string;
+  relationship?: string;
+  notes?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface TestQuestion {
   id: string;
+  type: 'mcq' | 'text'; // multiple-choice or open-ended text
   question: string;
-  options: string[];
-  correct: string;
+  image_url?: string;   // optional image attached to the question
+  options: string[];    // only used for MCQ
+  correct: string;      // correct option for MCQ / model answer hint for text
+  model_answer?: string; // teacher's model answer (text questions)
   points?: number;
 }
 
@@ -55,6 +78,7 @@ export interface TestItem {
   questions?: TestQuestion[];
   duration_minutes?: number;
   total_marks?: number;
+  media_url?: string;   // optional header image/media for the test
 }
 
 export interface AssignmentItem {
@@ -76,6 +100,9 @@ export interface SyllabusTerm {
   id: string;
   name: string;
   order_index?: number;
+  subject?: string;
+  class_name?: string;
+  class_id?: string;
   topics?: SyllabusTopic[];
 }
 
@@ -115,6 +142,7 @@ export interface ParentDocument {
   doc_type: string;
   status: 'pending' | 'submitted';
   file_name?: string;
+  file_url?: string;
   uploaded_at?: string;
 }
 

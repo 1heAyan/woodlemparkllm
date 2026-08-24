@@ -122,7 +122,7 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
 
   return (
     <div className="modal-overlay active" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
             <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: '#2C6E6A', letterSpacing: '0.06em' }}>
@@ -280,15 +280,38 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
           </div>
 
           {/* Footer Actions */}
-          <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
-            <button type="button" className="btn-secondary" onClick={onClose}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, borderTop: '1px solid #E2E8F0', paddingTop: 18, marginTop: 22 }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '10px 20px',
+                borderRadius: 8,
+                fontSize: 13.5,
+                fontWeight: 600,
+                color: '#475569',
+                background: '#F1F5F9',
+                border: '1px solid #CBD5E1',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
               Cancel
             </button>
             <button
               type="submit"
-              className="btn-primary"
               disabled={isProcessing}
-              style={{ padding: '8px 22px' }}
+              style={{
+                padding: '10px 24px',
+                borderRadius: 8,
+                fontSize: 13.5,
+                fontWeight: 700,
+                color: '#FFFFFF',
+                background: 'linear-gradient(135deg, #1C4D46 0%, #2C6E6A 100%)',
+                border: 'none',
+                cursor: isProcessing ? 'not-allowed' : 'pointer',
+                boxShadow: '0 4px 12px rgba(28,77,70,0.25)',
+              }}
             >
               {isProcessing ? 'Submitting Leave...' : 'Submit Authorized Leave ↗'}
             </button>

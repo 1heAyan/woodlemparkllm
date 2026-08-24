@@ -1,6 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { ChevronLeft, ChevronRight, Users, Award, BookOpen, UserCheck, MessageSquare, LayoutDashboard, Calendar, Settings, LifeBuoy, LogOut, Megaphone, FileText, Pin, PinOff, SlidersHorizontal, Check } from 'lucide-react';
+import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
+import { useSidebarState } from '@/lib/useSidebarState';
 import {
   UserProfile,
   TestItem,
@@ -22,7 +25,7 @@ import { EditSubjectClassModal } from '../Modals/EditSubjectClassModal';
 import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
-import { openFileInNewTab, downloadFile } from '@/lib/fileHelper';
+import { openFileInNewTab, downloadFile, formatShortFileName } from '@/lib/fileHelper';
 
 interface TeacherDashboardProps {
   currentUser: UserProfile;
@@ -67,9 +70,9 @@ interface TeacherDashboardProps {
       name: string;
       subject: string;
       class_name: string;
-      section: string;
-      room: string;
-      enrolled_student_ids: string[];
+      section?: string;
+      room?: string;
+      enrolled_student_ids?: string[];
     }
   ) => void;
   onDeleteSubjectClass: (id: string) => void;
@@ -80,7 +83,7 @@ interface TeacherDashboardProps {
   onOpenCreateAssignmentModal: (activeClass?: string) => void;
   onDeleteAssignment: (assignmentId: string) => void;
   onGradeAssignment: (assignmentId: string, studentId: string, grade: string, feedback?: string) => void;
-  onOpenAddTermModal: () => void;
+  onOpenAddTermModal: (classContext?: { id?: string; subject?: string; className?: string }) => void;
   onDeleteTerm: (termId: string) => void;
   onOpenAddTopicModal: (termId?: string) => void;
   onDeleteTopic: (termId: string, topicId: string) => void;
@@ -88,6 +91,7 @@ interface TeacherDashboardProps {
   onSaveAttendance: (date: string, records: Record<string, string>) => void;
   onOpenCreateHubActivityModal: () => void;
   onDeleteHubActivity: (id: string) => void;
+  onRefreshData?: () => void;
   onSignOut: () => void;
 }
 
@@ -128,27 +132,19 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   onSaveAttendance,
   onOpenCreateHubActivityModal,
   onDeleteHubActivity,
+  onRefreshData,
   onSignOut,
 }) => {
   const [isManageStudentsOpen, setIsManageStudentsOpen] = useState(false);
   const [isEditClassModalOpen, setIsEditClassModalOpen] = useState(false);
+  const sidebar = useSidebarState('auto-hide');
   const [selectedReviewTest, setSelectedReviewTest] = useState<TestItem | null>(null);
   const [selectedGradeAssignment, setSelectedGradeAssignment] = useState<AssignmentItem | null>(null);
   // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'hub' | 'settings' | 'support'
   const [activeNavMode, setActiveNavMode] = useState<'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'hub' | 'settings' | 'support'>('class');
 
-  // Sidebar profile photo (prioritizes Supabase cloud avatar_url)
-  const [sidebarAvatarUrl, setSidebarAvatarUrl] = useState<string | null>(() => currentUser.avatar_url || null);
-  useEffect(() => {
-    if (currentUser?.avatar_url) {
-      setSidebarAvatarUrl(currentUser.avatar_url);
-    } else {
-      try {
-        const saved = localStorage.getItem(`woodlem_avatar_${currentUser.id}`);
-        setSidebarAvatarUrl(saved || null);
-      } catch (e) {}
-    }
-  }, [currentUser, activeNavMode]);
+  // Sidebar profile photo (synced with Supabase cloud)
+  const sidebarAvatarUrl = currentUser.avatar_url || null;
 
   // Sub-tabs inside a subject classroom: 'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'roster'
   const [classSubTab, setClassSubTab] = useState<'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'roster'>('broadcasts');
@@ -859,10 +855,42 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     );
   }, [homeroomStudents, historyStudentSearch]);
 
-  // Syllabus progress
+  // Filter syllabus strictly for active classroom
+  const activeClassSyllabus = useMemo(() => {
+    if (!activeClassObj) return [];
+    const subName = (activeClassObj.subject || currentUser.subject || '').toLowerCase().trim();
+    const clsName = activeClassObj.name.toLowerCase().trim();
+    const gradeSection = (activeClassObj.class_name || '').toLowerCase().replace(/grade\s*/gi, '').trim();
+
+    return syllabus.filter((term) => {
+      // 1. Direct class_id link
+      if (term.class_id && term.class_id === activeClassObj.id) return true;
+
+      // 2. Matching subject
+      if (term.subject) {
+        const tSub = term.subject.toLowerCase().trim();
+        const matchesSub = tSub === subName || tSub === clsName || clsName.includes(tSub) || (subName && subName.includes(tSub));
+        if (matchesSub) {
+          if (!term.class_name) return true;
+          const tCn = term.class_name.toLowerCase().replace(/grade\s*/gi, '').trim();
+          return !gradeSection || tCn.includes(gradeSection) || gradeSection.includes(tCn);
+        }
+        return false;
+      }
+
+      // 3. Term name contains subject or class name
+      const tName = term.name.toLowerCase();
+      if (subName && tName.includes(subName)) return true;
+      if (clsName && tName.includes(clsName)) return true;
+
+      return false;
+    });
+  }, [syllabus, activeClassObj, currentUser.subject]);
+
+  // Syllabus progress for active class
   let totalTopics = 0;
   let teacherDone = 0;
-  syllabus.forEach((term) => {
+  activeClassSyllabus.forEach((term) => {
     (term.topics || []).forEach((topic) => {
       totalTopics++;
       if (topic.teacher_checked) teacherDone++;
@@ -880,307 +908,245 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   return (
     <div className="app-viewport">
-      {/* SIDEBAR */}
-      <aside className="sidebar">
-        <div className="sidebar-header" style={{ padding: '24px 20px 16px' }}>
-          <div className="sidebar-brand" style={{ marginBottom: 16, textAlign: 'center' }}>
-            <img
-              src="/Jurf-Logo-1.png"
-              alt="Woodlem Park"
-              className="sidebar-logo"
-              style={{ maxHeight: 44, width: 'auto', margin: '0 auto', display: 'block' }}
-            />
-          </div>
-
-          {/* Teacher Profile Card */}
+      {/* REDESIGNED SIDEBAR */}
+      <aside
+        className={`sidebar ${sidebar.isCollapsed ? 'collapsed' : ''} ${sidebar.isHovered && sidebar.sidebarMode === 'auto-hide' ? 'auto-hide-hovered' : ''}`}
+        onMouseEnter={sidebar.handleMouseEnter}
+        onMouseLeave={sidebar.handleMouseLeave}
+        onDoubleClick={sidebar.togglePin}
+      >
+        {/* HEADER SECTION */}
+        <div className="sidebar-header">
+          <div className="sidebar-brand-row">
+            <WoodlemLogo collapsed={sidebar.isCollapsed} />
+          </div>          {/* REDESIGNED TEACHER INFORMATION SECTION */}
           <div
-            className="profile-card"
-            style={{
-              background: '#FAF9F6',
-              border: '1px solid var(--border-color)',
-              borderRadius: 8,
-              padding: '10px 12px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-            }}
+            className="sidebar-profile-box"
+            title={`${currentUser.name} • ${currentUser.subject || 'Faculty'} • ${homeroomLabel}`}
           >
-            <div
-              className="profile-avatar avatar-teacher"
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: '50%',
-                background: sidebarAvatarUrl ? 'transparent' : '#2D2C2A',
-                color: '#FFFFFF',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 13,
-                fontWeight: 700,
-                flexShrink: 0,
-                overflow: 'hidden',
-                border: sidebarAvatarUrl ? '2px solid #2D2C2A' : 'none',
-              }}
-            >
-              {sidebarAvatarUrl ? (
-                <img src={sidebarAvatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              ) : (
-                (currentUser.name || 'T').charAt(0).toUpperCase()
-              )}
+            <div className="sidebar-profile-avatar-slot">
+              <div className="sidebar-profile-avatar avatar-teacher-themed">
+                {currentUser.avatar_url ? (
+                  <img src={currentUser.avatar_url} alt={currentUser.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  (currentUser.name || 'T').charAt(0).toUpperCase()
+                )}
+              </div>
             </div>
-            <div style={{ overflow: 'hidden', flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+
+            <div className="profile-details-expanded">
+              <div className="sidebar-profile-name">
                 {currentUser.name}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
-                {currentUser.subject || 'Faculty'} · {homeroomLabel} [CT]
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                <span className="sidebar-profile-badge" style={{ background: '#FDF6EE', color: '#8A532B', borderColor: '#EBD4C1' }}>
+                  {currentUser.subject || 'Faculty'}
+                </span>
+              </div>
+              <div className="sidebar-profile-adm">
+                {homeroomLabel} [Class Teacher]
               </div>
             </div>
           </div>
         </div>
 
-        <nav className="nav-menu" style={{ flex: 1, padding: '10px 12px', overflowY: 'auto' }}>
-          {/* AI COPILOT QUICK DOCK TRIGGER */}
-          <button
-            type="button"
-            className={`nav-item ${isAiPanelOpen ? 'active' : ''}`}
-            onClick={toggleAiPanel}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '9px 12px',
-              fontSize: 13,
-              borderRadius: 8,
-              marginBottom: 12,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              background: isAiPanelOpen
-                ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)'
-                : 'linear-gradient(135deg, rgba(84, 87, 254, 0.08) 0%, rgba(155, 81, 224, 0.08) 100%)',
-              border: isAiPanelOpen ? '1px solid #334155' : '1px solid rgba(155, 81, 224, 0.25)',
-              color: isAiPanelOpen ? '#FFFFFF' : '#4338CA',
-              fontWeight: 700,
-              cursor: 'pointer',
-              boxShadow: isAiPanelOpen ? '0 4px 12px rgba(15, 23, 42, 0.15)' : 'none',
-              transition: 'all 0.18s ease',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
-                  fill={isAiPanelOpen ? '#A78BFA' : 'url(#gemini-nav-icon-teacher)'}
-                />
-                <defs>
-                  <linearGradient id="gemini-nav-icon-teacher" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
-                    <stop stopColor="#1BA1E3" />
-                    <stop offset="0.5" stopColor="#5457FE" />
-                    <stop offset="1" stopColor="#9B51E0" />
-                  </linearGradient>
-                </defs>
-              </svg>
-              <span>Ask Gemini AI</span>
-            </div>
-            <span
-              style={{
-                fontSize: 9.5,
-                fontWeight: 700,
-                padding: '2px 6px',
-                borderRadius: 4,
-                background: isAiPanelOpen ? 'rgba(255, 255, 255, 0.15)' : '#E0E7FF',
-                color: isAiPanelOpen ? '#E0E7FF' : '#4338CA',
+        <nav className="nav-menu">
+          {/* 1. HOMEROOM / CLASS TEACHER SECTION */}
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`nav-item ${activeNavMode === 'homeroom_attendance' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveNavMode('homeroom_attendance');
+                sidebar.handleNavClick();
               }}
             >
-              ⌘K
-            </span>
-          </button>
-
-          {/* 1. HOMEROOM / CLASS TEACHER SECTION */}
-          <div className="nav-label" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em' }}>
-            HOMEROOM / CLASS TEACHER
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <UserCheck size={15} className="icon" style={{ color: activeNavMode === 'homeroom_attendance' ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text" style={{ flex: 1 }}>Attendance &amp; Records</span>
+                <span className="sidebar-text" style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D' }}>
+                  {homeroomLabel}
+                </span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">Attendance &amp; Records ({homeroomLabel})</div>
+            )}
           </div>
-          <button
-            className={`nav-item ${activeNavMode === 'homeroom_attendance' ? 'active' : ''}`}
-            onClick={() => setActiveNavMode('homeroom_attendance')}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '8px 12px',
-              fontSize: 12.5,
-              borderRadius: 6,
-              marginBottom: 2,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span>Attendance &amp; Records</span>
-            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: '#EAF3EF', color: '#2D6E5D' }}>
-              {homeroomLabel}
-            </span>
-          </button>
 
-          <button
-            className={`nav-item ${activeNavMode === 'homeroom_awards' ? 'active' : ''}`}
-            onClick={() => setActiveNavMode('homeroom_awards')}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '8px 12px',
-              fontSize: 12.5,
-              borderRadius: 6,
-              marginBottom: 2,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span>Student Achievements</span>
-            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: '#FAF9F6', color: 'var(--text-secondary)' }}>
-              {achievements.length}
-            </span>
-          </button>
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`nav-item ${activeNavMode === 'homeroom_awards' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveNavMode('homeroom_awards');
+                sidebar.handleNavClick();
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <Award size={15} className="icon" style={{ color: activeNavMode === 'homeroom_awards' ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text" style={{ flex: 1 }}>Student Achievements</span>
+                {achievements.length > 0 && (
+                  <span className="sidebar-text" style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 10, background: '#FAF9F6', color: 'var(--text-secondary)' }}>
+                    {achievements.length}
+                  </span>
+                )}
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">Student Achievements</div>
+            )}
+          </div>
 
-          <button
-            className={`nav-item ${activeNavMode === 'homeroom_resources' ? 'active' : ''}`}
-            onClick={() => setActiveNavMode('homeroom_resources')}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '8px 12px',
-              fontSize: 12.5,
-              borderRadius: 6,
-              marginBottom: 2,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span>Class Resources & Circulars</span>
-            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: '#FAF9F6', color: 'var(--text-secondary)' }}>
-              {homeroomResources.length + homeroomBroadcasts.length}
-            </span>
-          </button>
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`nav-item ${activeNavMode === 'homeroom_resources' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveNavMode('homeroom_resources');
+                sidebar.handleNavClick();
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <FileText size={15} className="icon" style={{ color: activeNavMode === 'homeroom_resources' ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text" style={{ flex: 1 }}>Class Resources</span>
+                {(homeroomResources.length + homeroomBroadcasts.length) > 0 && (
+                  <span className="sidebar-text" style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 10, background: '#FAF9F6', color: 'var(--text-secondary)' }}>
+                    {homeroomResources.length + homeroomBroadcasts.length}
+                  </span>
+                )}
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">Class Resources & Circulars</div>
+            )}
+          </div>
 
           {/* 2. SUBJECT CLASSROOMS */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 4px 6px' }}>
-            <span className="nav-label" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', margin: 0 }}>
-              MY SUBJECT CLASSROOMS ({teacherClasses.length})
+          <div className="sidebar-nav-divider" />
+          <div style={{ padding: '4px 4px' }}>
+            <span className="nav-label" style={{ margin: 0 }}>
+              Classrooms ({teacherClasses.length})
             </span>
-            <button
-              onClick={onOpenCreateClassModal}
-              style={{
-                padding: '2px 8px',
-                fontSize: 11,
-                fontWeight: 700,
-                background: '#2C6E6A',
-                color: '#FFFFFF',
-                border: 'none',
-                borderRadius: 4,
-                cursor: 'pointer',
-              }}
-              title="Create new subject class"
-            >
-              + Create
-            </button>
           </div>
 
           {teacherClasses.length === 0 ? (
-            <div style={{ padding: '12px 8px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 11.5 }}>
+            <div className="sidebar-text" style={{ padding: '8px 8px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 11 }}>
               No subject classrooms created yet.
             </div>
           ) : (
             teacherClasses.map((cls) => {
               const isSelected = activeNavMode === 'class' && selectedClassId === cls.id;
-              const count = (cls.enrolled_student_ids || []).length;
               return (
-                <button
-                  key={cls.id}
-                  className={`nav-item ${isSelected ? 'active' : ''}`}
-                  onClick={() => {
-                    setSelectedClassId(cls.id);
-                    setActiveNavMode('class');
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '8px 12px',
-                    fontSize: 12.5,
-                    borderRadius: 6,
-                    marginBottom: 2,
-                    width: '100%',
-                    textAlign: 'left',
-                  }}
-                >
-                  <div style={{ overflow: 'hidden', paddingRight: 6 }}>
-                    <div style={{ fontWeight: isSelected ? 700 : 600, color: isSelected ? 'var(--neutral-dark)' : 'inherit', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {cls.name}
+                <div key={cls.id} className="sidebar-tooltip-wrapper">
+                  <button
+                    className={`nav-item ${isSelected ? 'active' : ''}`}
+                    onClick={() => {
+                      setSelectedClassId(cls.id);
+                      setActiveNavMode('class');
+                      sidebar.handleNavClick();
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                      <BookOpen size={15} className="icon" style={{ color: isSelected ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
+                      <div className="sidebar-text" style={{ overflow: 'hidden', flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: isSelected ? 700 : 600, color: isSelected ? 'var(--neutral-dark)' : 'inherit', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 12.5 }}>
+                          {cls.name}
+                        </div>
+                        <div className="sidebar-classroom-sub">
+                          {cls.class_name} {cls.room ? `· ${cls.room}` : ''}
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ fontSize: 10.5, color: isSelected ? '#2C6E6A' : 'var(--text-secondary)', fontWeight: isSelected ? 500 : 400 }}>
-                      {cls.class_name} {cls.room ? `· ${cls.room}` : ''}
-                    </div>
-                  </div>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: isSelected ? '#2C6E6A' : '#FAF9F6', color: isSelected ? '#FFFFFF' : 'var(--text-secondary)' }}>
-                    {count}
-                  </span>
-                </button>
+                  </button>
+                  {sidebar.isCollapsed && (
+                    <div className="sidebar-tooltip">{cls.name} ({cls.class_name})</div>
+                  )}
+                </div>
               );
             })
           )}
 
           {/* 3. HOLISTIC HUB & PROGRAMS */}
-          <div className="nav-label" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', marginTop: 16 }}>
-            HOLISTIC HUB &amp; PROGRAMS
+          <div className="sidebar-nav-divider" />
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`nav-item ${activeNavMode === 'hub' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveNavMode('hub');
+                sidebar.handleNavClick();
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <LayoutDashboard size={15} className="icon" style={{ color: activeNavMode === 'hub' ? '#7C5CBF' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text" style={{ flex: 1 }}>My Activities</span>
+                {myHubActivities.length > 0 && (
+                  <span className="sidebar-text" style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 10, background: '#FAF9F6', color: 'var(--text-secondary)' }}>
+                    {myHubActivities.length}
+                  </span>
+                )}
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">My Published Activities</div>
+            )}
           </div>
-          <button
-            className={`nav-item ${activeNavMode === 'hub' ? 'active' : ''}`}
-            onClick={() => setActiveNavMode('hub')}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '8px 12px',
-              fontSize: 12.5,
-              borderRadius: 6,
-              marginBottom: 2,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span>My Published Activities</span>
-            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: '#FAF9F6', color: 'var(--text-secondary)' }}>
-              {myHubActivities.length}
-            </span>
-          </button>
-
-          {/* 4. ACCOUNT & HELP */}
-          <div className="nav-label" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', marginTop: 16 }}>
-            ACCOUNT &amp; SUPPORT
-          </div>
-          <button
-            className={`nav-item ${activeNavMode === 'settings' ? 'active' : ''}`}
-            onClick={() => setActiveNavMode('settings')}
-            style={{ padding: '8px 12px', fontSize: 12.5, borderRadius: 6, marginBottom: 2 }}
-          >
-            Settings &amp; Passwords
-          </button>
-          <button
-            className={`nav-item ${activeNavMode === 'support' ? 'active' : ''}`}
-            onClick={() => setActiveNavMode('support')}
-            style={{ padding: '8px 12px', fontSize: 12.5, borderRadius: 6 }}
-          >
-            Help &amp; Support
-          </button>
         </nav>
 
-        <div className="sidebar-footer" style={{ padding: '12px 16px', borderTop: '1px solid var(--border-color)' }}>
-          <button className="logout-btn-clean" onClick={onSignOut}>
-            Sign Out
-          </button>
+        {/* SIDEBAR FOOTER */}
+        <div className="sidebar-footer">
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`logout-btn-clean ${activeNavMode === 'settings' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveNavMode('settings');
+                sidebar.handleNavClick();
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <Settings size={15} className="icon" style={{ flexShrink: 0 }} />
+                <span className="sidebar-text">Settings</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">Settings &amp; Passwords</div>
+            )}
+          </div>
+
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`logout-btn-clean ${activeNavMode === 'support' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveNavMode('support');
+                sidebar.handleNavClick();
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <LifeBuoy size={15} className="icon" style={{ flexShrink: 0 }} />
+                <span className="sidebar-text">Help &amp; Support</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">Help &amp; Support</div>
+            )}
+          </div>
+
+          <div className="sidebar-tooltip-wrapper">
+            <button className="logout-btn-clean" onClick={onSignOut}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <LogOut size={15} className="icon" style={{ flexShrink: 0 }} />
+                <span className="sidebar-text">Sign Out</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">Sign Out</div>
+            )}
+          </div>
         </div>
+
+        {/* DOUBLE CLICK MODE FEEDBACK TOAST */}
+        {sidebar.feedbackToast && (
+          <div className="sidebar-feedback-toast">
+            {sidebar.feedbackToast}
+          </div>
+        )}
       </aside>
 
       {/* MAIN CONTENT VIEWPORT */}
@@ -1246,13 +1212,22 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     + New Class
                   </button>
                   {activeClassObj && (
-                    <button
-                      className="btn-primary"
-                      onClick={() => onOpenCreateAssignmentModal(`${activeClassObj.name} (${activeClassObj.class_name})`)}
-                      style={{ padding: '7px 16px', fontSize: 12 }}
-                    >
-                      + Create Assignment
-                    </button>
+                    <>
+                      <button
+                        className="btn-secondary"
+                        onClick={() => onOpenCreateAssignmentModal(`${activeClassObj.name} (${activeClassObj.class_name})`)}
+                        style={{ padding: '7px 12px', fontSize: 12 }}
+                      >
+                        + Homework
+                      </button>
+                      <button
+                        className="btn-primary"
+                        onClick={() => onOpenCreateTestModal(`${activeClassObj.name} (${activeClassObj.class_name})`)}
+                        style={{ padding: '7px 16px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
+                      >
+                        <span>+ Create Class Test</span>
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -1276,7 +1251,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   className={`tab-btn ${classSubTab === 'tasks' ? 'active' : ''}`}
                   onClick={() => setClassSubTab('tasks')}
                 >
-                  Assessments
+                  Class Tests
                   <span className="tab-count">{classTests.length + classAssignments.length}</span>
                 </button>
                 <button
@@ -1298,14 +1273,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
             <div className="content-body" style={{ padding: '28px 32px' }}>
               {!activeClassObj ? (
-                <div className="panel-block" style={{ padding: '48px 24px', textAlign: 'center' }}>
+                <div style={{ padding: '64px 24px', textAlign: 'center' }}>
                   <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px' }}>No Subject Class Selected</h3>
-                  <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', maxWidth: 400, margin: '0 auto 16px' }}>
-                    Create your subject classroom to enroll students, upload study materials, and broadcast announcements.
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 400, margin: '0 auto' }}>
+                    Select or create your subject classroom from the left sidebar to enroll students, upload study materials, and broadcast announcements.
                   </p>
-                  <button className="btn-primary" onClick={onOpenCreateClassModal} style={{ padding: '8px 20px', fontSize: 12.5 }}>
-                    + Create Subject Class
-                  </button>
                 </div>
               ) : (
                 <>
@@ -2215,7 +2187,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
                         <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 16px' }}>
                           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                            Active Assessments
+                            Active Class Tests
                           </div>
                           <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--neutral-dark)', marginTop: 4 }}>
                             {classTests.length}
@@ -2232,16 +2204,36 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         </div>
                       </div>
 
-                      {/* Assessments & Tasks */}
+                      {/* Class Tests & Tasks */}
                       <div>
-                        <h3 className="section-title" style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>
-                          Assessments &amp; Homework for {activeClassObj.name}
-                        </h3>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                          <h3 className="section-title" style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>
+                            Class Tests &amp; Homework for {activeClassObj.name}
+                          </h3>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={() => onOpenCreateAssignmentModal(`${activeClassObj.name} (${activeClassObj.class_name})`)}
+                              style={{ padding: '5px 12px', fontSize: 11.5 }}
+                            >
+                              + Homework
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              onClick={() => onOpenCreateTestModal(`${activeClassObj.name} (${activeClassObj.class_name})`)}
+                              style={{ padding: '5px 14px', fontSize: 11.5 }}
+                            >
+                              + Create Class Test
+                            </button>
+                          </div>
+                        </div>
                         <div className="card-list">
                           {classTests.length === 0 && classAssignments.length === 0 ? (
                             <div className="panel-block" style={{ padding: '24px', textAlign: 'center' }}>
                               <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
-                                No assessments or assignments currently published for this class.
+                                No class tests or assignments currently published for this class.
                               </p>
                             </div>
                           ) : (
@@ -2257,7 +2249,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                     <div className="item-info">
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                                         <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 5px', borderRadius: 3, background: '#F0F4F4', color: '#2C6E6A' }}>
-                                          ASSESSMENT
+                                          CLASS TEST
                                         </span>
                                         {test.class_name && (
                                           <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
@@ -2292,7 +2284,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          if (confirm(`Are you sure you want to delete assessment "${test.title}"?`)) {
+                                          if (confirm(`Are you sure you want to delete class test "${test.title}"?`)) {
                                             onDeleteTest(test.id);
                                           }
                                         }}
@@ -2401,7 +2393,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                               Check off topics as you deliver lectures and assignments in class.
                             </p>
                           </div>
-                          <button className="btn-primary" onClick={onOpenAddTermModal} style={{ padding: '6px 14px', fontSize: 12 }}>
+                          <button
+                            className="btn-primary"
+                            onClick={() =>
+                              onOpenAddTermModal(
+                                activeClassObj
+                                  ? {
+                                      id: activeClassObj.id,
+                                      subject: activeClassObj.subject || currentUser.subject,
+                                      className: activeClassObj.class_name,
+                                    }
+                                  : undefined
+                              )
+                            }
+                            style={{ padding: '6px 14px', fontSize: 12 }}
+                          >
                             + Add New Term
                           </button>
                         </div>
@@ -2415,17 +2421,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         </div>
                       </div>
 
-                      {syllabus.length === 0 ? (
-                        <div className="panel-block" style={{ padding: '32px', textAlign: 'center' }}>
-                          <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12 }}>
-                            No syllabus terms published yet.
+                      {activeClassSyllabus.length === 0 ? (
+                        <div style={{ padding: '64px 24px', textAlign: 'center' }}>
+                          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
+                            No syllabus terms published for {activeClassObj?.name || 'this class'} yet.
                           </p>
-                          <button className="btn-primary" onClick={onOpenAddTermModal} style={{ padding: '8px 16px', fontSize: 12 }}>
-                            + Create First Term
-                          </button>
                         </div>
                       ) : (
-                        syllabus.map((term) => (
+                        activeClassSyllabus.map((term) => (
                           <div className="panel-block" key={term.id} style={{ marginBottom: 16, padding: '18px 20px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                               <h4 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{term.name}</h4>
@@ -4484,7 +4487,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         {/* VIEW 6: SETTINGS & PASSWORD RESET */}
         {activeNavMode === 'settings' && (
           <div style={{ padding: '24px 32px' }}>
-            <SettingsView currentUser={currentUser} profiles={profiles} />
+            <SettingsView currentUser={currentUser} profiles={profiles} onRefreshData={onRefreshData} />
           </div>
         )}
 

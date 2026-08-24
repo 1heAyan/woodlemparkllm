@@ -86,7 +86,7 @@ export const GradeAssignmentModal: React.FC<GradeAssignmentModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="modal-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)' }}>
+        <div className="modal-header">
           <div>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               Assignment Submissions &amp; Grading

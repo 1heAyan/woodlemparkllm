@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { SyllabusTerm } from '@/lib/supabaseClient';
-import { CustomSelect } from '@/components/UI/CustomSelect';
 
 interface AddTopicModalProps {
   isOpen: boolean;
@@ -23,16 +22,20 @@ export const AddTopicModal: React.FC<AddTopicModalProps> = ({
   const [title, setTitle] = useState('');
 
   useEffect(() => {
-    if (selectedTermId) setTermId(selectedTermId);
-    else if (terms.length > 0) setTermId(terms[0].id);
+    if (selectedTermId) {
+      setTermId(selectedTermId);
+    } else if (terms.length > 0) {
+      setTermId(terms[0].id);
+    }
   }, [selectedTermId, terms]);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!termId || !title.trim()) return;
-    onSubmit(termId, title.trim());
+    const effectiveTermId = termId || selectedTermId || (terms.length > 0 ? terms[0].id : 'default-term');
+    if (!title.trim()) return;
+    onSubmit(effectiveTermId, title.trim());
     setTitle('');
     onClose();
   };
@@ -46,24 +49,14 @@ export const AddTopicModal: React.FC<AddTopicModalProps> = ({
         </div>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label className="form-label">Select Term</label>
-            <CustomSelect
-              value={termId}
-              onChange={(val) => setTermId(val)}
-              options={terms.map((t) => ({
-                value: t.id,
-                label: t.name,
-              }))}
-            />
-          </div>
-          <div className="form-group">
             <label className="form-label">Topic Title</label>
             <input
               type="text"
               className="form-input"
-              placeholder="e.g. Electromagnetic Waves"
+              placeholder="e.g. Cell Structure & Division / Optics / Calculus"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              autoFocus
               required
             />
           </div>

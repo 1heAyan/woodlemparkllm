@@ -77,10 +77,10 @@ export const ReviewTestResultsModal: React.FC<ReviewTestResultsModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="modal-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)' }}>
+        <div className="modal-header">
           <div>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              Assessment Results &amp; Analytics
+              Class Test Results &amp; Analytics
             </span>
             <h2 className="modal-title" style={{ margin: '2px 0 0', fontSize: 17 }}>{test.title}</h2>
             <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
@@ -244,7 +244,7 @@ export const ReviewTestResultsModal: React.FC<ReviewTestResultsModalProps> = ({
           <button
             type="button"
             onClick={() => {
-              if (confirm(`Are you sure you want to delete assessment "${test.title}"? This cannot be undone.`)) {
+              if (confirm(`Are you sure you want to delete class test "${test.title}"? This cannot be undone.`)) {
                 onDeleteTest(test.id);
                 onClose();
               }
@@ -260,7 +260,7 @@ export const ReviewTestResultsModal: React.FC<ReviewTestResultsModalProps> = ({
               cursor: 'pointer',
             }}
           >
-            Delete Assessment
+            Delete Class Test
           </button>
 
           <button

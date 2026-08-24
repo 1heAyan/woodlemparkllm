@@ -16,6 +16,7 @@ interface CreateAssignmentModalProps {
   activeClass?: string;
   onClose: () => void;
   onSubmit: (data: { title: string; className?: string; type?: 'assignment' | 'assessment' }) => void;
+  onSwitchToTestModal?: (activeClass?: string) => void;
 }
 
 export const CreateAssignmentModal: React.FC<CreateAssignmentModalProps> = ({
@@ -23,6 +24,7 @@ export const CreateAssignmentModal: React.FC<CreateAssignmentModalProps> = ({
   activeClass = '',
   onClose,
   onSubmit,
+  onSwitchToTestModal,
 }) => {
   const [title, setTitle] = useState('');
   const [taskType, setTaskType] = useState<'assignment' | 'assessment'>('assignment');
@@ -33,6 +35,17 @@ export const CreateAssignmentModal: React.FC<CreateAssignmentModalProps> = ({
   }, [activeClass, isOpen]);
 
   if (!isOpen) return null;
+
+  const handleSelectTaskType = (type: 'assignment' | 'assessment') => {
+    if (type === 'assessment') {
+      onClose();
+      if (onSwitchToTestModal) {
+        onSwitchToTestModal(activeClass || selectedClass);
+      }
+      return;
+    }
+    setTaskType('assignment');
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,7 +61,7 @@ export const CreateAssignmentModal: React.FC<CreateAssignmentModalProps> = ({
 
   return (
     <div className="modal-overlay active" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
             <h2 className="modal-title" style={{ margin: 0 }}>Create Classwork &amp; Tasks</h2>
@@ -67,7 +80,7 @@ export const CreateAssignmentModal: React.FC<CreateAssignmentModalProps> = ({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <button
                 type="button"
-                onClick={() => setTaskType('assignment')}
+                onClick={() => handleSelectTaskType('assignment')}
                 style={{
                   padding: '9px 12px',
                   borderRadius: 6,
@@ -84,20 +97,20 @@ export const CreateAssignmentModal: React.FC<CreateAssignmentModalProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setTaskType('assessment')}
+                onClick={() => handleSelectTaskType('assessment')}
                 style={{
                   padding: '9px 12px',
                   borderRadius: 6,
-                  border: taskType === 'assessment' ? '1.5px solid #2C6E6A' : '1px solid var(--border-color)',
-                  background: taskType === 'assessment' ? '#EAF3EF' : '#FFFFFF',
-                  color: taskType === 'assessment' ? '#2D6E5D' : 'var(--neutral-dark)',
-                  fontWeight: taskType === 'assessment' ? 700 : 500,
+                  border: '1px solid var(--border-color)',
+                  background: '#FFFFFF',
+                  color: 'var(--neutral-dark)',
+                  fontWeight: 500,
                   fontSize: 12,
                   cursor: 'pointer',
                   textAlign: 'center',
                 }}
               >
-                Online Assessment
+                Class Test ↗
               </button>
             </div>
           </div>

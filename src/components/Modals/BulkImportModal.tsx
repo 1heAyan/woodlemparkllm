@@ -12,6 +12,7 @@ export interface BulkUserRow {
   grade?: string;
   classLetter?: string;
   password?: string;
+  linkedStudentCodes?: string[];
   isValid: boolean;
   error?: string;
 }
@@ -168,7 +169,14 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             }
           }
 
-          const finalCode = rawCode || (role === 'student' ? `WPS-${1000 + idx}` : `EMP-${100 + idx}`);
+          // 6. Linked Student Admission Number(s) for Parents
+          const rawStudentCol = getVal('studentadmissionnumber', 'studentadmissionno', 'studentadm', 'childadmissionnumber', 'childadmissionno', 'wardadmissionnumber', 'studentcode', 'student_id', 'linkedstudent', 'linked_students', 'linkedchild');
+          let linkedStudentCodes: string[] | undefined = undefined;
+          if (role === 'parent' && rawStudentCol) {
+            linkedStudentCodes = rawStudentCol.split(/[,;|]/).map((s) => s.trim()).filter(Boolean);
+          }
+
+          const finalCode = rawCode || (role === 'student' ? `WPS-${1000 + idx}` : role === 'parent' ? `PAR-${1000 + idx}` : `EMP-${100 + idx}`);
 
           let isValid = true;
           let error = '';
@@ -189,6 +197,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             grade: finalGrade || undefined,
             classLetter: finalSection || undefined,
             password: 'woodlem123',
+            linkedStudentCodes,
             isValid,
             error,
           };

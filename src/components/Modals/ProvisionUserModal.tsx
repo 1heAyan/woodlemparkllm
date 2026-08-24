@@ -36,6 +36,7 @@ interface ProvisionUserModalProps {
     classLetter?: string;
     subject?: string | null;
     assignedClass?: string | null;
+    linkedStudentIds?: string[];
   }) => void;
 }
 
@@ -58,6 +59,26 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
   // Teacher specific fields
   const [subject, setSubject] = useState('English');
   const [isClassTeacher, setIsClassTeacher] = useState(false);
+
+  // Parent specific linked students
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [studentSearchTerm, setStudentSearchTerm] = useState('');
+
+  const studentProfiles = useMemo(() => {
+    return profiles.filter((p) => p.role === 'student');
+  }, [profiles]);
+
+  const filteredStudentProfiles = useMemo(() => {
+    if (!studentSearchTerm.trim()) return studentProfiles;
+    const q = studentSearchTerm.toLowerCase();
+    return studentProfiles.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        (s.admission_number && s.admission_number.toLowerCase().includes(q)) ||
+        (s.user_code && s.user_code.toLowerCase().includes(q)) ||
+        (s.grade && s.grade.toLowerCase().includes(q))
+    );
+  }, [studentProfiles, studentSearchTerm]);
 
   const targetClassKey = `${grade}-${section}`;
 
@@ -93,7 +114,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
     }
     const fullEmail = `${cleanPrefix}@woodlempark.ae`;
     const finalAdmissionNo =
-      admissionNumber.trim() || `WPS-${Math.floor(100000 + Math.random() * 900000)}`;
+      admissionNumber.trim() || (role === 'parent' ? `PAR-${Math.floor(100000 + Math.random() * 900000)}` : `WPS-${Math.floor(100000 + Math.random() * 900000)}`);
 
     const assignedClassStr = role === 'teacher' && isClassTeacher ? `${grade}-${section}` : null;
     const finalGrade = role === 'student' ? grade : (role === 'teacher' && isClassTeacher ? grade : undefined);
@@ -110,6 +131,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
       classLetter: finalSection,
       subject: role === 'teacher' ? subject : null,
       assignedClass: assignedClassStr,
+      linkedStudentIds: role === 'parent' ? selectedStudentIds : undefined,
     });
 
     // Reset
@@ -122,12 +144,14 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
     setSection('A');
     setSubject('English');
     setIsClassTeacher(false);
+    setSelectedStudentIds([]);
+    setStudentSearchTerm('');
     onClose();
   };
 
   return (
     <div className="modal-overlay active" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
             <h2 className="modal-title">Provision New User Account</h2>
@@ -395,6 +419,108 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
                       </div>
                     )}
                   </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── PARENT FIELDS: LINK STUDENT(S) ── */}
+          {role === 'parent' && (
+            <div
+              style={{
+                background: '#F0F9F7',
+                border: '1px solid #C7E4D8',
+                borderRadius: 10,
+                padding: '16px',
+                marginTop: 4,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: '#265E5A', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Link Student / Ward(s)
+                </p>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#2D6E5D', background: '#D6EFE5', padding: '2px 8px', borderRadius: 12 }}>
+                  {selectedStudentIds.length} Linked
+                </span>
+              </div>
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.4 }}>
+                Select the student(s) this parent account has access to. Parents can also request child linking from their portal.
+              </p>
+
+              {/* Student Search */}
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Search student by name, grade, or admission no..."
+                value={studentSearchTerm}
+                onChange={(e) => setStudentSearchTerm(e.target.value)}
+                style={{ fontSize: 12.5, padding: '8px 12px', background: '#FFFFFF', marginBottom: 10 }}
+              />
+
+              <div
+                style={{
+                  maxHeight: 180,
+                  overflowY: 'auto',
+                  border: '1px solid #D1E5DE',
+                  borderRadius: 8,
+                  background: '#FFFFFF',
+                  padding: '4px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                }}
+              >
+                {filteredStudentProfiles.length === 0 ? (
+                  <div style={{ padding: '16px', textAlign: 'center', fontSize: 12, color: 'var(--text-secondary)' }}>
+                    No students found matching search.
+                  </div>
+                ) : (
+                  filteredStudentProfiles.map((student) => {
+                    const isSelected = selectedStudentIds.includes(student.id);
+                    const gradeStr = student.grade ? `Grade ${student.grade.replace(/[^0-9]/g, '')}` : '';
+                    const secStr = student.class_letter ? `-${student.class_letter.toUpperCase()}` : '';
+                    const admStr = student.admission_number || student.user_code || 'No Code';
+
+                    return (
+                      <label
+                        key={student.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          padding: '8px 10px',
+                          borderRadius: 6,
+                          background: isSelected ? '#EAF3F1' : 'transparent',
+                          border: isSelected ? '1px solid #B8D9D4' : '1px solid transparent',
+                          cursor: 'pointer',
+                          transition: 'background 0.1s',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedStudentIds((prev) => [...prev, student.id]);
+                            } else {
+                              setSelectedStudentIds((prev) => prev.filter((id) => id !== student.id));
+                            }
+                          }}
+                          style={{ width: 16, height: 16, accentColor: '#2C6E6A', cursor: 'pointer' }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                            {student.name}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'flex', gap: 8, marginTop: 1 }}>
+                            <span>{gradeStr}{secStr}</span>
+                            <span>•</span>
+                            <span style={{ fontFamily: 'monospace' }}>{admStr}</span>
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })
                 )}
               </div>
             </div>

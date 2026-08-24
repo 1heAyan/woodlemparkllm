@@ -336,6 +336,15 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({ currentUser: propUser }) =
     });
   };
 
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  if (!isMounted) {
+    return null;
+  }
+
   return (
     <>
       {/* 1. DOCKED / PERSISTENT ANTIGRAVITY SIDE PANEL */}
@@ -596,7 +605,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({ currentUser: propUser }) =
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, padding: '0 4px' }}>
-                  <span style={{ fontSize: 10, color: '#9E9B95' }}>{m.time}</span>
+                  <span suppressHydrationWarning style={{ fontSize: 10, color: '#9E9B95' }}>{m.time}</span>
                   {isAssistant && m.id !== 'welcome-msg' && (
                     <button
                       type="button"

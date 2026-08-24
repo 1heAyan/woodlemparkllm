@@ -87,22 +87,33 @@ export const PortalNavigationProvider: React.FC<{
     };
   }, []);
 
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(CHAT_STORAGE_KEY);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed;
-          }
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: 'welcome-msg',
+      sender: 'assistant',
+      text: 'Hello! I am your Woodlem Gemini AI Copilot. I can help you submit assignments, view study resources, check your syllabus checklist, track attendance, and navigate all your subject classrooms.',
+      time: '12:00 PM',
+    },
+  ]);
+
+  // Load chat messages & greeting on client mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(CHAT_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed);
+          return;
         }
-      } catch (e) {
-        console.warn('Failed to restore chat messages from localStorage:', e);
       }
+    } catch (e) {
+      console.warn('Failed to restore chat messages from localStorage:', e);
     }
-    return [getWelcomeMessage(initialUser)];
-  });
+    if (initialUser || currentUser) {
+      setMessages([getWelcomeMessage(initialUser || currentUser)]);
+    }
+  }, [initialUser, currentUser, getWelcomeMessage]);
 
   // Restore panel open state from localStorage
   useEffect(() => {

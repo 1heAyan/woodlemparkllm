@@ -375,32 +375,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       // 1. Compress image to clean lightweight 320x320 JPEG
       const compressedDataUrl = await compressImage(file);
       setAvatarUrl(compressedDataUrl);
+      currentUser.avatar_url = compressedDataUrl;
 
-      // 2. Save directly to Supabase profiles table
+      // 2. Persist directly to Supabase cloud (both achievements cloud table and profiles table)
+      const userKey = currentUser.id || currentUser.email;
+      const avatarDocId = `avatar_${userKey}`;
+
+      await supabase.from('achievements').upsert({
+        id: avatarDocId,
+        student_id: currentUser.id || 'system',
+        title: '__USER_AVATAR__',
+        desc_text: compressedDataUrl,
+        file_url: compressedDataUrl,
+        file_name: `${currentUser.name || 'User'}_Avatar.jpg`,
+      });
+
       const email = (currentUser.email || '').toLowerCase().trim();
-      let saveSuccess = false;
-
       if (email) {
-        const { error: emailErr } = await supabase
+        await supabase
           .from('profiles')
           .update({ avatar_url: compressedDataUrl } as any)
           .eq('email', email);
-        if (!emailErr) saveSuccess = true;
       }
 
-      if (!saveSuccess && currentUser.id) {
-        const { error: idErr } = await supabase
+      if (currentUser.id) {
+        await supabase
           .from('profiles')
           .update({ avatar_url: compressedDataUrl } as any)
           .eq('id', currentUser.id);
-        if (!idErr) saveSuccess = true;
       }
 
-      // Update local state and trigger refresh
-      currentUser.avatar_url = compressedDataUrl;
       setAvatarFeedback({
         type: 'success',
-        text: 'Profile photo saved directly to Supabase Cloud! It is permanently tied to your account across all devices.',
+        text: 'Profile photo saved and permanently synced to your cloud account!',
       });
       if (onRefreshData) onRefreshData();
     } catch (err: any) {
@@ -416,6 +423,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     currentUser.avatar_url = undefined;
 
     try {
+      const userKey = currentUser.id || currentUser.email;
+      const avatarDocId = `avatar_${userKey}`;
+      await supabase.from('achievements').delete().eq('id', avatarDocId);
+      if (currentUser.id) {
+        await supabase.from('achievements').delete().eq('student_id', currentUser.id).eq('title', '__USER_AVATAR__');
+      }
+
       const email = (currentUser.email || '').toLowerCase().trim();
       if (email) {
         await supabase.from('profiles').update({ avatar_url: null } as any).eq('email', email);
@@ -424,9 +438,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         await supabase.from('profiles').update({ avatar_url: null } as any).eq('id', currentUser.id);
       }
       if (onRefreshData) onRefreshData();
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Avatar cloud remove notice:', e);
+    }
 
-    setAvatarFeedback({ type: 'success', text: 'Profile photo removed from Supabase Cloud.' });
+    setAvatarFeedback({ type: 'success', text: 'Profile photo removed.' });
   };
 
   return (
@@ -435,24 +451,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div
         style={{
           background: 'var(--surface)',
-          border: '1px solid var(--border-color)',
-          borderRadius: 8,
-          padding: '16px 20px',
+          borderRadius: 12,
+          padding: '24px 28px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
-          gap: 12,
+          gap: 16,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.03)',
+          border: '1px solid rgba(229, 227, 223, 0.5)',
         }}
       >
         <div>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 800, color: '#2D6E5D', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#2D6E5D' }}></span>
             Account &amp; Security
           </span>
-          <h2 style={{ margin: '2px 0 0', fontSize: 17, fontWeight: 800, color: 'var(--neutral-dark)' }}>
+          <h2 style={{ margin: '6px 0 0', fontSize: 24, fontWeight: 900, color: 'var(--neutral-dark)', letterSpacing: '-0.02em' }}>
             Settings &amp; Passwords
           </h2>
-          <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+          <p style={{ fontSize: 13.5, color: 'var(--text-secondary)', margin: '6px 0 0' }}>
             Manage your account credentials, login passwords, and portal settings.
           </p>
         </div>
@@ -505,242 +523,209 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div
             style={{
               background: 'var(--surface)',
-              border: '1px solid var(--border-color)',
-              borderRadius: 8,
-              padding: '18px 20px',
+              border: '1px solid rgba(229, 227, 223, 0.5)',
+              borderRadius: 16,
               display: 'flex',
               flexDirection: 'column',
-              gap: 16,
+              boxShadow: '0 8px 30px rgba(0,0,0,0.04)',
+              overflow: 'hidden',
             }}
           >
-            {/* Profile avatar + info row */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingBottom: 14, borderBottom: '1px solid var(--border-color)' }}>
-              {/* Avatar with camera overlay */}
-              <div style={{ position: 'relative', flexShrink: 0 }}>
-                <div
-                  style={{
-                    width: 56,
-                    height: 56,
-                    borderRadius: '50%',
-                    background: avatarUrl ? 'transparent' : '#2C6E6A',
-                    color: '#FFFFFF',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 22,
-                    fontWeight: 800,
-                    overflow: 'hidden',
-                    border: avatarUrl ? '2.5px solid #2C6E6A' : 'none',
-                  }}
-                >
-                  {avatarUrl ? (
-                    <img src={avatarUrl} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    (currentUser.name || 'U').charAt(0).toUpperCase()
-                  )}
-                </div>
-                {/* Camera overlay button */}
-                <button
-                  type="button"
-                  title="Change profile photo"
-                  onClick={() => avatarInputRef.current?.click()}
-                  style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    right: 0,
-                    width: 22,
-                    height: 22,
-                    borderRadius: '50%',
-                    background: '#2C6E6A',
-                    border: '2px solid #FFFFFF',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 10,
-                    cursor: 'pointer',
-                    color: '#FFFFFF',
-                  }}
-                >
-                  📷
-                </button>
-                <input
-                  ref={avatarInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleAvatarChange}
-                  style={{ display: 'none' }}
-                />
-              </div>
+            {/* Gradient Cover Banner */}
+            <div style={{ height: 100, background: 'linear-gradient(135deg, #1C4D41 0%, #2D6E5D 100%)', position: 'relative' }}>
+              <div style={{ position: 'absolute', inset: 0, opacity: 0.1, backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'1\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}></div>
+            </div>
 
-              <div style={{ overflow: 'hidden' }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--neutral-dark)' }}>{currentUser.name}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{currentUser.email}</div>
+            {/* Profile Content */}
+            <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+              
+              {/* Avatar Row (Overlapping banner) */}
+              <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: -36 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16 }}>
+                  {/* Avatar Container */}
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    <div
+                      style={{
+                        width: 88,
+                        height: 88,
+                        borderRadius: '50%',
+                        background: avatarUrl ? 'transparent' : '#EAF3EF',
+                        color: '#2D6E5D',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 34,
+                        fontWeight: 900,
+                        overflow: 'hidden',
+                        border: '4px solid var(--surface)',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                      }}
+                    >
+                      {avatarUrl ? (
+                        <img src={avatarUrl} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        (currentUser.name || 'U').charAt(0).toUpperCase()
+                      )}
+                    </div>
+                    {/* Camera overlay button */}
+                    <button
+                      type="button"
+                      title="Change profile photo"
+                      onClick={() => avatarInputRef.current?.click()}
+                      style={{
+                        position: 'absolute',
+                        bottom: 4,
+                        right: 4,
+                        width: 28,
+                        height: 28,
+                        borderRadius: '50%',
+                        background: '#2D6E5D',
+                        border: '2px solid var(--surface)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        color: '#FFFFFF',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                        transition: 'transform 0.2s',
+                      }}
+                    >
+                      📷
+                    </button>
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarChange}
+                      style={{ display: 'none' }}
+                    />
+                  </div>
+
+                  <div style={{ paddingBottom: 6 }}>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--neutral-dark)', letterSpacing: '-0.01em' }}>{currentUser.name}</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>{currentUser.email}</div>
+                  </div>
+                </div>
+
                 <span
                   style={{
                     display: 'inline-block',
-                    marginTop: 6,
+                    marginBottom: 10,
                     fontSize: 10.5,
-                    fontWeight: 700,
+                    fontWeight: 800,
                     textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
-                    padding: '2px 8px',
-                    borderRadius: 4,
-                    background: '#EAF3EF',
+                    letterSpacing: '0.06em',
+                    padding: '4px 12px',
+                    borderRadius: 20,
+                    background: 'var(--neutral-bg)',
                     color: '#2D6E5D',
-                    border: '1px solid #C7E4D8',
+                    border: '1px solid var(--border-color)',
                   }}
                 >
                   {currentUser.role} Account
                 </span>
               </div>
-            </div>
 
-            {/* Profile Photo Section */}
-            <div style={{ paddingBottom: 14, borderBottom: '1px solid var(--border-color)' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Profile Photo
-              </span>
-
-              {avatarFeedback && (
-                <div
-                  style={{
-                    marginTop: 8,
-                    padding: '8px 12px',
-                    borderRadius: 6,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    background: avatarFeedback.type === 'success' ? '#EAF3EF' : '#FDF1F0',
-                    color: avatarFeedback.type === 'success' ? '#2D6E5D' : '#A83B38',
-                    border: avatarFeedback.type === 'success' ? '1px solid #C7E4D8' : '1px solid #F5C6CB',
-                  }}
-                >
-                  {avatarFeedback.text}
+              {/* Upload Controls if feedback or removing */}
+              {(avatarFeedback || avatarUrl) && (
+                <div style={{ background: '#FAF9F6', borderRadius: 8, padding: 14, border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {avatarFeedback && (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: avatarFeedback.type === 'success' ? '#2D6E5D' : '#A83B38',
+                      }}
+                    >
+                      {avatarFeedback.text}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => avatarInputRef.current?.click()}
+                      disabled={isUploadingAvatar}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        background: '#2D6E5D',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 6px rgba(45, 110, 93, 0.3)',
+                      }}
+                    >
+                      {isUploadingAvatar ? 'Uploading...' : 'Upload New Photo'}
+                    </button>
+                    {avatarUrl && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveAvatar}
+                        style={{
+                          padding: '8px 16px',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          background: '#FFFFFF',
+                          color: '#A83B38',
+                          border: '1px solid #F5C6CB',
+                          borderRadius: 6,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <button
-                  type="button"
-                  onClick={() => avatarInputRef.current?.click()}
-                  disabled={isUploadingAvatar}
-                  style={{
-                    flex: 1,
-                    padding: '8px 12px',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    background: '#2C6E6A',
-                    color: '#FFFFFF',
-                    border: 'none',
-                    borderRadius: 6,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {isUploadingAvatar ? 'Uploading...' : '📷  Upload New Photo'}
-                </button>
-                {avatarUrl && (
-                  <button
-                    type="button"
-                    onClick={handleRemoveAvatar}
-                    style={{
-                      padding: '8px 12px',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      background: '#FDF1F0',
-                      color: '#A83B38',
-                      border: '1px solid #F5C6CB',
-                      borderRadius: 6,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Remove
-                  </button>
+              {/* Data Rows */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 14px', background: '#FAF9F6', borderRadius: 8 }}>
+                  <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Account Role</span>
+                  <strong style={{ textTransform: 'capitalize', color: 'var(--neutral-dark)' }}>{currentUser.role}</strong>
+                </div>
+
+                {(currentUser.admission_number || currentUser.user_code) && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 14px', background: '#FAF9F6', borderRadius: 8 }}>
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>ID / Reg Number</span>
+                    <strong style={{ fontFamily: 'monospace', color: 'var(--neutral-dark)', fontSize: 14 }}>{currentUser.admission_number || currentUser.user_code}</strong>
+                  </div>
                 )}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6 }}>
-                JPG, PNG, GIF or WebP · Max 5 MB · Saved to your device
-              </div>
-            </div>
 
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 12.5 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #FAF9F6' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Account Role</span>
-                <strong style={{ textTransform: 'capitalize' }}>{currentUser.role}</strong>
-              </div>
-
-              {(currentUser.admission_number || currentUser.user_code) && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #FAF9F6' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>ID / Reg Number</span>
-                  <strong style={{ fontFamily: 'monospace' }}>{currentUser.admission_number || currentUser.user_code}</strong>
-                </div>
-              )}
-
-              {currentUser.role === 'student' && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #FAF9F6' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Assigned Grade &amp; Section</span>
-                  <strong>
-                    Grade {currentUser.grade || '10'} - Section {currentUser.class_letter || 'A'}
-                  </strong>
-                </div>
-              )}
-
-              {currentUser.role === 'teacher' && (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #FAF9F6' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Discipline / Subject</span>
-                    <strong>{currentUser.subject || 'Faculty'}</strong>
+                {currentUser.role === 'student' && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 14px', background: '#FAF9F6', borderRadius: 8 }}>
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Assigned Grade &amp; Section</span>
+                    <strong style={{ color: 'var(--neutral-dark)' }}>
+                      Grade {currentUser.grade || '10'} - Section {currentUser.class_letter || 'A'}
+                    </strong>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #FAF9F6' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Class Teacher Homeroom</span>
-                    <strong>{currentUser.assigned_class ? `Grade ${currentUser.assigned_class}` : 'Subject Teacher'}</strong>
-                  </div>
-                </>
-              )}
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Account Status</span>
-                <span style={{ color: '#2C6E6A', fontWeight: 700 }}>Active &amp; Verified</span>
-              </div>
-            </div>
-
-            {/* Portal Preferences */}
-            <div style={{ marginTop: 6, paddingTop: 14, borderTop: '1px solid var(--border-color)' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Portal Preferences
-              </span>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
-                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', fontSize: 12.5 }}>
-                  <span>Email announcements &amp; notices</span>
-                  <input
-                    type="checkbox"
-                    checked={emailAlerts}
-                    onChange={(e) => setEmailAlerts(e.target.checked)}
-                    style={{ accentColor: '#2C6E6A', width: 16, height: 16 }}
-                  />
-                </label>
-
-                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', fontSize: 12.5 }}>
-                  <span>Sound notifications &amp; badges</span>
-                  <input
-                    type="checkbox"
-                    checked={soundEffects}
-                    onChange={(e) => setSoundEffects(e.target.checked)}
-                    style={{ accentColor: '#2C6E6A', width: 16, height: 16 }}
-                  />
-                </label>
+                )}
 
                 {currentUser.role === 'teacher' && (
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', fontSize: 12.5 }}>
-                    <span>Auto-record full homeroom attendance</span>
-                    <input
-                      type="checkbox"
-                      checked={autoSaveAttendance}
-                      onChange={(e) => setAutoSaveAttendance(e.target.checked)}
-                      style={{ accentColor: '#2C6E6A', width: 16, height: 16 }}
-                    />
-                  </label>
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 14px', background: '#FAF9F6', borderRadius: 8 }}>
+                      <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Discipline / Subject</span>
+                      <strong style={{ color: 'var(--neutral-dark)' }}>{currentUser.subject || 'Faculty'}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 14px', background: '#FAF9F6', borderRadius: 8 }}>
+                      <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Class Teacher Homeroom</span>
+                      <strong style={{ color: 'var(--neutral-dark)' }}>{currentUser.assigned_class ? `Grade ${currentUser.assigned_class}` : 'Subject Teacher'}</strong>
+                    </div>
+                  </>
                 )}
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 14px', background: '#EAF3EF', borderRadius: 8, border: '1px solid #C7E4D8' }}>
+                  <span style={{ color: '#1C4D41', fontWeight: 600 }}>Account Status</span>
+                  <span style={{ color: '#2D6E5D', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#2D6E5D' }}></span>
+                    Active &amp; Verified
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -749,22 +734,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div
             style={{
               background: 'var(--surface)',
-              border: '1px solid var(--border-color)',
-              borderRadius: 8,
-              padding: '18px 20px',
+              border: '1px solid rgba(229, 227, 223, 0.5)',
+              borderRadius: 16,
+              padding: '24px 28px',
               display: 'flex',
               flexDirection: 'column',
-              gap: 16,
+              gap: 20,
+              boxShadow: '0 8px 30px rgba(0,0,0,0.04)',
             }}
           >
             <div>
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              <span style={{ fontSize: 11.5, fontWeight: 800, color: '#2D6E5D', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 Security Credentials
               </span>
-              <h3 style={{ margin: '2px 0 0', fontSize: 15, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+              <h3 style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 800, color: 'var(--neutral-dark)' }}>
                 Change Your Password
               </h3>
-              <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '6px 0 0' }}>
                 Enter your new password below. It will immediately secure your portal login.
               </p>
             </div>
@@ -787,11 +773,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
             <form onSubmit={handleUpdateOwnPassword} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: 12 }}>New Password</label>
+                <label className="form-label" style={{ fontSize: 13, fontWeight: 600, color: 'var(--neutral-dark)', marginBottom: 8 }}>New Password</label>
                 <div style={{ position: 'relative' }}>
                   <input
                     type={showPassword ? 'text' : 'password'}
                     className="form-input"
+                    style={{ padding: '12px 14px', borderRadius: 8, fontSize: 14 }}
                     placeholder="Enter at least 6 characters"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
@@ -820,10 +807,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
 
               <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: 12 }}>Confirm New Password</label>
+                <label className="form-label" style={{ fontSize: 13, fontWeight: 600, color: 'var(--neutral-dark)', marginBottom: 8 }}>Confirm New Password</label>
                 <input
                   type={showPassword ? 'text' : 'password'}
                   className="form-input"
+                  style={{ padding: '12px 14px', borderRadius: 8, fontSize: 14 }}
                   placeholder="Re-enter your new password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
@@ -832,15 +820,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </div>
 
-              <div style={{ background: '#FAF9F6', padding: '10px 12px', borderRadius: 6, border: '1px solid #ECEAE5', fontSize: 11.5, color: 'var(--text-secondary)' }}>
-                <strong>Password Policy:</strong> Minimum 6 characters. Must not match common weak phrases.
+              <div style={{ background: '#F0F4F4', padding: '12px 14px', borderRadius: 8, border: '1px solid #D0E0E0', fontSize: 12, color: '#3D7A6E', display: 'flex', gap: 8 }}>
+                <span>🔒</span>
+                <span><strong>Password Policy:</strong> Minimum 6 characters. Must not match common weak phrases.</span>
               </div>
 
               <button
                 type="submit"
                 className="btn-primary"
                 disabled={isUpdatingPassword}
-                style={{ padding: '11px', fontWeight: 700, fontSize: 13 }}
+                style={{ padding: '14px', fontWeight: 700, fontSize: 14, borderRadius: 8, marginTop: 4, background: '#2D6E5D', border: 'none', boxShadow: '0 4px 12px rgba(45, 110, 93, 0.3)' }}
               >
                 {isUpdatingPassword ? 'Updating Password...' : 'Save New Password'}
               </button>

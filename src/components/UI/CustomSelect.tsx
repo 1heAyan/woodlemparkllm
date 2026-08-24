@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface CustomSelectOption {
   value: string;
@@ -38,8 +39,15 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Normalize options to CustomSelectOption[]
   const normalizedOptions: CustomSelectOption[] = options.map((opt) => {
@@ -51,20 +59,54 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
 
   const selectedOption = normalizedOptions.find((opt) => opt.value === value);
 
-  // Close on outside click
+  const calculatePosition = useCallback(() => {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPos({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: Math.max(rect.width, 180),
+      });
+    }
+  }, []);
+
+  const handleToggle = () => {
+    if (disabled) return;
+    if (!isOpen) {
+      calculatePosition();
+    }
+    setIsOpen((prev) => !prev);
+    setSearchTerm('');
+  };
+
+  // Close on outside click or scroll
   useEffect(() => {
+    if (!isOpen) return;
+
     const handleOutsideClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const menuEl = document.getElementById('__custom_select_portal__');
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node) &&
+        !(menuEl && menuEl.contains(e.target as Node))
+      ) {
         setIsOpen(false);
         setSearchTerm('');
       }
     };
 
-    if (isOpen) {
-      document.addEventListener('mousedown', handleOutsideClick);
-    }
+    const handleClose = () => {
+      setIsOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    window.addEventListener('scroll', handleClose, { passive: true, capture: true });
+    window.addEventListener('resize', handleClose, { passive: true });
+
     return () => {
       document.removeEventListener('mousedown', handleOutsideClick);
+      window.removeEventListener('scroll', handleClose, { capture: true });
+      window.removeEventListener('resize', handleClose);
     };
   }, [isOpen]);
 
@@ -75,7 +117,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     }
   }, [isOpen, searchable]);
 
-  // Filter options if searchable
+  // Filter options
   const filteredOptions = normalizedOptions.filter((opt) => {
     if (!searchTerm.trim()) return true;
     const term = searchTerm.toLowerCase();
@@ -97,13 +139,108 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     if (disabled) return;
     if (e.key === 'Escape') {
       setIsOpen(false);
-    } else if (e.key === 'Enter' || e.key === ' ') {
-      if (!isOpen) {
-        e.preventDefault();
-        setIsOpen(true);
-      }
+    } else if ((e.key === 'Enter' || e.key === ' ') && !isOpen) {
+      e.preventDefault();
+      handleToggle();
     }
   };
+
+  const menuNode = isOpen && menuPos ? (
+    <div
+      id="__custom_select_portal__"
+      role="listbox"
+      style={{
+        position: 'fixed',
+        top: menuPos.top,
+        left: menuPos.left,
+        width: menuPos.width,
+        background: '#FFFFFF',
+        border: '1px solid var(--border-color, #E5E3DF)',
+        borderRadius: 6,
+        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.13), 0 2px 6px rgba(0, 0, 0, 0.06)',
+        zIndex: 99999,
+        maxHeight: 260,
+        overflowY: 'auto',
+        padding: '4px',
+        ...menuStyle,
+      }}
+    >
+      {searchable && (
+        <div style={{ padding: '4px', borderBottom: '1px solid #ECEAE5', marginBottom: 4 }}>
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search..."
+            style={{
+              width: '100%',
+              padding: '6px 8px',
+              fontSize: 11.5,
+              border: '1px solid var(--border-color, #E5E3DF)',
+              borderRadius: 4,
+              outline: 'none',
+              background: '#FAF9F6',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
+      {filteredOptions.length === 0 ? (
+        <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-secondary, #7A7874)', textAlign: 'center' }}>
+          No options available
+        </div>
+      ) : (
+        filteredOptions.map((opt) => {
+          const isSelected = opt.value === value;
+          return (
+            <div
+              key={opt.value}
+              role="option"
+              aria-selected={isSelected}
+              onClick={() => handleSelect(opt.value, opt.disabled)}
+              style={{
+                padding: '8px 10px',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: isSelected ? 700 : 500,
+                color: opt.disabled ? '#A09E9A' : isSelected ? '#2C6E6A' : 'var(--neutral-dark, #2D2C2A)',
+                background: isSelected ? '#EAF3EF' : 'transparent',
+                cursor: opt.disabled ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                transition: 'background 0.12s ease',
+              }}
+              onMouseEnter={(e) => {
+                if (!isSelected && !opt.disabled) e.currentTarget.style.background = '#FAF9F6';
+              }}
+              onMouseLeave={(e) => {
+                if (!isSelected && !opt.disabled) e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              <div style={{ overflow: 'hidden', paddingRight: 8 }}>
+                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {opt.label}
+                </div>
+                {opt.sublabel && (
+                  <div style={{ fontSize: 10.5, color: 'var(--text-secondary, #7A7874)', marginTop: 1 }}>
+                    {opt.sublabel}
+                  </div>
+                )}
+              </div>
+              {isSelected && (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2C6E6A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
+  ) : null;
 
   return (
     <div
@@ -122,9 +259,10 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     >
       {/* Trigger Button */}
       <button
+        ref={buttonRef}
         type="button"
         disabled={disabled}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleToggle}
         onKeyDown={handleKeyDown}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
@@ -151,7 +289,6 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 8 }}>
           {selectedOption ? selectedOption.label : placeholder}
         </span>
-        {/* Custom Chevron SVG */}
         <svg
           width="12"
           height="12"
@@ -168,126 +305,12 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
             color: 'var(--text-secondary, #7A7874)',
           }}
         >
-          <polyline points="6 9 12 15 18 9"></polyline>
+          <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
 
-      {/* Dropdown Menu Popup */}
-      {isOpen && (
-        <div
-          role="listbox"
-          style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            left: 0,
-            right: 0,
-            background: '#FFFFFF',
-            border: '1px solid var(--border-color, #E5E3DF)',
-            borderRadius: 6,
-            boxShadow: '0 6px 18px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04)',
-            zIndex: 1000,
-            maxHeight: 260,
-            overflowY: 'auto',
-            padding: '4px',
-            ...menuStyle,
-          }}
-        >
-          {/* Optional Search Input */}
-          {searchable && (
-            <div style={{ padding: '4px', borderBottom: '1px solid #ECEAE5', marginBottom: 4 }}>
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search..."
-                style={{
-                  width: '100%',
-                  padding: '6px 8px',
-                  fontSize: 11.5,
-                  border: '1px solid var(--border-color, #E5E3DF)',
-                  borderRadius: 4,
-                  outline: 'none',
-                  background: '#FAF9F6',
-                }}
-                onClick={(e) => e.stopPropagation()}
-              />
-            </div>
-          )}
-
-          {filteredOptions.length === 0 ? (
-            <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-secondary, #7A7874)', textAlign: 'center' }}>
-              No options available
-            </div>
-          ) : (
-            filteredOptions.map((opt) => {
-              const isSelected = opt.value === value;
-              return (
-                <div
-                  key={opt.value}
-                  role="option"
-                  aria-selected={isSelected}
-                  onClick={() => handleSelect(opt.value, opt.disabled)}
-                  style={{
-                    padding: '8px 10px',
-                    borderRadius: 4,
-                    fontSize: 12,
-                    fontWeight: isSelected ? 700 : 500,
-                    color: opt.disabled
-                      ? '#A09E9A'
-                      : isSelected
-                      ? '#2C6E6A'
-                      : 'var(--neutral-dark, #2D2C2A)',
-                    background: isSelected ? '#EAF3EF' : 'transparent',
-                    cursor: opt.disabled ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    transition: 'background 0.12s ease',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isSelected && !opt.disabled) {
-                      e.currentTarget.style.background = '#FAF9F6';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isSelected && !opt.disabled) {
-                      e.currentTarget.style.background = 'transparent';
-                    }
-                  }}
-                >
-                  <div style={{ overflow: 'hidden', paddingRight: 8 }}>
-                    <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {opt.label}
-                    </div>
-                    {opt.sublabel && (
-                      <div style={{ fontSize: 10.5, color: 'var(--text-secondary, #7A7874)', marginTop: 1 }}>
-                        {opt.sublabel}
-                      </div>
-                    )}
-                  </div>
-
-                  {isSelected && (
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="#2C6E6A"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      style={{ flexShrink: 0 }}
-                    >
-                      <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
+      {/* Portal dropdown — renders into document.body, escapes all overflow clipping */}
+      {mounted && menuNode && createPortal(menuNode, document.body)}
     </div>
   );
 };

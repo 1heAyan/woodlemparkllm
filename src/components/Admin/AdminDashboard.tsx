@@ -1,10 +1,14 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { UserProfile, ParentDocument, HubActivity } from '@/lib/supabaseClient';
+import React, { useState, useMemo, useEffect } from 'react';
+import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, SlidersHorizontal, Check, UserCheck, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
+import { useSidebarState } from '@/lib/useSidebarState';
+import { UserProfile, ParentDocument, HubActivity, ParentStudentLinkRequest } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
+import { formatShortFileName, openFileInNewTab, downloadFile } from '@/lib/fileHelper';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 
 interface AdminDashboardProps {
@@ -12,15 +16,19 @@ interface AdminDashboardProps {
   profiles: UserProfile[];
   parentDocuments: ParentDocument[];
   hubActivities: HubActivity[];
+  linkRequests?: ParentStudentLinkRequest[];
   onOpenProvisionModal: () => void;
   onOpenBulkModal: () => void;
   onEditUser: (user: UserProfile) => void;
   onDeleteUser: (userId: string) => void;
+  onApproveLinkRequest?: (requestId: string) => Promise<void>;
+  onRejectLinkRequest?: (requestId: string) => Promise<void>;
+  onBackfillEnrollments?: () => Promise<void>;
   onSignOut: () => void;
   onRefreshData?: () => void;
 }
 
-type AdminTab = 'overview' | 'directory' | 'classes' | 'documents' | 'hub' | 'settings' | 'support' | 'system';
+type AdminTab = 'overview' | 'directory' | 'link_requests' | 'classes' | 'documents' | 'hub' | 'settings' | 'support' | 'system';
 
 const VALID_GRADES = ['9', '10', '11', '12'] as const;
 const BASE_SECTIONS = ['A', 'B', 'C', 'D'] as const;
@@ -30,20 +38,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   profiles,
   parentDocuments,
   hubActivities,
+  linkRequests = [],
   onOpenProvisionModal,
   onOpenBulkModal,
   onEditUser,
   onDeleteUser,
+  onApproveLinkRequest,
+  onRejectLinkRequest,
+  onBackfillEnrollments,
   onSignOut,
   onRefreshData,
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+  const [docSubTab, setDocSubTab] = useState<'clearances' | 'link_requests'>('clearances');
   const [roleFilter, setRoleFilter] = useState<'all' | 'student' | 'teacher' | 'parent' | 'admin'>('all');
   const [classFilter, setClassFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [docStudentFilter, setDocStudentFilter] = useState('');
   const [selectedClassInspect, setSelectedClassInspect] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const sidebar = useSidebarState('auto-hide');
+
+  const pendingLinkRequests = useMemo(() => linkRequests.filter((r) => r.status === 'pending'), [linkRequests]);
 
   // Portal Navigation & AI Copilot Integration
   const { isAiPanelOpen, toggleAiPanel, subscribeToNavigation } = usePortalNavigation();
@@ -175,7 +191,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
       return parts.length > 0 ? parts.join(' | ') : 'Faculty';
     }
-    if (p.role === 'parent') return 'Parent / Guardian';
+    if (p.role === 'parent') {
+      const linked = profiles.filter((st) => (p.linked_student_ids || []).includes(st.id));
+      if (linked.length === 0) return 'Parent (No Ward Linked)';
+      return `Ward: ${linked.map((s) => `${s.name} (${s.grade ? `G${s.grade.replace(/[^0-9]/g, '')}-${s.class_letter || 'A'}` : 'Student'})`).join(', ')}`;
+    }
     if (p.role === 'admin') return 'System Administrator';
     return 'General';
   };
@@ -370,14 +390,65 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </div>
 
+      {/* Pending Parent Link Requests Alert Banner */}
+      {pendingLinkRequests.length > 0 && (
+        <div
+          style={{
+            background: 'linear-gradient(90deg, #FEF7EC 0%, #FFFBEB 100%)',
+            border: '1.5px solid #F5DEB3',
+            borderRadius: 8,
+            padding: '12px 18px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 18 }}>⚡</span>
+            <div>
+              <strong style={{ color: '#8A5D16', fontSize: 13 }}>
+                {pendingLinkRequests.length} Parent-Student Link Request{pendingLinkRequests.length > 1 ? 's' : ''} Awaiting Approval
+              </strong>
+              <div style={{ fontSize: 11.5, color: '#9B6634', marginTop: 1 }}>
+                Parents have submitted their child&apos;s admission number in the Parent Portal. Click below to review and approve access.
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setActiveTab('link_requests')}
+            style={{
+              padding: '7px 16px',
+              background: '#2C6E6A',
+              color: '#FFFFFF',
+              borderRadius: 6,
+              fontWeight: 700,
+              fontSize: 12,
+              border: 'none',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Review Requests &rarr;
+          </button>
+        </div>
+      )}
+
       {/* KPI Stats Strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
         {[
-          { label: 'TOTAL ACCOUNTS', val: profiles.length, sub: 'Registered users', tab: 'directory' as const, role: 'all' as const },
-          { label: 'STUDENTS', val: students.length, sub: 'Enrolled students', tab: 'directory' as const, role: 'student' as const },
-          { label: 'FACULTY', val: teachers.length, sub: 'Teaching staff', tab: 'directory' as const, role: 'teacher' as const },
-          { label: 'PARENTS', val: parents.length, sub: 'Linked guardians', tab: 'directory' as const, role: 'parent' as const },
-          { label: 'VERIFICATIONS', val: parentDocuments.length, sub: 'Document filings', tab: 'documents' as const, role: 'all' as const },
+          { label: 'TOTAL ACCOUNTS', val: profiles.length, sub: 'Registered users', tab: 'directory' as const, role: 'all' as const, isAlert: false },
+          { label: 'STUDENTS', val: students.length, sub: 'Enrolled students', tab: 'directory' as const, role: 'student' as const, isAlert: false },
+          { label: 'FACULTY', val: teachers.length, sub: 'Teaching staff', tab: 'directory' as const, role: 'teacher' as const, isAlert: false },
+          { label: 'PARENTS', val: parents.length, sub: 'Linked guardians', tab: 'directory' as const, role: 'parent' as const, isAlert: false },
+          {
+            label: 'LINK REQUESTS',
+            val: pendingLinkRequests.length > 0 ? `${pendingLinkRequests.length} PENDING` : `${linkRequests.length} TOTAL`,
+            sub: 'Parent-student links',
+            tab: 'link_requests' as const,
+            role: 'all' as const,
+            isAlert: pendingLinkRequests.length > 0,
+          },
         ].map((k) => (
           <div
             key={k.label}
@@ -386,23 +457,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               if (k.role !== 'all') setRoleFilter(k.role);
             }}
             style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border-color)',
+              background: k.isAlert ? '#FFFBEB' : 'var(--surface)',
+              border: k.isAlert ? '1.5px solid #F5DEB3' : '1px solid var(--border-color)',
               borderRadius: 8,
               padding: '10px 14px',
               cursor: 'pointer',
               transition: 'border-color 0.12s, background 0.12s',
             }}
             onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#8C8983')}
-            onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-color)')}
+            onMouseLeave={(e) => (e.currentTarget.style.borderColor = k.isAlert ? '#F5DEB3' : 'var(--border-color)')}
           >
-            <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.06em' }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: k.isAlert ? '#92400E' : 'var(--text-secondary)', letterSpacing: '0.06em' }}>
               {k.label}
             </div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--neutral-dark)', fontFamily: 'var(--font-display)', margin: '3px 0 1px' }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: k.isAlert ? '#B45309' : 'var(--neutral-dark)', fontFamily: 'var(--font-display)', margin: '3px 0 1px' }}>
               {k.val}
             </div>
-            <div style={{ fontSize: 10.5, color: '#888580' }}>{k.sub}</div>
+            <div style={{ fontSize: 10.5, color: k.isAlert ? '#92400E' : '#888580' }}>{k.sub}</div>
           </div>
         ))}
       </div>
@@ -699,6 +770,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               }}
             >
               {isRefreshing ? 'Syncing...' : 'Sync Data'}
+            </button>
+          )}
+          {onBackfillEnrollments && (
+            <button
+              onClick={onBackfillEnrollments}
+              title="Auto-enroll students into existing classrooms based on their grade & class. Run once to fix current data."
+              style={{
+                height: 28,
+                padding: '0 10px',
+                fontSize: 11.5,
+                fontWeight: 600,
+                color: '#FFFFFF',
+                background: '#1C4D46',
+                border: 'none',
+                borderRadius: 5,
+                cursor: 'pointer',
+              }}
+            >
+              Fix Class Enrollments
             </button>
           )}
           <button
@@ -1006,114 +1096,588 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     </div>
   );
 
-  // ─── TAB 4: DOCUMENTS ───────────────────────────────────────────────────────
-  const renderDocuments = () => (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-      <div
-        style={{
-          padding: '10px 14px',
-          borderBottom: '1px solid var(--border-color)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 8,
-          background: '#FAF9F6',
-        }}
-      >
-        <div>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>Parent Document Submissions</span>
-          <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 8 }}>
-            Total {filteredDocs.length} records
-          </span>
+  // ─── TAB 4: DOCUMENTS & VERIFICATIONS ────────────────────────────────────────
+  const renderDocuments = () => {
+    const pendingRequests = linkRequests.filter((r) => r.status === 'pending');
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Subtab Segmented Control */}
+        <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid var(--border-color)', paddingBottom: 10 }}>
+          <button
+            onClick={() => setDocSubTab('clearances')}
+            style={{
+              padding: '6px 14px',
+              fontSize: 12,
+              fontWeight: docSubTab === 'clearances' ? 700 : 500,
+              borderRadius: 6,
+              border: docSubTab === 'clearances' ? '1px solid #2C6E6A' : '1px solid var(--border-color)',
+              background: docSubTab === 'clearances' ? '#EAF3EF' : '#FFFFFF',
+              color: docSubTab === 'clearances' ? '#20554E' : 'var(--text-secondary)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <span>Clearance Documents</span>
+            <span
+              style={{
+                fontSize: 10.5,
+                background: docSubTab === 'clearances' ? '#2C6E6A' : '#E2E8F0',
+                color: docSubTab === 'clearances' ? '#FFFFFF' : '#475569',
+                padding: '1px 6px',
+                borderRadius: 10,
+                fontWeight: 700,
+              }}
+            >
+              {parentDocuments.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setDocSubTab('link_requests')}
+            style={{
+              padding: '6px 14px',
+              fontSize: 12,
+              fontWeight: docSubTab === 'link_requests' ? 700 : 500,
+              borderRadius: 6,
+              border: docSubTab === 'link_requests' ? '1px solid #2C6E6A' : '1px solid var(--border-color)',
+              background: docSubTab === 'link_requests' ? '#EAF3EF' : '#FFFFFF',
+              color: docSubTab === 'link_requests' ? '#20554E' : 'var(--text-secondary)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <span>Parent-Student Link Requests</span>
+            {pendingRequests.length > 0 ? (
+              <span
+                style={{
+                  fontSize: 10.5,
+                  background: '#EF4444',
+                  color: '#FFFFFF',
+                  padding: '1px 6px',
+                  borderRadius: 10,
+                  fontWeight: 700,
+                }}
+              >
+                {pendingRequests.length} PENDING
+              </span>
+            ) : (
+              <span
+                style={{
+                  fontSize: 10.5,
+                  background: '#E2E8F0',
+                  color: '#475569',
+                  padding: '1px 6px',
+                  borderRadius: 10,
+                  fontWeight: 700,
+                }}
+              >
+                {linkRequests.length}
+              </span>
+            )}
+          </button>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 220 }}>
-          <CustomSelect
-            value={docStudentFilter}
-            onChange={(val) => setDocStudentFilter(val)}
-            placeholder="All Students"
-            buttonStyle={{ padding: '4px 8px', fontSize: 11.5 }}
-            options={[
-              { value: '', label: 'All Students' },
-              ...students.map((s) => ({
-                value: s.id,
-                label: `${s.name} (${s.grade ? `G${s.grade}-${s.class_letter}` : 'General'})`,
-              })),
-            ]}
-          />
-        </div>
-      </div>
+        {docSubTab === 'clearances' ? (
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+            <div
+              style={{
+                padding: '10px 14px',
+                borderBottom: '1px solid var(--border-color)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 8,
+                background: '#FAF9F6',
+              }}
+            >
+              <div>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>Parent Document Submissions</span>
+                <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 8 }}>
+                  Total {filteredDocs.length} records
+                </span>
+              </div>
 
-      <div style={{ overflowX: 'auto' }}>
-        {filteredDocs.length === 0 ? (
-          <div style={{ padding: '36px 20px', textAlign: 'center' }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>No document records found</div>
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>Submissions by parents will appear here automatically.</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 220 }}>
+                <CustomSelect
+                  value={docStudentFilter}
+                  onChange={(val) => setDocStudentFilter(val)}
+                  placeholder="All Students"
+                  buttonStyle={{ padding: '4px 8px', fontSize: 11.5 }}
+                  options={[
+                    { value: '', label: 'All Students' },
+                    ...students.map((s) => ({
+                      value: s.id,
+                      label: `${s.name} (${s.grade ? `G${s.grade}-${s.class_letter}` : 'General'})`,
+                    })),
+                  ]}
+                />
+              </div>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              {filteredDocs.length === 0 ? (
+                <div style={{ padding: '36px 20px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>No document records found</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>Submissions by parents will appear here automatically.</div>
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...thStyle, width: 32 }}>#</th>
+                      <th style={thStyle}>Document Type</th>
+                      <th style={thStyle}>Student Name</th>
+                      <th style={thStyle}>Status</th>
+                      <th style={thStyle}>Uploaded File</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredDocs.map((doc, idx) => {
+                      const student = profiles.find((p) => p.id === doc.student_id);
+                      const submitted = doc.status === 'submitted';
+                      return (
+                        <tr
+                          key={doc.id || idx}
+                          style={{ background: idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7' }}
+                        >
+                          <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
+                          <td style={{ ...tdStyle, fontWeight: 600 }}>{doc.doc_type}</td>
+                          <td style={{ ...tdStyle, color: 'var(--neutral-dark)' }}>
+                            {student ? `${student.name} (${student.grade ? `G${student.grade}-${student.class_letter}` : ''})` : 'Unknown Student'}
+                          </td>
+                          <td style={tdStyle}>
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                padding: '1px 6px',
+                                fontSize: 9.5,
+                                fontWeight: 700,
+                                letterSpacing: '0.04em',
+                                textTransform: 'uppercase',
+                                borderRadius: 4,
+                                background: submitted ? '#EAF3EF' : '#FEF7EC',
+                                color: submitted ? '#2D6E5D' : '#9E6C1B',
+                                border: submitted ? '1px solid #C7E4D8' : '1px solid #F5DEB3',
+                              }}
+                            >
+                              {submitted ? 'SUBMITTED' : 'PENDING'}
+                            </span>
+                          </td>
+                          <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11 }} title={doc.file_name || ''}>
+                            {submitted ? (formatShortFileName(doc.file_name || '') || 'File attached') : 'Awaiting submission'}
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>
+                            {submitted ? (
+                              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    openFileInNewTab({
+                                      fileName: doc.file_name || 'Clearance_Document.pdf',
+                                      fileUrl: doc.file_url,
+                                      studentName: student?.name || 'Student',
+                                      title: doc.doc_type,
+                                      description: `Official verified ${doc.doc_type} document submission for ${student?.name || 'Student'}.`,
+                                      submissionDate: doc.uploaded_at,
+                                    });
+                                  }}
+                                  style={{
+                                    padding: '4px 10px',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    background: '#2C6E6A',
+                                    color: '#FFFFFF',
+                                    border: 'none',
+                                    borderRadius: 4,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  View
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    downloadFile({
+                                      fileName: doc.file_name || `${doc.doc_type}_${student?.name || 'Student'}.pdf`,
+                                      fileUrl: doc.file_url,
+                                      studentName: student?.name || 'Student',
+                                      title: doc.doc_type,
+                                      description: `Official verified ${doc.doc_type} document submission for ${student?.name || 'Student'}.`,
+                                      submissionDate: doc.uploaded_at,
+                                    });
+                                  }}
+                                  style={{
+                                    padding: '4px 8px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    background: '#FFFFFF',
+                                    color: 'var(--neutral-dark)',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: 4,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  Download
+                                </button>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: 11, color: '#9E9B95' }}>Awaiting</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ ...thStyle, width: 32 }}>#</th>
-                <th style={thStyle}>Document Type</th>
-                <th style={thStyle}>Student Name</th>
-                <th style={thStyle}>Status</th>
-                <th style={thStyle}>Uploaded File</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredDocs.map((doc, idx) => {
-                const student = profiles.find((p) => p.id === doc.student_id);
-                const submitted = doc.status === 'submitted';
-                return (
-                  <tr
-                    key={doc.id || idx}
-                    style={{ background: idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7' }}
-                  >
-                    <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
-                    <td style={{ ...tdStyle, fontWeight: 600 }}>{doc.doc_type}</td>
-                    <td style={{ ...tdStyle, color: 'var(--neutral-dark)' }}>
-                      {student ? `${student.name} (${student.grade ? `G${student.grade}-${student.class_letter}` : ''})` : 'Unknown Student'}
-                    </td>
-                    <td style={tdStyle}>
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          padding: '1px 6px',
-                          fontSize: 9.5,
-                          fontWeight: 700,
-                          letterSpacing: '0.04em',
-                          textTransform: 'uppercase',
-                          borderRadius: 4,
-                          background: submitted ? '#EAF3EF' : '#FEF7EC',
-                          color: submitted ? '#2D6E5D' : '#9E6C1B',
-                          border: submitted ? '1px solid #C7E4D8' : '1px solid #F5DEB3',
-                        }}
-                      >
-                        {submitted ? 'SUBMITTED' : 'PENDING'}
-                      </span>
-                    </td>
-                    <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11 }}>
-                      {submitted ? (doc.file_name || 'File attached') : 'Awaiting submission'}
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      {submitted && (
-                        <span style={{ fontSize: 11, fontWeight: 600, color: '#2C6E6A', padding: '2px 6px' }}>
-                          Verified
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          /* LINK REQUESTS QUEUE */
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+            <div
+              style={{
+                padding: '10px 14px',
+                borderBottom: '1px solid var(--border-color)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#FAF9F6',
+              }}
+            >
+              <div>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>Parent-Student Verification Queue</span>
+                <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 8 }}>
+                  {linkRequests.length} total verification requests ({pendingRequests.length} pending)
+                </span>
+              </div>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              {linkRequests.length === 0 ? (
+                <div style={{ padding: '36px 20px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>No student link requests filed yet</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+                    When parents enter their child&apos;s admission number in the Parent Portal, their verification requests will appear here for your approval.
+                  </div>
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...thStyle, width: 32 }}>#</th>
+                      <th style={thStyle}>Parent Applicant</th>
+                      <th style={thStyle}>Requested Student / Ward</th>
+                      <th style={thStyle}>Admission Number</th>
+                      <th style={thStyle}>Relationship</th>
+                      <th style={thStyle}>Status</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {linkRequests.map((req, idx) => {
+                      const isPending = req.status === 'pending';
+                      const isApproved = req.status === 'approved';
+                      const isRejected = req.status === 'rejected';
+
+                      return (
+                        <tr
+                          key={req.id || idx}
+                          style={{ background: idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7' }}
+                        >
+                          <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
+                          <td style={tdStyle}>
+                            <div style={{ fontWeight: 600, color: 'var(--neutral-dark)' }}>{req.parent_name}</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{req.parent_email}</div>
+                          </td>
+                          <td style={tdStyle}>
+                            <div style={{ fontWeight: 600, color: '#20554E' }}>{req.student_name}</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{req.student_grade || 'Student'}</div>
+                          </td>
+                          <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11.5, fontWeight: 600 }}>
+                            {req.student_admission_number}
+                          </td>
+                          <td style={{ ...tdStyle, fontSize: 11.5 }}>
+                            <div>{req.relationship || 'Parent / Guardian'}</div>
+                            {req.notes && (
+                              <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', fontStyle: 'italic', marginTop: 2 }}>
+                                &quot;{req.notes}&quot;
+                              </div>
+                            )}
+                          </td>
+                          <td style={tdStyle}>
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                padding: '2px 8px',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                borderRadius: 4,
+                                background: isApproved ? '#EAF3EF' : isRejected ? '#FDF1F0' : '#FEF7EC',
+                                color: isApproved ? '#2D6E5D' : isRejected ? '#A83B38' : '#9E6C1B',
+                                border: isApproved ? '1px solid #C7E4D8' : isRejected ? '1px solid #F5C6CB' : '1px solid #F5DEB3',
+                              }}
+                            >
+                              {req.status}
+                            </span>
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            {isPending ? (
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                                <button
+                                  onClick={() => onApproveLinkRequest && onApproveLinkRequest(req.id)}
+                                  style={{
+                                    padding: '4px 10px',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    background: '#2C6E6A',
+                                    color: '#FFFFFF',
+                                    border: 'none',
+                                    borderRadius: 4,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  ✓ Approve &amp; Link
+                                </button>
+                                <button
+                                  onClick={() => onRejectLinkRequest && onRejectLinkRequest(req.id)}
+                                  style={{
+                                    padding: '4px 8px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    background: '#FDF1F0',
+                                    color: '#A83B38',
+                                    border: '1px solid #F5C6CB',
+                                    borderRadius: 4,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  ✕ Reject
+                                </button>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                {isApproved ? 'Linked to Parent' : 'Request Rejected'}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
         )}
       </div>
-    </div>
-  );
+    );
+  };
+
+  // ─── TAB: PARENT-STUDENT LINK REQUESTS (VERIFICATION QUEUE) ───────────
+  const renderLinkRequests = () => {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* Header summary banner */}
+        <div
+          style={{
+            background: 'linear-gradient(135deg, #1C4D46 0%, #2C6E6A 100%)',
+            color: '#FFFFFF',
+            padding: '20px 24px',
+            borderRadius: 10,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 14,
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: '#FFFFFF' }}>
+                Parent-Student Link Verification Queue
+              </h2>
+              {pendingLinkRequests.length > 0 && (
+                <span style={{ background: '#FDE68A', color: '#92400E', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 12 }}>
+                  {pendingLinkRequests.length} Pending Approval
+                </span>
+              )}
+            </div>
+            <p style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.85)', margin: '4px 0 0' }}>
+              Review parent requests to link student accounts. Approving will bind the student to the parent profile and unlock academic monitoring.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={onOpenProvisionModal}
+              style={{
+                padding: '7px 14px',
+                background: '#FFFFFF',
+                color: '#1C4D46',
+                borderRadius: 6,
+                fontWeight: 700,
+                fontSize: 12,
+                border: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              + Provision Parent Manually
+            </button>
+          </div>
+        </div>
+
+        {/* Link Requests Table */}
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+          <div
+            style={{
+              padding: '10px 14px',
+              borderBottom: '1px solid var(--border-color)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: '#FAF9F6',
+            }}
+          >
+            <div>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>All Verification Requests</span>
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 8 }}>
+                {linkRequests.length} total requests ({pendingLinkRequests.length} pending)
+              </span>
+            </div>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            {linkRequests.length === 0 ? (
+              <div style={{ padding: '48px 24px', textAlign: 'center' }}>
+                <div style={{ width: 48, height: 48, borderRadius: 12, background: '#EAF3EF', color: '#2C6E6A', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+                  <UserCheck size={24} />
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)' }}>No Link Requests in Queue</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, maxWidth: 460, margin: '4px auto 0' }}>
+                  When parents submit their child&apos;s admission number in the Parent Portal, their verification requests will appear here for one-click approval.
+                </div>
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...thStyle, width: 36 }}>#</th>
+                    <th style={thStyle}>Parent Applicant</th>
+                    <th style={thStyle}>Requested Student / Ward</th>
+                    <th style={thStyle}>Admission Number</th>
+                    <th style={thStyle}>Relationship</th>
+                    <th style={thStyle}>Status</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {linkRequests.map((req, idx) => {
+                    const isPending = req.status === 'pending';
+                    const isApproved = req.status === 'approved';
+                    const isRejected = req.status === 'rejected';
+
+                    return (
+                      <tr key={req.id || idx} style={{ background: isPending ? '#FFFCF5' : idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7' }}>
+                        <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 700, color: 'var(--neutral-dark)' }}>{req.parent_name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{req.parent_email}</div>
+                        </td>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 700, color: '#20554E' }}>{req.student_name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{req.student_grade || 'Student'}</div>
+                        </td>
+                        <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: '#1A1A1A' }}>
+                          {req.student_admission_number}
+                        </td>
+                        <td style={{ ...tdStyle, fontSize: 12 }}>
+                          <div>{req.relationship || 'Parent / Guardian'}</div>
+                          {req.notes && (
+                            <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontStyle: 'italic', marginTop: 2 }}>
+                              &quot;{req.notes}&quot;
+                            </div>
+                          )}
+                        </td>
+                        <td style={tdStyle}>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              padding: '3px 8px',
+                              fontSize: 10,
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              borderRadius: 4,
+                              background: isApproved ? '#EAF3EF' : isRejected ? '#FDF1F0' : '#FEF7EC',
+                              color: isApproved ? '#2D6E5D' : isRejected ? '#A83B38' : '#9E6C1B',
+                              border: isApproved ? '1px solid #C7E4D8' : isRejected ? '1px solid #F5C6CB' : '1px solid #F5DEB3',
+                            }}
+                          >
+                            {req.status}
+                          </span>
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {isPending ? (
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                              <button
+                                onClick={() => onApproveLinkRequest && onApproveLinkRequest(req.id)}
+                                style={{
+                                  padding: '5px 12px',
+                                  fontSize: 11.5,
+                                  fontWeight: 700,
+                                  background: '#2C6E6A',
+                                  color: '#FFFFFF',
+                                  border: 'none',
+                                  borderRadius: 5,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                ✓ Approve &amp; Link
+                              </button>
+                              <button
+                                onClick={() => onRejectLinkRequest && onRejectLinkRequest(req.id)}
+                                style={{
+                                  padding: '5px 9px',
+                                  fontSize: 11.5,
+                                  fontWeight: 600,
+                                  background: '#FDF1F0',
+                                  color: '#A83B38',
+                                  border: '1px solid #F5C6CB',
+                                  borderRadius: 5,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                ✕ Reject
+                              </button>
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: 11.5, fontWeight: 600, color: isApproved ? '#2D6E5D' : '#A83B38' }}>
+                              {isApproved ? '✓ Linked to Parent' : 'Rejected'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   // ─── TAB 5: HOLISTIC HUB ────────────────────────────────────────────────────
   const renderHub = () => (
@@ -1214,9 +1778,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     </div>
   );
 
-  const tabs: { id: AdminTab; label: string; count?: number }[] = [
+  const tabs: { id: AdminTab; label: string; count?: number; isAlert?: boolean }[] = [
     { id: 'overview', label: 'OVERVIEW' },
     { id: 'directory', label: 'USER DIRECTORY', count: profiles.length },
+    {
+      id: 'link_requests',
+      label: 'PARENT LINK REQUESTS',
+      count: pendingLinkRequests.length,
+      isAlert: pendingLinkRequests.length > 0,
+    },
     { id: 'classes', label: 'CLASSES & SECTIONS', count: activeClassList.length },
     { id: 'documents', label: 'DOCUMENTS', count: parentDocuments.length },
     { id: 'hub', label: 'HOLISTIC HUB', count: hubActivities.length },
@@ -1226,206 +1796,248 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   ];
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: '#F8F7F4' }}>
-      {/* COMPACT SIDEBAR (210px) */}
+    <div className="app-viewport">
+      {/* ADMIN SIDEBAR — original console design */}
       <aside
         style={{
-          width: 210,
-          minWidth: 210,
+          width: sidebar.isCollapsed ? 64 : 260,
+          minWidth: sidebar.isCollapsed ? 64 : 260,
           background: '#FFFFFF',
-          borderRight: '1px solid var(--border-color)',
+          borderRight: '1px solid #E8E5DF',
           display: 'flex',
           flexDirection: 'column',
           height: '100%',
           flexShrink: 0,
+          transition: 'width 0.38s cubic-bezier(0.16, 1, 0.3, 1), min-width 0.38s cubic-bezier(0.16, 1, 0.3, 1)',
+          overflow: 'hidden',
+          position: 'relative',
+          zIndex: 15,
         }}
+        onMouseEnter={sidebar.handleMouseEnter}
+        onMouseLeave={sidebar.handleMouseLeave}
+        onDoubleClick={sidebar.togglePin}
       >
-        {/* Brand Header with School Logo */}
-        <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-color)', background: '#FFFFFF' }}>
-          <img
-            src="/Jurf-Logo-1.png"
-            alt="Woodlem Park School"
-            style={{
-              width: '100%',
-              maxHeight: 44,
-              objectFit: 'contain',
-              display: 'block',
-              marginBottom: 6,
-            }}
-          />
-          <div style={{ fontSize: 9.5, fontWeight: 800, color: '#65635E', letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: 'center' }}>
-            ADMIN MANAGEMENT CONSOLE
-          </div>
+        {/* LOGO */}
+        <div style={{ padding: '16px 16px 0 16px', flexShrink: 0, overflow: 'hidden' }}>
+          <WoodlemLogo collapsed={sidebar.isCollapsed} />
         </div>
 
-        {/* High-Visibility Admin Operator Card */}
-        <div
-          style={{
-            margin: '8px 10px 4px',
-            padding: '9px 12px',
-            background: '#F5F4EE',
-            border: '1px solid #DCD8CE',
-            borderRadius: 7,
-          }}
-        >
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: '#1E1D1B', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {currentUser.name || 'System Admin'}
+        {/* CONSOLE LABEL */}
+        {!sidebar.isCollapsed && (
+          <div style={{
+            padding: '10px 16px 12px',
+            fontSize: 10.5,
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            color: '#8C8A84',
+            textTransform: 'uppercase',
+            borderBottom: '1px solid #E8E5DF',
+            flexShrink: 0,
+          }}>
+            Admin Management Console
           </div>
-          <div style={{ fontSize: 10, color: '#6A6862', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {currentUser.email}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, paddingTop: 6, borderTop: '1px solid #E2DED4' }}>
-            <span
-              style={{
-                fontSize: 9.5,
-                fontWeight: 800,
-                letterSpacing: '0.06em',
-                padding: '2px 7px',
-                borderRadius: 4,
-                background: '#2D2C2A',
-                color: '#FFFFFF',
-                textTransform: 'uppercase',
-              }}
-            >
-              ADMINISTRATOR
-            </span>
-            <span style={{ fontSize: 10, color: '#2C6E6A', fontWeight: 700 }}>
-              Online
-            </span>
-          </div>
-        </div>
+        )}
 
-        {/* Navigation list */}
-        <nav style={{ flex: 1, padding: '6px 8px', overflowY: 'auto' }}>
-          {/* AI COPILOT QUICK DOCK TRIGGER */}
-          <button
-            type="button"
-            onClick={toggleAiPanel}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '8px 10px',
-              fontSize: 11.5,
-              borderRadius: 6,
-              marginBottom: 10,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              background: isAiPanelOpen
-                ? 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)'
-                : 'linear-gradient(135deg, rgba(84, 87, 254, 0.08) 0%, rgba(155, 81, 224, 0.08) 100%)',
-              border: isAiPanelOpen ? '1px solid #334155' : '1px solid rgba(155, 81, 224, 0.25)',
-              color: isAiPanelOpen ? '#FFFFFF' : '#4338CA',
-              fontWeight: 700,
-              cursor: 'pointer',
-              boxShadow: isAiPanelOpen ? '0 4px 12px rgba(15, 23, 42, 0.15)' : 'none',
-              transition: 'all 0.18s ease',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M12 2C12 7.52285 7.52285 12 2 12C7.52285 12 12 16.4771 12 22C12 16.4771 16.4771 12 22 12C16.4771 12 12 7.52285 12 2Z"
-                  fill={isAiPanelOpen ? '#A78BFA' : 'url(#gemini-nav-icon-admin)'}
-                />
-                <defs>
-                  <linearGradient id="gemini-nav-icon-admin" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
-                    <stop stopColor="#1BA1E3" />
-                    <stop offset="0.5" stopColor="#5457FE" />
-                    <stop offset="1" stopColor="#9B51E0" />
-                  </linearGradient>
-                </defs>
-              </svg>
-              <span>Ask Gemini AI</span>
+        {/* PROFILE CARD */}
+        {!sidebar.isCollapsed && (
+          <div style={{
+            margin: '12px 12px 0',
+            border: '1px solid #E8E5DF',
+            borderRadius: 8,
+            padding: '10px 12px',
+            background: '#FAF9F6',
+            flexShrink: 0,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A', marginBottom: 2 }}>
+              {currentUser.name || 'Admin'}
             </div>
-            <span
-              style={{
-                fontSize: 9,
+            <div style={{ fontSize: 11, color: '#6B6963', marginBottom: 8 }}>
+              {currentUser.email || 'admin@woodlem.com'}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{
+                fontSize: 10,
                 fontWeight: 700,
-                padding: '1px 5px',
-                borderRadius: 3,
-                background: isAiPanelOpen ? 'rgba(255, 255, 255, 0.15)' : '#E0E7FF',
-                color: isAiPanelOpen ? '#E0E7FF' : '#4338CA',
-              }}
-            >
-              ⌘K
-            </span>
-          </button>
-
-          <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', color: '#9E9B95', padding: '6px 6px 4px' }}>
-            NAVIGATION
+                letterSpacing: '0.06em',
+                background: '#1A1A1A',
+                color: '#FFFFFF',
+                padding: '3px 8px',
+                borderRadius: 4,
+                textTransform: 'uppercase',
+              }}>
+                Administrator
+              </span>
+              <span style={{ fontSize: 11.5, fontWeight: 600, color: '#2D8C5E' }}>Online</span>
+            </div>
           </div>
+        )}
+
+        {/* ASK GEMINI AI BUTTON */}
+        {!sidebar.isCollapsed && (
+          <div style={{ padding: '10px 12px 0', flexShrink: 0 }}>
+            <button
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#F0EEFF',
+                border: '1px solid #D4CAFF',
+                borderRadius: 7,
+                padding: '8px 12px',
+                cursor: 'pointer',
+                transition: 'background 0.15s ease',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#E8E1FF')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#F0EEFF')}
+              onClick={() => {/* Gemini trigger */}}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#5B21B6' }}>
+                <span style={{ fontSize: 14 }}>✦</span> Ask Gemini AI
+              </span>
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: '#8B6FCC', background: '#DDD5FF', borderRadius: 4, padding: '2px 5px' }}>⌘K</span>
+            </button>
+          </div>
+        )}
+
+        {/* NAVIGATION SECTION */}
+        <div style={{ padding: sidebar.isCollapsed ? '12px 0 0' : '16px 0 0', flexShrink: 0 }}>
+          {!sidebar.isCollapsed && (
+            <div style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              color: '#9E9A94',
+              padding: '0 16px 6px',
+              textTransform: 'uppercase',
+            }}>
+              Navigation
+            </div>
+          )}
+        </div>
+
+        {/* NAV ITEMS */}
+        <nav style={{
+          flex: 1,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          padding: sidebar.isCollapsed ? '0 8px' : '0 8px',
+          scrollbarWidth: 'thin',
+          scrollbarColor: 'rgba(0,0,0,0.1) transparent',
+        }}>
           {tabs.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  padding: '7px 9px',
-                  fontSize: 11,
-                  fontWeight: isActive ? 700 : 500,
-                  letterSpacing: '0.02em',
-                  color: isActive ? '#FFFFFF' : 'var(--neutral-dark)',
-                  background: isActive ? '#2D2C2A' : 'transparent',
-                  border: 'none',
-                  borderRadius: 5,
-                  cursor: 'pointer',
-                  marginBottom: 2,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  transition: 'background 0.1s',
-                }}
-                onMouseEnter={(e) => {
-                  if (!isActive) e.currentTarget.style.background = '#F2F1EC';
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) e.currentTarget.style.background = 'transparent';
-                }}
-              >
-                <span>{tab.label}</span>
-                {tab.count !== undefined && (
-                  <span
-                    style={{
-                      fontSize: 9.5,
-                      fontWeight: 700,
-                      padding: '1px 5px',
-                      borderRadius: 3,
-                      background: isActive ? '#454340' : '#EAE8E3',
-                      color: isActive ? '#FFFFFF' : '#65635E',
-                    }}
-                  >
-                    {tab.count}
-                  </span>
+              <div key={tab.id} style={{ position: 'relative' }}>
+                <button
+                  onClick={() => { setActiveTab(tab.id); sidebar.handleNavClick(); }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: sidebar.isCollapsed ? 'center' : 'space-between',
+                    padding: sidebar.isCollapsed ? '0' : '9px 10px',
+                    width: sidebar.isCollapsed ? 40 : '100%',
+                    height: sidebar.isCollapsed ? 40 : 'auto',
+                    margin: sidebar.isCollapsed ? '2px auto' : '1px 0',
+                    background: isActive ? '#1A1A1A' : 'transparent',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    textAlign: 'left' as const,
+                    transition: 'background 0.12s ease',
+                  }}
+                  onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = '#F3F2EF'; }}
+                  onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                  title={sidebar.isCollapsed ? tab.label : undefined}
+                >
+                  {sidebar.isCollapsed ? (
+                    /* Collapsed: show first letter of label */
+                    <span style={{ fontSize: 11, fontWeight: 800, color: isActive ? '#FFFFFF' : '#6B6963', letterSpacing: '0.02em' }}>
+                      {tab.label.charAt(0)}
+                    </span>
+                  ) : (
+                    <>
+                      <span style={{
+                        fontSize: 11.5,
+                        fontWeight: isActive ? 700 : 600,
+                        letterSpacing: '0.04em',
+                        color: isActive ? '#FFFFFF' : '#3A3834',
+                        textTransform: 'uppercase',
+                      }}>
+                        {tab.label}
+                      </span>
+                      {tab.count !== undefined && (
+                        <span style={{
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          color: tab.isAlert ? '#92400E' : isActive ? '#1A1A1A' : '#6B6963',
+                          background: tab.isAlert ? '#FDE68A' : isActive ? '#FFFFFF' : '#EDEAE4',
+                          border: tab.isAlert ? '1px solid #F59E0B' : 'none',
+                          borderRadius: 5,
+                          padding: '1px 6px',
+                          flexShrink: 0,
+                        }}>
+                          {tab.count}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </button>
+                {sidebar.isCollapsed && (
+                  <div className="sidebar-tooltip">{tab.label}</div>
                 )}
-              </button>
+              </div>
             );
           })}
         </nav>
 
-        {/* Sign out footer */}
-        <div style={{ padding: '8px 10px', borderTop: '1px solid var(--border-color)', background: '#FFFFFF' }}>
-          <button
-            onClick={onSignOut}
-            style={{
-              width: '100%',
-              padding: '6px 8px',
-              fontSize: 11,
-              fontWeight: 600,
-              color: '#A83B38',
-              background: '#FDF1F0',
-              border: '1px solid #F5C6CB',
-              borderRadius: 5,
-              cursor: 'pointer',
-              textAlign: 'center',
-            }}
-          >
-            Sign Out
-          </button>
+        {/* SIGN OUT FOOTER */}
+        <div style={{
+          padding: sidebar.isCollapsed ? '8px 0 12px' : '8px 12px 16px',
+          borderTop: '1px solid #E8E5DF',
+          flexShrink: 0,
+          display: 'flex',
+          justifyContent: sidebar.isCollapsed ? 'center' : 'stretch',
+        }}>
+          <div style={{ position: 'relative', width: sidebar.isCollapsed ? 'auto' : '100%' }}>
+            <button
+              onClick={onSignOut}
+              title="Sign Out"
+              style={{
+                width: sidebar.isCollapsed ? 40 : '100%',
+                height: sidebar.isCollapsed ? 40 : 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: sidebar.isCollapsed ? 'center' : 'center',
+                gap: 6,
+                background: sidebar.isCollapsed ? 'transparent' : '#FEF2F2',
+                border: sidebar.isCollapsed ? 'none' : '1px solid #FECACA',
+                borderRadius: 7,
+                padding: sidebar.isCollapsed ? 0 : '9px 0',
+                cursor: 'pointer',
+                fontSize: 13,
+                fontWeight: 600,
+                color: '#DC2626',
+                transition: 'background 0.15s ease',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = sidebar.isCollapsed ? '#FEF2F2' : '#FEE2E2')}
+              onMouseLeave={e => (e.currentTarget.style.background = sidebar.isCollapsed ? 'transparent' : '#FEF2F2')}
+            >
+              <LogOut size={14} />
+              {!sidebar.isCollapsed && <span>Sign Out</span>}
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">Sign Out</div>
+            )}
+          </div>
         </div>
+
+        {/* FEEDBACK TOAST */}
+        {sidebar.feedbackToast && (
+          <div className="sidebar-feedback-toast">
+            {sidebar.feedbackToast}
+          </div>
+        )}
       </aside>
 
       {/* MAIN VIEWPORT */}
@@ -1464,6 +2076,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
           {activeTab === 'overview' && renderOverview()}
           {activeTab === 'directory' && renderUserDirectory()}
+          {activeTab === 'link_requests' && renderLinkRequests()}
           {activeTab === 'classes' && renderClasses()}
           {activeTab === 'documents' && renderDocuments()}
           {activeTab === 'hub' && renderHub()}

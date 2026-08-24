@@ -506,7 +506,35 @@ ALTER TABLE public.support_tickets ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public access support_tickets" ON public.support_tickets;
 CREATE POLICY "Public access support_tickets" ON public.support_tickets FOR ALL USING (true) WITH CHECK (true);
 
+-- 19. Parent-Student Link Requests Table & Profile Enhancements
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS linked_student_ids TEXT[] DEFAULT '{}'::TEXT[];
 
+CREATE TABLE IF NOT EXISTS public.parent_student_link_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    parent_id TEXT REFERENCES public.profiles(id) ON DELETE CASCADE,
+    parent_name TEXT NOT NULL,
+    parent_email TEXT NOT NULL,
+    student_id TEXT REFERENCES public.profiles(id) ON DELETE CASCADE,
+    student_name TEXT NOT NULL,
+    student_admission_number TEXT NOT NULL,
+    student_grade TEXT DEFAULT '',
+    relationship TEXT DEFAULT 'Parent / Guardian',
+    notes TEXT DEFAULT '',
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(parent_id, student_id)
+);
 
+ALTER TABLE public.parent_student_link_requests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public access parent_student_link_requests" ON public.parent_student_link_requests;
+DROP POLICY IF EXISTS "Public full access parent_student_link_requests" ON public.parent_student_link_requests;
+CREATE POLICY "Public full access parent_student_link_requests" ON public.parent_student_link_requests FOR ALL USING (true) WITH CHECK (true);
 
-
+DO $$
+BEGIN
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.parent_student_link_requests;
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
+END $$;

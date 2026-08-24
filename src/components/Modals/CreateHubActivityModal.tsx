@@ -15,9 +15,17 @@ interface CreateHubActivityModalProps {
     attachedFileName?: string;
     targetGrades: string[];
   }) => void;
+  teacherClass?: string;
+  userRole?: string;
 }
 
-export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({ isOpen, onClose, onSubmit }) => {
+export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  teacherClass,
+  userRole,
+}) => {
   const [title, setTitle] = useState('');
   const [type, setType] = useState('');
   const [description, setDescription] = useState('');
@@ -27,6 +35,9 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({ 
   const [targetGrades, setTargetGrades] = useState<string[]>(['Grade 12']);
 
   if (!isOpen) return null;
+
+  const isTeacher = userRole === 'teacher' || (!userRole && Boolean(teacherClass));
+  const effectiveClass = teacherClass || '12-C';
 
   const handleGradeChange = (grade: string, checked: boolean) => {
     if (checked) {
@@ -45,6 +56,15 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({ 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !type || !description.trim() || !date) return;
+
+    // For class teachers: store the grade number + full class ID so filter can match either
+    const gradeNum = effectiveClass.replace(/[^0-9]/g, ''); // e.g. "12"
+    const finalGrades = isTeacher
+      ? Array.from(new Set([gradeNum, effectiveClass].filter(Boolean)))  // ["12","12-C"]
+      : targetGrades.length > 0
+      ? targetGrades
+      : ['Grade 12'];
+
     onSubmit({
       title: title.trim(),
       type,
@@ -52,7 +72,7 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({ 
       date,
       videoUrl: videoUrl.trim(),
       attachedFileName,
-      targetGrades: targetGrades.length > 0 ? targetGrades : ['Grade 12'],
+      targetGrades: finalGrades,
     });
     setTitle('');
     setType('');
@@ -69,7 +89,9 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({ 
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="modal-title">Create Hub Activity</h2>
-          <button type="button" className="close-modal" onClick={onClose}>&times;</button>
+          <button type="button" className="close-modal" onClick={onClose}>
+            &times;
+          </button>
         </div>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
@@ -148,23 +170,51 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({ 
               </div>
             )}
           </div>
-          <div className="form-group">
-            <label className="form-label">Target Grades</label>
-            <div className="checkbox-group">
-              {['Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'].map((g) => (
-                <label key={g}>
-                  <input
-                    type="checkbox"
-                    value={g}
-                    checked={targetGrades.includes(g)}
-                    onChange={(e) => handleGradeChange(g, e.target.checked)}
-                  />{' '}
-                  {g}
-                </label>
-              ))}
+
+          {/* Target Audience: automatic for class teachers, custom checkboxes for admin */}
+          {isTeacher ? (
+            <div
+              style={{
+                marginBottom: 20,
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: '#EAF3EF',
+                border: '1px solid #C7E4D8',
+                color: '#20554E',
+                fontSize: 12,
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <span>🔒 Target Audience:</span>
+              <span>Grade {effectiveClass} (Visible only to students in your class)</span>
             </div>
-          </div>
-          <button type="submit" className="btn-hub btn-primary" style={{ width: '100%', padding: 14 }}>
+          ) : (
+            <div className="form-group">
+              <label className="form-label">Target Grades</label>
+              <div className="checkbox-group">
+                {['Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'].map((g) => (
+                  <label key={g}>
+                    <input
+                      type="checkbox"
+                      value={g}
+                      checked={targetGrades.includes(g)}
+                      onChange={(e) => handleGradeChange(g, e.target.checked)}
+                    />{' '}
+                    {g}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            className="btn-hub btn-primary"
+            style={{ width: '100%', padding: 14 }}
+          >
             Publish Activity
           </button>
         </form>
@@ -172,3 +222,4 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({ 
     </div>
   );
 };
+
