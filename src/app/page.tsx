@@ -137,22 +137,41 @@ export default function WoodlemApp() {
       // Extract all cloud-stored custom user passwords from Supabase
       const passwordMap: Record<string, string> = {};
       (achRes.data || []).forEach((ach: any) => {
-        if (ach.title === '__USER_PASSWORD__') {
+        if (ach.title === '__USER_PASSWORD__' || (ach.id && typeof ach.id === 'string' && ach.id.startsWith('pwd_'))) {
           const pwd = ach.description || ach.desc_text || ach.file_url || '';
           if (pwd && typeof pwd === 'string') {
             const cleanP = pwd.trim();
-            if (ach.student_id) {
+            if (ach.student_id && ach.student_id !== 'system') {
               passwordMap[ach.student_id] = cleanP;
               passwordMap[ach.student_id.toLowerCase()] = cleanP;
             }
             if (ach.file_name) {
               const fEmail = ach.file_name.toLowerCase().trim();
               passwordMap[fEmail] = cleanP;
+              passwordMap[fEmail.replace(/[^a-zA-Z0-9]/g, '_')] = cleanP;
             }
             if (ach.id && typeof ach.id === 'string' && ach.id.startsWith('pwd_')) {
               const uKey = ach.id.replace('pwd_', '');
               passwordMap[uKey] = cleanP;
               passwordMap[uKey.toLowerCase()] = cleanP;
+            }
+          }
+        }
+      });
+
+      // Also check secondary parent_documents backup
+      (parentDocRes.data || []).forEach((doc: any) => {
+        if (doc.document_type === '__USER_PASSWORD__') {
+          const pwd = doc.file_url || doc.file_name || '';
+          if (pwd && typeof pwd === 'string') {
+            const cleanP = pwd.trim();
+            if (doc.student_id) {
+              passwordMap[doc.student_id] = cleanP;
+              passwordMap[doc.student_id.toLowerCase()] = cleanP;
+            }
+            if (doc.file_name) {
+              const fEmail = doc.file_name.toLowerCase().trim();
+              passwordMap[fEmail] = cleanP;
             }
           }
         }
