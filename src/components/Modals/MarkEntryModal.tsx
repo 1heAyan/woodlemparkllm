@@ -295,13 +295,35 @@ export function MarkEntryModal({
         return;
       }
 
-      // 2. If no assessments found for this class, check Master Store or other classrooms in this grade
+      // 2. If no assessments found for this class, check Supabase Cloud Master Store or other classrooms in this grade
       if (!assData || assData.length === 0) {
-        const storedMasterTerms = getStoredGradeTerms()[targetGrade] || [];
-        let termsToSeed: { title: string; maximum_marks: number }[] = storedMasterTerms.map(t => ({
-          title: t.title,
-          maximum_marks: t.maximum_marks,
-        }));
+        // Query Supabase cloud master terms for this grade
+        const { data: cloudMasterData } = await supabase
+          .from('achievements')
+          .select('*')
+          .eq('title', '__GRADE_ASSESSMENT_TERM__')
+          .eq('student_id', targetGrade);
+
+        let termsToSeed: { title: string; maximum_marks: number }[] = [];
+
+        if (cloudMasterData && cloudMasterData.length > 0) {
+          termsToSeed = cloudMasterData.map((m: any) => {
+            let parsed: any = {};
+            try { parsed = JSON.parse(m.desc_text || '{}'); } catch { parsed = {}; }
+            return {
+              title: parsed.title || m.file_name || 'Assessment',
+              maximum_marks: Number(parsed.maximum_marks || m.file_url || 40),
+            };
+          });
+        }
+
+        if (termsToSeed.length === 0) {
+          const storedMasterTerms = getStoredGradeTerms()[targetGrade] || [];
+          termsToSeed = storedMasterTerms.map(t => ({
+            title: t.title,
+            maximum_marks: t.maximum_marks,
+          }));
+        }
 
         if (termsToSeed.length === 0) {
           const { data: gradeTerms } = await supabase

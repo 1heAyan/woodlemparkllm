@@ -524,7 +524,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         (a.student_id === currentStudent.id || (currentStudent.email && a.student_id === currentStudent.email)) &&
         a.title !== '__USER_AVATAR__' &&
         a.title !== '__PARENT_DOC__' &&
-        a.title !== '__LEAVE_REQUEST__'
+        a.title !== '__LEAVE_REQUEST__' &&
+        a.title !== '__GRADE_ASSESSMENT_TERM__' &&
+        !String(a.title || '').startsWith('__')
     );
   }, [achievements, currentStudent.id, currentStudent.email]);
 

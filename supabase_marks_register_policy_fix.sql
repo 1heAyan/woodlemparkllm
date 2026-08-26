@@ -14,6 +14,7 @@ DROP POLICY IF EXISTS "Teachers and admins manage marks in registers" ON public.
 -- 2. Clean table type constraints: convert UUID columns to TEXT to work with Woodlem profile identifiers
 ALTER TABLE public.offline_assessment_marks DROP CONSTRAINT IF EXISTS offline_assessment_marks_student_id_fkey;
 ALTER TABLE public.offline_assessments DROP CONSTRAINT IF EXISTS offline_assessments_teacher_id_fkey;
+ALTER TABLE public.offline_assessments DROP CONSTRAINT IF EXISTS offline_assessments_class_id_fkey;
 ALTER TABLE public.offline_assessment_marks ALTER COLUMN student_id TYPE TEXT USING student_id::TEXT;
 ALTER TABLE public.offline_assessments ALTER COLUMN teacher_id TYPE TEXT USING teacher_id::TEXT;
 

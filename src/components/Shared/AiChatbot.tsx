@@ -440,7 +440,14 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
 
     // 9. Student Achievements & Distinctions (filtered to user's homeroom / scope)
     const recentAwards = achievements
-      .filter((a) => a.title !== '__USER_AVATAR__' && a.title !== '__PARENT_DOC__' && a.title !== '__LEAVE_REQUEST__')
+      .filter(
+        (a) =>
+          a.title !== '__USER_AVATAR__' &&
+          a.title !== '__PARENT_DOC__' &&
+          a.title !== '__LEAVE_REQUEST__' &&
+          a.title !== '__GRADE_ASSESSMENT_TERM__' &&
+          !String(a.title || '').startsWith('__')
+      )
       .slice(0, 10)
       .map((a) => {
         const st = profiles.find((p) => p.id === a.student_id);

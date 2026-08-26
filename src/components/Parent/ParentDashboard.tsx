@@ -349,7 +349,9 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
         a.student_id === activeChild.id &&
         a.title !== '__USER_AVATAR__' &&
         a.title !== '__PARENT_DOC__' &&
-        a.title !== '__LEAVE_REQUEST__'
+        a.title !== '__LEAVE_REQUEST__' &&
+        a.title !== '__GRADE_ASSESSMENT_TERM__' &&
+        !String(a.title || '').startsWith('__')
     );
   }, [achievements, activeChild]);
 

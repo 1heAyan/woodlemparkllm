@@ -282,7 +282,14 @@ export default function WoodlemApp() {
       setLeaveRequests(builtLeaves);
 
       const builtAchievements: Achievement[] = (achRes.data || [])
-        .filter((ach: any) => ach.title !== '__USER_AVATAR__' && ach.title !== '__PARENT_DOC__' && ach.title !== '__LEAVE_REQUEST__')
+        .filter(
+          (ach: any) =>
+            ach.title !== '__USER_AVATAR__' &&
+            ach.title !== '__PARENT_DOC__' &&
+            ach.title !== '__LEAVE_REQUEST__' &&
+            ach.title !== '__GRADE_ASSESSMENT_TERM__' &&
+            !String(ach.title || '').startsWith('__')
+        )
         .map((ach: any) => {
           let description = ach.desc_text || ach.description || '';
           let fileName = ach.file_name || '';
@@ -1509,6 +1516,36 @@ export default function WoodlemApp() {
     try {
       const { error } = await supabase.from('subject_classes').insert([newClass]);
       if (error) console.error('Error inserting class to Supabase:', error.message);
+
+      // Auto-seed grade assessment terms for the newly created classroom from Supabase master store
+      const gMatch = newClass.class_name.match(/\d+/);
+      const targetGrade = gMatch ? gMatch[0] : '10';
+      const { data: cloudMasterTerms } = await supabase
+        .from('achievements')
+        .select('*')
+        .eq('title', '__GRADE_ASSESSMENT_TERM__')
+        .eq('student_id', targetGrade);
+
+      if (cloudMasterTerms && cloudMasterTerms.length > 0) {
+        const defaultDate = new Date().toISOString().slice(0, 10);
+        const seedRows = cloudMasterTerms.map((m: any) => {
+          let termObj: any = {};
+          try { termObj = JSON.parse(m.desc_text || '{}'); } catch { termObj = {}; }
+          const title = termObj.title || m.file_name || 'Assessment';
+          const maxMarks = Number(termObj.maximum_marks || m.file_url || 40);
+          const baseSlug = title.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30);
+          return {
+            id: `offline_term_g${targetGrade}_${baseSlug}_${newClass.id}`,
+            class_id: newClass.id,
+            teacher_id: newClass.teacher_id,
+            title,
+            assessment_date: defaultDate,
+            maximum_marks: maxMarks,
+            notes: '',
+          };
+        });
+        await supabase.from('offline_assessments').upsert(seedRows as never[], { onConflict: 'id' });
+      }
     } catch (e) {
       console.error('Error creating class in Supabase:', e);
     }

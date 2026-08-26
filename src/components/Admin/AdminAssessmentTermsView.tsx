@@ -89,6 +89,44 @@ export function saveStoredGradeTerms(map: Record<string, GradeAssessmentTerm[]>)
   } catch {}
 }
 
+export async function fetchCloudGradeTerms(): Promise<Record<string, GradeAssessmentTerm[]>> {
+  const map: Record<string, GradeAssessmentTerm[]> = { '9': [], '10': [], '11': [], '12': [] };
+  try {
+    const { data, error } = await supabase
+      .from('achievements')
+      .select('*')
+      .eq('title', '__GRADE_ASSESSMENT_TERM__');
+
+    if (!error && data) {
+      data.forEach((row: any) => {
+        let termObj: any = {};
+        try {
+          termObj = JSON.parse(row.desc_text || '{}');
+        } catch {
+          termObj = {
+            title: row.file_name,
+            maximum_marks: Number(row.file_url || 40),
+            grade: row.student_id,
+          };
+        }
+        const g = String(termObj.grade || row.student_id || '10').replace(/[^0-9]/g, '');
+        if (!map[g]) map[g] = [];
+        map[g].push({
+          id: row.id,
+          title: termObj.title || row.file_name || 'Assessment',
+          assessment_date: termObj.assessment_date || new Date().toISOString().slice(0, 10),
+          maximum_marks: Number(termObj.maximum_marks || row.file_url || 40),
+          notes: termObj.notes || '',
+          grade: g,
+        });
+      });
+    }
+  } catch (err) {
+    console.error('Error fetching cloud grade terms:', err);
+  }
+  return map;
+}
+
 export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> = ({
   currentUser,
   profiles,
@@ -118,31 +156,121 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
     }, 4000);
   };
 
-  // Load all offline assessments + master store
+  // Load all offline assessments + master store directly from Supabase
   const loadAssessments = useCallback(async () => {
     setLoading(true);
-    setLocalGradeTerms(getStoredGradeTerms());
     try {
-      const { data, error } = await supabase
+      // 1. Fetch Cloud Master Terms from Supabase achievements table
+      const cloudMap = await fetchCloudGradeTerms();
+
+      // 2. Fetch offline_assessments from database
+      const { data: offlineData } = await supabase
         .from('offline_assessments')
         .select('*')
         .order('created_at', { ascending: true });
 
-      if (error) {
-        // Continue with local store
-      } else {
-        setRawAssessments(data || []);
-      }
-    } catch {
-      // Continue with local store
+      setRawAssessments(offlineData || []);
+
+      // 3. Merge: If offline_assessments has terms for a grade that aren't yet in cloudMap, add and save to cloud
+      const classById: Record<string, SubjectClass> = {};
+      subjectClasses.forEach(c => { classById[c.id] = c; });
+
+      (offlineData || []).forEach((item: any) => {
+        let g = '10';
+        if (item.class_id && item.class_id.startsWith('grade_')) {
+          g = item.class_id.replace('grade_', '');
+        } else if (item.class_id && classById[item.class_id]) {
+          g = extractGradeFromClass(classById[item.class_id]);
+        } else if (item.id && item.id.includes('_g9_')) {
+          g = '9';
+        } else if (item.id && item.id.includes('_g10_')) {
+          g = '10';
+        } else if (item.id && item.id.includes('_g11_')) {
+          g = '11';
+        } else if (item.id && item.id.includes('_g12_')) {
+          g = '12';
+        }
+
+        if (!cloudMap[g]) cloudMap[g] = [];
+        const exists = cloudMap[g].some(t => t.title.toLowerCase().trim() === item.title.toLowerCase().trim());
+        if (!exists) {
+          const newMaster: GradeAssessmentTerm = {
+            id: item.id,
+            title: item.title,
+            assessment_date: item.assessment_date || new Date().toISOString().slice(0, 10),
+            maximum_marks: Number(item.maximum_marks || 40),
+            notes: item.notes || '',
+            grade: g,
+          };
+          cloudMap[g].push(newMaster);
+
+          // Proactively persist to Supabase cloud master record
+          supabase
+            .from('achievements')
+            .upsert([{
+              id: `grade_term_g${g}_${item.title.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30)}`,
+              student_id: g,
+              title: '__GRADE_ASSESSMENT_TERM__',
+              desc_text: JSON.stringify(newMaster),
+              file_name: item.title,
+              file_url: String(item.maximum_marks || 40),
+            }], { onConflict: 'id' })
+            .then(() => {});
+        }
+      });
+
+      // 4. Also check localStorage for any offline-created terms and sync them to cloud
+      const localStored = getStoredGradeTerms();
+      VALID_GRADES.forEach(g => {
+        const localList = localStored[g] || [];
+        localList.forEach(lt => {
+          if (!lt || !lt.title) return;
+          const exists = (cloudMap[g] || []).some(
+            ct => ct.title.toLowerCase().trim() === lt.title.toLowerCase().trim()
+          );
+          if (!exists) {
+            if (!cloudMap[g]) cloudMap[g] = [];
+            const baseSlug = lt.title.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30);
+            const migrated: GradeAssessmentTerm = {
+              id: lt.id || `grade_term_g${g}_${baseSlug}`,
+              title: lt.title,
+              assessment_date: lt.assessment_date || new Date().toISOString().slice(0, 10),
+              maximum_marks: Number(lt.maximum_marks || 40),
+              notes: lt.notes || '',
+              grade: g,
+            };
+            cloudMap[g].push(migrated);
+
+            // Save to Supabase cloud!
+            supabase
+              .from('achievements')
+              .upsert([{
+                id: migrated.id,
+                student_id: g,
+                title: '__GRADE_ASSESSMENT_TERM__',
+                desc_text: JSON.stringify(migrated),
+                file_name: lt.title,
+                file_url: String(lt.maximum_marks || 40),
+              }], { onConflict: 'id' })
+              .then(() => {});
+          }
+        });
+      });
+
+      // 5. Update local state and localStorage cache
+      setLocalGradeTerms(cloudMap);
+      saveStoredGradeTerms(cloudMap);
+    } catch (e) {
+      console.error('Error loading assessments:', e);
+      setLocalGradeTerms(getStoredGradeTerms());
     }
     setLoading(false);
-  }, []);
+  }, [subjectClasses]);
 
   useEffect(() => {
     loadAssessments();
     const handleUpdate = () => {
-      setLocalGradeTerms(getStoredGradeTerms());
+      loadAssessments();
     };
     window.addEventListener('woodlem-marks-updated', handleUpdate);
     return () => window.removeEventListener('woodlem-marks-updated', handleUpdate);
@@ -266,46 +394,44 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
       const targetGrade = selectedGrade;
       const baseSlug = cleanTitle.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30);
       const defaultDate = new Date().toISOString().slice(0, 10);
+      const termId = editingTerm?.id || `grade_term_g${targetGrade}_${baseSlug}`;
 
-      // 1. Update Master Store for this Grade
-      const stored = getStoredGradeTerms();
-      const gradeList = stored[targetGrade] || [];
+      const termData: GradeAssessmentTerm = {
+        id: termId,
+        title: cleanTitle,
+        assessment_date: defaultDate,
+        maximum_marks: numMax,
+        notes: formNotes || '',
+        grade: targetGrade,
+      };
 
-      if (editingTerm) {
-        const idx = gradeList.findIndex(t => t.title.toLowerCase() === editingTerm.title.toLowerCase() || t.id === editingTerm.id);
-        const updatedTerm: GradeAssessmentTerm = {
-          id: editingTerm.id,
-          title: cleanTitle,
-          assessment_date: defaultDate,
-          maximum_marks: numMax,
-          notes: '',
-          grade: targetGrade,
-        };
-        if (idx >= 0) {
-          gradeList[idx] = updatedTerm;
-        } else {
-          gradeList.push(updatedTerm);
-        }
-      } else {
-        const existingIdx = gradeList.findIndex(t => t.title.toLowerCase() === cleanTitle.toLowerCase());
-        const newTerm: GradeAssessmentTerm = {
-          id: `grade_${targetGrade}_term_${baseSlug}`,
-          title: cleanTitle,
-          assessment_date: defaultDate,
-          maximum_marks: numMax,
-          notes: '',
-          grade: targetGrade,
-        };
-        if (existingIdx >= 0) {
-          gradeList[existingIdx] = newTerm;
-        } else {
-          gradeList.push(newTerm);
-        }
+      // 1. ALWAYS SAVE DIRECTLY TO SUPABASE CLOUD MASTER STORE (achievements table)
+      const { error: cloudErr } = await supabase
+        .from('achievements')
+        .upsert([
+          {
+            id: termId,
+            student_id: targetGrade,
+            title: '__GRADE_ASSESSMENT_TERM__',
+            desc_text: JSON.stringify(termData),
+            file_name: cleanTitle,
+            file_url: String(numMax),
+          }
+        ], { onConflict: 'id' });
+
+      if (cloudErr) {
+        console.error('Supabase cloud master term save error:', cloudErr);
       }
-      stored[targetGrade] = gradeList;
-      saveStoredGradeTerms(stored);
 
-      // 2. If classrooms currently exist in this Grade, sync to database
+      // If updating an existing term with a changed title or ID, clean up old record
+      if (editingTerm && (editingTerm.id !== termId || editingTerm.title !== cleanTitle)) {
+        await supabase
+          .from('achievements')
+          .delete()
+          .eq('id', editingTerm.id);
+      }
+
+      // 2. If classrooms currently exist in this Grade, sync to database offline_assessments
       if (currentGradeClasses.length > 0) {
         if (editingTerm) {
           await supabase
@@ -333,12 +459,24 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
         }
       }
 
+      // 3. Update localStorage cache
+      const stored = getStoredGradeTerms();
+      const gradeList = stored[targetGrade] || [];
+      const existingIdx = gradeList.findIndex(t => (editingTerm && t.id === editingTerm.id) || t.title.toLowerCase() === cleanTitle.toLowerCase());
+      if (existingIdx >= 0) {
+        gradeList[existingIdx] = termData;
+      } else {
+        gradeList.push(termData);
+      }
+      stored[targetGrade] = gradeList;
+      saveStoredGradeTerms(stored);
+
       showToast(
         editingTerm
-          ? `Updated assessment term "${cleanTitle}" for Grade ${targetGrade}.`
+          ? `Updated assessment term "${cleanTitle}" for Grade ${targetGrade} (saved to database).`
           : currentGradeClasses.length > 0
-          ? `Created assessment term "${cleanTitle}" across all ${currentGradeClasses.length} classrooms in Grade ${targetGrade}.`
-          : `Created assessment term "${cleanTitle}" for Grade ${targetGrade}.`,
+          ? `Created assessment term "${cleanTitle}" across all ${currentGradeClasses.length} classrooms in Grade ${targetGrade} (saved to database).`
+          : `Created assessment term "${cleanTitle}" for Grade ${targetGrade} (saved to database).`,
         'success'
       );
 
@@ -363,14 +501,20 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
 
     setLoading(true);
     try {
-      // 1. Remove from Master Store
-      const stored = getStoredGradeTerms();
-      if (stored[selectedGrade]) {
-        stored[selectedGrade] = stored[selectedGrade].filter(t => t.title.toLowerCase() !== term.title.toLowerCase() && t.id !== term.id);
-        saveStoredGradeTerms(stored);
-      }
+      // 1. Remove from Supabase Cloud Master Store (achievements)
+      await supabase
+        .from('achievements')
+        .delete()
+        .eq('id', term.id);
 
-      // 2. Remove from DB if classes exist
+      await supabase
+        .from('achievements')
+        .delete()
+        .eq('title', '__GRADE_ASSESSMENT_TERM__')
+        .eq('student_id', selectedGrade)
+        .eq('file_name', term.title);
+
+      // 2. Remove from DB offline_assessments if classes exist
       const targetClassIds = currentGradeClasses.map(c => c.id);
       if (targetClassIds.length > 0) {
         await supabase
@@ -380,10 +524,17 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
           .eq('title', term.title);
       }
 
+      // 3. Remove from local store cache
+      const stored = getStoredGradeTerms();
+      if (stored[selectedGrade]) {
+        stored[selectedGrade] = stored[selectedGrade].filter(t => t.title.toLowerCase() !== term.title.toLowerCase() && t.id !== term.id);
+        saveStoredGradeTerms(stored);
+      }
+
       showToast(`Deleted "${term.title}" from Grade ${selectedGrade}.`, 'info');
       await loadAssessments();
-    } catch {
-      showToast('Error deleting term.', 'error');
+    } catch (err: any) {
+      showToast(err.message || 'Error deleting term.', 'error');
     }
     setLoading(false);
   };
@@ -748,11 +899,14 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
                           fontWeight: 600,
                           padding: '3px 8px',
                           borderRadius: 4,
-                          background: 'var(--surface-variant)',
-                          color: 'var(--neutral-dark)',
+                          background: currentGradeClasses.length > 0 ? 'var(--surface-variant)' : '#EAF3EF',
+                          color: currentGradeClasses.length > 0 ? 'var(--neutral-dark)' : '#265E5A',
+                          border: currentGradeClasses.length > 0 ? 'none' : '1px solid #C7E4D8',
                         }}
                       >
-                        {currentGradeClasses.length} {currentGradeClasses.length === 1 ? 'Class' : 'Classes'}
+                        {currentGradeClasses.length > 0
+                          ? `${currentGradeClasses.length} ${currentGradeClasses.length === 1 ? 'Class' : 'Classes'}`
+                          : '💾 Cloud Stored (0 Classes yet)'}
                       </span>
                     </td>
 
@@ -1019,7 +1173,15 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
                   borderRadius: 6,
                 }}
               >
-                ℹ️ This term will be applied automatically across all <strong>{currentGradeClasses.length} classrooms</strong> in Grade {selectedGrade}.
+                {currentGradeClasses.length > 0 ? (
+                  <span>
+                    💾 Saved to database and applied across all <strong>{currentGradeClasses.length} classrooms</strong> in Grade {selectedGrade}.
+                  </span>
+                ) : (
+                  <span>
+                    💾 Saved directly to database for <strong>Grade {selectedGrade}</strong>. Any subject classrooms created in Grade {selectedGrade} will automatically receive this term.
+                  </span>
+                )}
               </div>
 
               {formError && (
