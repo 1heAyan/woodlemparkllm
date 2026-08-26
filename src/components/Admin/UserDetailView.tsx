@@ -139,10 +139,7 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
     setPassword(resolveUserPassword(user));
   }, [user, subjectClasses]);
 
-  // Always keep the password field in sync with the latest resolved password
-  useEffect(() => {
-    setPassword(resolveUserPassword(user));
-  }, [user.temp_password, user.id, user.email]);
+
 
   // Duplicate admission/employee code detection across all other users
   const duplicateCodeUser = useMemo(() => {

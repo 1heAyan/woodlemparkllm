@@ -1050,7 +1050,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                             ? `CT: ${uInfo.classLabel}`
                             : u.subject || 'Faculty'
                           : u.subject || '—';
-                      const userPwd = resolveUserPassword(u);
+                      const cleanUProfileEmail = (u.email || '').toLowerCase().trim();
+                      const userPwd =
+                        storedPasswords[u.id] ||
+                        (cleanUProfileEmail ? storedPasswords[cleanUProfileEmail] : undefined) ||
+                        resolveUserPassword(u);
                       const hasCustom = userPwd !== 'woodlem123';
                       const isRevealed = !!visiblePasswords[u.id];
 
