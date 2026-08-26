@@ -1,15 +1,18 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { CustomSelect } from '@/components/UI/CustomSelect';
-import { FileText, Paperclip } from 'lucide-react';
+import { FileText, Paperclip, X } from 'lucide-react';
+import { LeaveRequest } from '@/lib/supabaseClient';
 
 interface ApplyLeaveModalProps {
   isOpen: boolean;
   studentName?: string;
   studentGrade?: string;
+  initialLeave?: LeaveRequest | null;
   onClose: () => void;
   onSubmit: (leaveData: {
+    id?: string;
     startDate: string;
     endDate: string;
     reason: string;
@@ -20,9 +23,8 @@ interface ApplyLeaveModalProps {
 }
 
 const LEAVE_TYPES = [
-  'Sick Leave (Medical / Illness)',
-  'Doctor / Dental Appointment',
-  'Family Emergency / Personal',
+  'Sick Leave / Medical Appointment',
+  'Family Emergency / Urgent Personal',
   'Official School / Olympiad Duty',
   'Religious Observance',
   'Other Authorized Reason',
@@ -32,6 +34,7 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
   isOpen,
   studentName,
   studentGrade,
+  initialLeave,
   onClose,
   onSubmit,
 }) => {
@@ -41,20 +44,48 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
   const [leaveType, setLeaveType] = useState(LEAVE_TYPES[0]);
   const [reason, setReason] = useState('');
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [existingFileName, setExistingFileName] = useState<string>('');
+  const [existingFileUrl, setExistingFileUrl] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (initialLeave) {
+        setStartDate(initialLeave.startDate || todayStr);
+        setEndDate(initialLeave.endDate || initialLeave.startDate || todayStr);
+        setLeaveType(initialLeave.leaveType || LEAVE_TYPES[0]);
+        setReason(initialLeave.reason || '');
+        setExistingFileName(initialLeave.fileName || '');
+        setExistingFileUrl(initialLeave.fileUrl || '');
+        setAttachedFile(null);
+      } else {
+        setStartDate(todayStr);
+        setEndDate(todayStr);
+        setLeaveType(LEAVE_TYPES[0]);
+        setReason('');
+        setExistingFileName('');
+        setExistingFileUrl('');
+        setAttachedFile(null);
+      }
+    }
+  }, [isOpen, initialLeave, todayStr]);
 
   if (!isOpen) return null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setAttachedFile(e.target.files[0]);
+      setExistingFileName('');
+      setExistingFileUrl('');
     }
   };
 
   const handleRemoveFile = (e: React.MouseEvent) => {
     e.stopPropagation();
     setAttachedFile(null);
+    setExistingFileName('');
+    setExistingFileUrl('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -80,6 +111,7 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
         setIsProcessing(false);
         const dataUrl = reader.result as string;
         onSubmit({
+          id: initialLeave?.id,
           startDate,
           endDate: finalEndDate,
           leaveType,
@@ -92,6 +124,7 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
       reader.onerror = () => {
         setIsProcessing(false);
         onSubmit({
+          id: initialLeave?.id,
           startDate,
           endDate: finalEndDate,
           leaveType,
@@ -103,10 +136,13 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
       reader.readAsDataURL(attachedFile);
     } else {
       onSubmit({
+        id: initialLeave?.id,
         startDate,
         endDate: finalEndDate,
         leaveType,
         reason: reason.trim(),
+        fileName: existingFileName || undefined,
+        fileUrl: existingFileUrl || undefined,
       });
       resetAndClose();
     }
@@ -118,8 +154,12 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
     setLeaveType(LEAVE_TYPES[0]);
     setReason('');
     setAttachedFile(null);
+    setExistingFileName('');
+    setExistingFileUrl('');
     onClose();
   };
+
+  const isEditing = !!initialLeave;
 
   return (
     <div className="modal-overlay active" onClick={onClose}>
@@ -130,10 +170,10 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
               ATTENDANCE &amp; ABSENCE MANAGEMENT
             </span>
             <h2 className="modal-title" style={{ margin: '2px 0 0' }}>
-              Apply for Authorized Leave / Sick Note
+              {isEditing ? 'Edit Leave Request / Sick Note' : 'Apply for Authorized Leave / Sick Note'}
             </h2>
             <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
-              Pre-declare your planned absence or medical sick leave. Your homeroom class teacher will automatically mark these dates as <strong>Authorized Absence (Auth Absent)</strong>.
+              Pre-declare your planned absence or medical sick leave. Your class teacher will automatically mark these dates as <strong>Authorized Absence (Auth Absent)</strong>.
             </p>
           </div>
           <button type="button" className="close-modal" onClick={onClose}>&times;</button>
@@ -249,6 +289,71 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
                   Remove
                 </button>
               </div>
+            ) : existingFileName ? (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 14px',
+                  background: '#F0F9FF',
+                  border: '1.5px solid #BAE6FD',
+                  borderRadius: 8,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <FileText size={20} style={{ color: '#0369A1', flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0369A1' }}>
+                      {existingFileName}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#0284C7' }}>
+                      Current attached certificate
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      background: '#FFFFFF',
+                      border: '1px solid #BAE6FD',
+                      color: '#0369A1',
+                      padding: '4px 8px',
+                      borderRadius: 4,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Replace
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRemoveFile}
+                    style={{
+                      background: '#FFFFFF',
+                      border: '1px solid #F5C6CB',
+                      color: '#A83B38',
+                      padding: '4px 8px',
+                      borderRadius: 4,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+                  onChange={handleFileChange}
+                  style={{ display: 'none' }}
+                />
+              </div>
             ) : (
               <div
                 onClick={() => fileInputRef.current?.click()}
@@ -318,7 +423,7 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
                 boxShadow: '0 4px 12px rgba(28,77,70,0.25)',
               }}
             >
-              {isProcessing ? 'Submitting Leave...' : 'Submit Authorized Leave ↗'}
+              {isProcessing ? 'Saving...' : isEditing ? 'Save Changes' : 'Submit Authorized Leave ↗'}
             </button>
           </div>
         </form>

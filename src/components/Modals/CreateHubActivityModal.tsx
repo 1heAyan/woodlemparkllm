@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
-import { CustomSelect } from '@/components/UI/CustomSelect';
-import { Lock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X } from 'lucide-react';
+import { HubActivity } from '@/lib/supabaseClient';
 
 interface CreateHubActivityModalProps {
   isOpen: boolean;
@@ -13,214 +13,293 @@ interface CreateHubActivityModalProps {
     description: string;
     date: string;
     videoUrl?: string;
-    attachedFileName?: string;
     targetGrades: string[];
+    location?: string;
+    maxCapacity?: number;
   }) => void;
+  onUpdate?: (id: string, activityData: {
+    title: string;
+    type: string;
+    description: string;
+    date: string;
+    videoUrl?: string;
+    targetGrades: string[];
+    location?: string;
+    maxCapacity?: number;
+  }) => void;
+  editActivity?: HubActivity | null;
   teacherClass?: string;
   userRole?: string;
 }
+
+const TYPE_OPTIONS = [
+  { value: 'Club Registration', label: '🎨 Club', color: '#7C3AED' },
+  { value: 'Workshop', label: '🔧 Workshop', color: '#2563EB' },
+  { value: 'Event', label: '🎉 Event', color: '#D97706' },
+  { value: 'Leadership Programme', label: '🏆 Leadership', color: '#059669' },
+  { value: 'Volunteer Opportunity', label: '🤝 Volunteer', color: '#DC2626' },
+  { value: 'Counselling Appointment', label: '💬 Counselling', color: '#0891B2' },
+  { value: 'Summer Programme', label: '☀️ Summer', color: '#EA580C' },
+  { value: 'Sports & Athletics', label: '⚽ Sports', color: '#16A34A' },
+  { value: 'Science & Technology', label: '🔬 Science', color: '#4F46E5' },
+  { value: 'Arts & Culture', label: '🎭 Arts', color: '#C026D3' },
+];
+
+const GRADE_OPTIONS = ['Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'];
 
 export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({
   isOpen,
   onClose,
   onSubmit,
+  onUpdate,
+  editActivity,
   teacherClass,
   userRole,
 }) => {
+  const isEditing = Boolean(editActivity);
+  const isAdmin = userRole === 'admin';
+
   const [title, setTitle] = useState('');
   const [type, setType] = useState('');
   const [description, setDescription] = useState('');
   const [date, setDate] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
-  const [attachedFileName, setAttachedFileName] = useState('');
-  const [targetGrades, setTargetGrades] = useState<string[]>(['Grade 12']);
+  const [location, setLocation] = useState('');
+  const [maxCapacity, setMaxCapacity] = useState('');
+  const [targetGrades, setTargetGrades] = useState<string[]>([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (editActivity) {
+      setTitle(editActivity.title || '');
+      setType(editActivity.type || '');
+      setDescription(editActivity.description || '');
+      setDate(editActivity.date || '');
+      setVideoUrl(editActivity.video_url || '');
+      setLocation((editActivity as any).location || '');
+      setMaxCapacity(String((editActivity as any).max_capacity || ''));
+      setTargetGrades(editActivity.target_grades || []);
+    } else {
+      setTitle(''); setType(''); setDescription(''); setDate('');
+      setVideoUrl(''); setLocation(''); setMaxCapacity('');
+      const gradeNum = (teacherClass || '').replace(/[^0-9]/g, '');
+      setTargetGrades(isAdmin ? [] : (gradeNum ? [`Grade ${gradeNum}`] : []));
+    }
+    setError('');
+  }, [editActivity, isOpen, teacherClass, isAdmin]);
 
   if (!isOpen) return null;
 
-  const isTeacher = userRole === 'teacher' || (!userRole && Boolean(teacherClass));
-  const effectiveClass = teacherClass || '12-C';
-
-  const handleGradeChange = (grade: string, checked: boolean) => {
-    if (checked) {
-      setTargetGrades([...targetGrades, grade]);
-    } else {
-      setTargetGrades(targetGrades.filter((g) => g !== grade));
-    }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setAttachedFileName(e.target.files[0].name);
-    }
+  const handleGradeToggle = (grade: string) => {
+    setTargetGrades(prev =>
+      prev.includes(grade) ? prev.filter(g => g !== grade) : [...prev, grade]
+    );
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !type || !description.trim() || !date) return;
+    if (!title.trim()) { setError('Activity title is required.'); return; }
+    if (!type) { setError('Please select an activity type.'); return; }
+    if (!description.trim()) { setError('Description is required.'); return; }
+    if (!date) { setError('Date / deadline is required.'); return; }
+    setError('');
 
-    // For class teachers: store the grade number + full class ID so filter can match either
-    const gradeNum = effectiveClass.replace(/[^0-9]/g, ''); // e.g. "12"
-    const finalGrades = isTeacher
-      ? Array.from(new Set([gradeNum, effectiveClass].filter(Boolean)))  // ["12","12-C"]
-      : targetGrades.length > 0
-      ? targetGrades
-      : ['Grade 12'];
+    let finalGrades = targetGrades;
+    if (!isAdmin) {
+      const gradeNum = (teacherClass || '').replace(/[^0-9]/g, '');
+      const effectiveClass = teacherClass || '';
+      finalGrades = Array.from(new Set([gradeNum, effectiveClass].filter(Boolean)));
+    }
+    if (finalGrades.length === 0) finalGrades = GRADE_OPTIONS;
 
-    onSubmit({
-      title: title.trim(),
-      type,
-      description: description.trim(),
-      date,
-      videoUrl: videoUrl.trim(),
-      attachedFileName,
-      targetGrades: finalGrades,
-    });
-    setTitle('');
-    setType('');
-    setDescription('');
-    setDate('');
-    setVideoUrl('');
-    setAttachedFileName('');
-    setTargetGrades(['Grade 12']);
+    const payload = {
+      title: title.trim(), type, description: description.trim(), date,
+      videoUrl: videoUrl.trim() || undefined, targetGrades: finalGrades,
+      location: location.trim() || undefined,
+      maxCapacity: maxCapacity ? Number(maxCapacity) : undefined,
+    };
+
+    if (isEditing && editActivity && onUpdate) {
+      onUpdate(editActivity.id, payload);
+    } else {
+      onSubmit(payload);
+    }
     onClose();
   };
 
+  const typeColor = TYPE_OPTIONS.find(t => t.value === type)?.color || '#2C6E6A';
+
   return (
-    <div className="modal-overlay active" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="modal-title">Create Hub Activity</h2>
-          <button type="button" className="close-modal" onClick={onClose}>
-            &times;
+    <div
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+        backdropFilter: 'blur(4px)', zIndex: 1000,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#FFFFFF', borderRadius: 14, width: '100%', maxWidth: 620,
+          maxHeight: '92vh', overflowY: 'auto',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column',
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          padding: '20px 24px 16px', borderBottom: '1px solid var(--border-color)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          position: 'sticky', top: 0, background: '#FFFFFF', zIndex: 10, borderRadius: '14px 14px 0 0',
+        }}>
+          <div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#2C6E6A', marginBottom: 2 }}>
+              CO-CURRICULAR HUB
+            </div>
+            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+              {isEditing ? 'Edit Activity' : 'Publish New Activity'}
+            </h2>
+          </div>
+          <button type="button" onClick={onClose} style={{ width: 32, height: 32, borderRadius: '50%', border: '1px solid var(--border-color)', background: 'var(--surface)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+            <X size={15} />
           </button>
         </div>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">Activity Title</label>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="e.g. Photography Club Registration"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Activity Type</label>
-            <CustomSelect
-              value={type}
-              onChange={(val) => setType(val)}
-              placeholder="Select type…"
-              options={[
-                'Counselling Appointment',
-                'Club Registration',
-                'Summer Programme',
-                'Workshop',
-                'Event',
-                'Volunteer Opportunity',
-                'Leadership Programme',
-              ]}
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Description</label>
-            <textarea
-              className="form-input"
-              placeholder="Describe the programme, requirements, and what students will gain…"
-              rows={4}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              required
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Date / Deadline</label>
-            <input
-              type="date"
-              className="form-input"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              required
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">YouTube Video URL (optional)</label>
-            <input
-              type="url"
-              className="form-input"
-              placeholder="https://www.youtube.com/watch?v=..."
-              value={videoUrl}
-              onChange={(e) => setVideoUrl(e.target.value)}
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Attach Files / Flyer (optional)</label>
-            <label className="file-drop" style={{ display: 'block', cursor: 'pointer' }}>
-              Click to attach a PDF or image flyer
-              <input
-                type="file"
-                className="doc-file-input"
-                accept=".pdf,.jpg,.jpeg,.png"
-                onChange={handleFileChange}
-              />
+
+        <form onSubmit={handleSubmit} style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {/* Title */}
+          <div>
+            <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 6 }}>
+              Activity Title <span style={{ color: '#D9534F' }}>*</span>
             </label>
-            {attachedFileName && (
-              <div style={{ marginTop: 8 }}>
-                <span className="doc-filename">File: {attachedFileName}</span>
-              </div>
-            )}
+            <input
+              type="text" value={title} onChange={e => setTitle(e.target.value)}
+              placeholder="e.g. Robotics & AI Innovation Lab"
+              style={{ width: '100%', padding: '10px 14px', fontSize: 14, border: '1.5px solid var(--border-color)', borderRadius: 8, fontFamily: 'inherit', color: 'var(--neutral-dark)', outline: 'none', boxSizing: 'border-box' }}
+              required
+            />
           </div>
 
-          {/* Target Audience: automatic for class teachers, custom checkboxes for admin */}
-          {isTeacher ? (
-            <div
-              style={{
-                marginBottom: 20,
-                padding: '10px 14px',
-                borderRadius: 8,
-                background: '#EAF3EF',
-                border: '1px solid #C7E4D8',
-                color: '#20554E',
-                fontSize: 12,
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              <Lock size={13} style={{ flexShrink: 0 }} />
-              <span>Target Audience: Grade {effectiveClass} (Visible only to students in your class)</span>
+          {/* Type pills */}
+          <div>
+            <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 8 }}>
+              Activity Type <span style={{ color: '#D9534F' }}>*</span>
+            </label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+              {TYPE_OPTIONS.map(opt => (
+                <button
+                  key={opt.value} type="button" onClick={() => setType(opt.value)}
+                  style={{
+                    padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: 'pointer',
+                    border: `1.5px solid ${type === opt.value ? opt.color : 'var(--border-color)'}`,
+                    background: type === opt.value ? opt.color + '18' : 'var(--surface)',
+                    color: type === opt.value ? opt.color : 'var(--text-secondary)',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
-          ) : (
-            <div className="form-group">
-              <label className="form-label">Target Grades</label>
-              <div className="checkbox-group">
-                {['Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'].map((g) => (
-                  <label key={g}>
-                    <input
-                      type="checkbox"
-                      value={g}
-                      checked={targetGrades.includes(g)}
-                      onChange={(e) => handleGradeChange(g, e.target.checked)}
-                    />{' '}
-                    {g}
-                  </label>
+          </div>
+
+          {/* Description */}
+          <div>
+            <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 6 }}>
+              Description <span style={{ color: '#D9534F' }}>*</span>
+            </label>
+            <textarea
+              value={description} onChange={e => setDescription(e.target.value)}
+              placeholder="Describe the programme, requirements, and what students will gain…"
+              rows={4}
+              style={{ width: '100%', padding: '10px 14px', fontSize: 13, lineHeight: 1.5, border: '1.5px solid var(--border-color)', borderRadius: 8, fontFamily: 'inherit', color: 'var(--neutral-dark)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
+              required
+            />
+          </div>
+
+          {/* Date + Location */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 6 }}>
+                Date / Deadline <span style={{ color: '#D9534F' }}>*</span>
+              </label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                style={{ width: '100%', padding: '10px 14px', fontSize: 13, border: '1.5px solid var(--border-color)', borderRadius: 8, fontFamily: 'inherit', color: 'var(--neutral-dark)', outline: 'none', boxSizing: 'border-box' }}
+                required
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 6 }}>Location (optional)</label>
+              <input type="text" value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Room 204 / Online"
+                style={{ width: '100%', padding: '10px 14px', fontSize: 13, border: '1.5px solid var(--border-color)', borderRadius: 8, fontFamily: 'inherit', color: 'var(--neutral-dark)', outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+          </div>
+
+          {/* Video + Capacity */}
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 6 }}>YouTube Video (optional)</label>
+              <input type="url" value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..."
+                style={{ width: '100%', padding: '10px 14px', fontSize: 12, border: '1.5px solid var(--border-color)', borderRadius: 8, fontFamily: 'inherit', color: 'var(--neutral-dark)', outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 6 }}>Max Capacity</label>
+              <input type="number" min={1} value={maxCapacity} onChange={e => setMaxCapacity(e.target.value)} placeholder="e.g. 30"
+                style={{ width: '100%', padding: '10px 14px', fontSize: 13, border: '1.5px solid var(--border-color)', borderRadius: 8, fontFamily: 'inherit', color: 'var(--neutral-dark)', outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+          </div>
+
+          {/* Target Grades */}
+          {isAdmin ? (
+            <div>
+              <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 8 }}>Target Grades (blank = all)</label>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {GRADE_OPTIONS.map(g => (
+                  <button key={g} type="button" onClick={() => handleGradeToggle(g)}
+                    style={{
+                      padding: '6px 14px', fontSize: 12.5, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
+                      border: `1.5px solid ${targetGrades.includes(g) ? '#2C6E6A' : 'var(--border-color)'}`,
+                      background: targetGrades.includes(g) ? '#EAF3EF' : 'var(--surface)',
+                      color: targetGrades.includes(g) ? '#1C4D46' : 'var(--text-secondary)',
+                    }}
+                  >{g}</button>
                 ))}
               </div>
             </div>
+          ) : (
+            <div style={{ padding: '10px 14px', borderRadius: 8, background: '#EAF3EF', border: '1px solid #C7E4D8', color: '#20554E', fontSize: 12.5, fontWeight: 600 }}>
+              🔒 Audience automatically set to your class ({teacherClass || 'Your Class'})
+            </div>
           )}
 
-          <button
-            type="submit"
-            className="btn-hub btn-primary"
-            style={{ width: '100%', padding: 14 }}
-          >
-            Publish Activity
-          </button>
+          {/* Error */}
+          {error && (
+            <div style={{ color: '#D9534F', fontSize: 12.5, fontWeight: 600, padding: '8px 12px', background: '#FDF1F0', borderRadius: 6, border: '1px solid #FECACA' }}>
+              {error}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 4 }}>
+            <button type="button" onClick={onClose}
+              style={{ padding: '10px 20px', fontSize: 13, fontWeight: 600, border: '1.5px solid var(--border-color)', borderRadius: 8, background: 'var(--surface)', color: 'var(--text-secondary)', cursor: 'pointer' }}
+            >
+              Cancel
+            </button>
+            <button type="submit"
+              style={{ padding: '10px 24px', fontSize: 13, fontWeight: 700, border: 'none', borderRadius: 8, cursor: 'pointer', background: typeColor || '#2C6E6A', color: '#FFFFFF', boxShadow: `0 2px 8px ${typeColor || '#2C6E6A'}40` }}
+            >
+              {isEditing ? '✓ Save Changes' : '🚀 Publish Activity'}
+            </button>
+          </div>
         </form>
       </div>
     </div>
   );
 };
+
+
+
 

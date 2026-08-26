@@ -1,4 +1,13 @@
-@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Playfair+Display:wght@700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Playfair+Display:wght@700;800&family=Outfit:wght@600;700;800;900&family=Syne:wght@700;800&display=swap');
+
+@font-face {
+    font-family: 'Caacupe One';
+    src: url('/fonts/CaacupeOne-Regular.woff2') format('woff2'),
+         url('/fonts/CaacupeOne-Regular.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
 
 :root {
     --neutral-bg: #F9F8F6; 
@@ -37,6 +46,18 @@
     
     --font-display: 'Plus Jakarta Sans', sans-serif;
     --font-label: 'Hanken Grotesk', sans-serif;
+    --font-woodpecker: 'Caacupe One', 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+
+.woodpecker-header-title {
+    font-family: 'Caacupe One', sans-serif !important;
+    font-weight: 400 !important;
+    font-size: 1.7rem !important;
+    background: linear-gradient(135deg, #64748B 0%, #0F172A 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    display: inline-block;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1502,5 +1523,16 @@ textarea.form-input { resize: vertical; }
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }

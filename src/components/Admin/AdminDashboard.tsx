@@ -1,22 +1,25 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, SlidersHorizontal, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, SlidersHorizontal, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
-import { UserProfile, ParentDocument, HubActivity, ParentStudentLinkRequest } from '@/lib/supabaseClient';
+import { UserProfile, ParentDocument, HubActivity, ParentStudentLinkRequest, SubjectClass } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
 import { UserDetailView } from '@/components/Admin/UserDetailView';
+import { AdminAssessmentTermsView } from '@/components/Admin/AdminAssessmentTermsView';
 import { formatShortFileName, openFileInNewTab, downloadFile } from '@/lib/fileHelper';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
+import { MarkEntryModal } from '../Modals/MarkEntryModal';
 
 interface AdminDashboardProps {
   currentUser: UserProfile;
   profiles: UserProfile[];
   parentDocuments: ParentDocument[];
   hubActivities: HubActivity[];
+  subjectClasses: SubjectClass[];
   linkRequests?: ParentStudentLinkRequest[];
   onOpenProvisionModal: () => void;
   onOpenBulkModal: () => void;
@@ -30,7 +33,7 @@ interface AdminDashboardProps {
   onRefreshData?: () => void;
 }
 
-type AdminTab = 'overview' | 'directory' | 'link_requests' | 'classes' | 'hub' | 'settings' | 'support' | 'system';
+type AdminTab = 'overview' | 'directory' | 'link_requests' | 'classes' | 'assessments' | 'hub' | 'settings' | 'support' | 'system';
 
 const VALID_GRADES = ['9', '10', '11', '12'] as const;
 const BASE_SECTIONS = ['A', 'B', 'C', 'D'] as const;
@@ -40,6 +43,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   profiles,
   parentDocuments,
   hubActivities,
+  subjectClasses = [],
   linkRequests = [],
   onOpenProvisionModal,
   onOpenBulkModal,
@@ -61,6 +65,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [selectedClassInspect, setSelectedClassInspect] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserProfile | null>(null);
+  const [activeMarkEntryClass, setActiveMarkEntryClass] = useState<SubjectClass | null>(null);
   const sidebar = useSidebarState('auto-hide');
 
   const handleInitiateEditUser = (u: UserProfile) => {
@@ -76,15 +81,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const unsubscribe = subscribeToNavigation((target) => {
       if (target.view === 'overview') {
         setActiveTab('overview');
-      } else if (target.view === 'directory') {
+      } else if (target.view === 'directory' || target.view === 'users') {
         setActiveTab('directory');
-      } else if (target.view === 'classes') {
+      } else if (target.view === 'classes' || target.view === 'sections') {
         setActiveTab('classes');
-      } else if (target.view === 'hub') {
+      } else if (target.view === 'assessments' || target.view === 'exams' || target.view === 'terms' || target.view === 'marks') {
+        setActiveTab('assessments');
+      } else if (target.view === 'link_requests' || target.view === 'documents' || target.view === 'requests') {
+        setActiveTab('link_requests');
+      } else if (target.view === 'hub' || target.view === 'activities') {
         setActiveTab('hub');
-      } else if (target.view === 'settings') {
+      } else if (target.view === 'settings' || target.view === 'password') {
         setActiveTab('settings');
-      } else if (target.view === 'support') {
+      } else if (target.view === 'support' || target.view === 'helpdesk') {
         setActiveTab('support');
       } else if (target.view === 'system') {
         setActiveTab('system');
@@ -1002,86 +1011,151 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </div>
 
-      {/* Selected Class Roster */}
-      {selectedClassInspect && (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-          <div
-            style={{
-              padding: '9px 14px',
-              borderBottom: '1px solid var(--border-color)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              background: '#FAF9F6',
-            }}
-          >
-            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-              Enrolled Students: Section {selectedClassInspect}
-            </span>
-            <button
-              onClick={() => setSelectedClassInspect(null)}
-              style={{ background: 'none', border: 'none', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', cursor: 'pointer' }}
-            >
-              Close Roster
-            </button>
-          </div>
+      {/* Selected Class Roster & Subject Classes */}
+      {selectedClassInspect && (() => {
+        const [g, s] = selectedClassInspect.split('-');
+        const roster = students.filter((st) => {
+          const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
+          const cleanS = (st.class_letter || '').toUpperCase().trim();
+          return cleanG === g && cleanS === s;
+        });
+        const sectionSubjectClasses = subjectClasses.filter(
+          sc => (sc.class_name || '').toUpperCase().trim() === selectedClassInspect.toUpperCase().trim()
+        );
 
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ ...thStyle, width: 32 }}>#</th>
-                <th style={thStyle}>Student Name</th>
-                <th style={thStyle}>Email</th>
-                <th style={thStyle}>Admission #</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(() => {
-                const [g, s] = selectedClassInspect.split('-');
-                const list = students.filter((st) => {
-                  const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
-                  const cleanS = (st.class_letter || '').toUpperCase().trim();
-                  return cleanG === g && cleanS === s;
-                });
-                if (list.length === 0) {
-                  return (
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            {/* Student Roster */}
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+              <div
+                style={{
+                  padding: '9px 14px',
+                  borderBottom: '1px solid var(--border-color)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  background: '#FAF9F6',
+                }}
+              >
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                  Enrolled Students: Section {selectedClassInspect}
+                </span>
+                <button
+                  onClick={() => setSelectedClassInspect(null)}
+                  style={{ background: 'none', border: 'none', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', cursor: 'pointer' }}
+                >
+                  Close Roster
+                </button>
+              </div>
+
+              <div style={{ maxHeight: 350, overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
                     <tr>
-                      <td colSpan={5} style={{ ...tdStyle, textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
-                        No students currently enrolled in section {selectedClassInspect}.
-                      </td>
+                      <th style={{ ...thStyle, width: 32 }}>#</th>
+                      <th style={thStyle}>Student Name</th>
+                      <th style={thStyle}>Admission #</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Action</th>
                     </tr>
-                  );
-                }
-                return list.map((st, idx) => (
-                  <tr key={st.id} style={{ background: '#FFFFFF' }}>
-                    <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
-                    <td style={{ ...tdStyle, fontWeight: 600 }}>{st.name}</td>
-                    <td style={{ ...tdStyle, color: 'var(--text-secondary)' }}>{st.email}</td>
-                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>{st.admission_number || st.user_code || '—'}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      <button
-                        onClick={() => handleInitiateEditUser(st)}
-                        style={{
-                          padding: '2px 8px',
-                          fontSize: 10.5,
-                          fontWeight: 600,
-                          border: '1px solid var(--border-color)',
-                          borderRadius: 4,
-                          background: '#FFFFFF',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Edit
-                      </button>
-                    </td>
-                  </tr>
-                ));
-              })()}
-            </tbody>
-          </table>
-        </div>
-      )}
+                  </thead>
+                  <tbody>
+                    {roster.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} style={{ ...tdStyle, textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
+                          No students currently enrolled in section {selectedClassInspect}.
+                        </td>
+                      </tr>
+                    ) : (
+                      roster.map((st, idx) => (
+                        <tr key={st.id} style={{ background: '#FFFFFF' }}>
+                          <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
+                          <td style={{ ...tdStyle, fontWeight: 600 }}>{st.name}</td>
+                          <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>{st.admission_number || st.user_code || '—'}</td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>
+                            <button
+                              onClick={() => handleInitiateEditUser(st)}
+                              style={{
+                                padding: '2px 8px',
+                                fontSize: 10.5,
+                                fontWeight: 600,
+                                border: '1px solid var(--border-color)',
+                                borderRadius: 4,
+                                background: '#FFFFFF',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Edit
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Subject Classes / Terms */}
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+              <div
+                style={{
+                  padding: '9px 14px',
+                  borderBottom: '1px solid var(--border-color)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  background: '#FAF9F6',
+                }}
+              >
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                  Subject Classes & Assessment Registers
+                </span>
+              </div>
+
+              <div style={{ padding: 14, overflowY: 'auto', flex: 1, maxHeight: 350, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {sectionSubjectClasses.length === 0 ? (
+                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 12 }}>
+                    No subject classes registered for {selectedClassInspect}.
+                  </div>
+                ) : (
+                  sectionSubjectClasses.map(sc => {
+                    const classTeacher = profiles.find(p => p.id === sc.teacher_id);
+                    return (
+                      <div key={sc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: 6, background: '#FAF9F6' }}>
+                        <div style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sc.name || `${sc.subject} (${sc.class_name})`}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                            Teacher: <span style={{ fontWeight: 600, color: '#2C6E6A' }}>{classTeacher?.name || sc.teacher_name || 'Unassigned'}</span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setActiveMarkEntryClass(sc)}
+                          className="btn-primary"
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: 11.5,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            background: '#2C6E6A',
+                            border: 'none',
+                            borderRadius: 4,
+                            color: '#fff',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Manage Terms
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 
@@ -1484,8 +1558,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* Header summary banner */}
         <div
           style={{
-            background: 'linear-gradient(135deg, #1C4D46 0%, #2C6E6A 100%)',
-            color: '#FFFFFF',
+            background: 'var(--surface)',
+            border: '1px solid var(--border-color)',
             padding: '20px 24px',
             borderRadius: 10,
             display: 'flex',
@@ -1493,20 +1567,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             alignItems: 'center',
             flexWrap: 'wrap',
             gap: 14,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
           }}
         >
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: '#FFFFFF' }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: 'var(--neutral-dark)' }}>
                 Parent-Student Link Verification Queue
               </h2>
               {pendingLinkRequests.length > 0 && (
-                <span style={{ background: '#FDE68A', color: '#92400E', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 12 }}>
+                <span
+                  style={{
+                    background: '#FEF7EC',
+                    color: '#B37D4A',
+                    border: '1px solid #F3D9A0',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: 12,
+                  }}
+                >
                   {pendingLinkRequests.length} Pending Approval
                 </span>
               )}
             </div>
-            <p style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.85)', margin: '4px 0 0' }}>
+            <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
               Review parent requests to link student accounts. Approving will bind the student to the parent profile and unlock academic monitoring.
             </p>
           </div>
@@ -1514,14 +1599,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               onClick={onOpenProvisionModal}
+              className="btn-primary"
               style={{
                 padding: '7px 14px',
-                background: '#FFFFFF',
-                color: '#1C4D46',
-                borderRadius: 6,
-                fontWeight: 700,
                 fontSize: 12,
-                border: 'none',
+                borderRadius: 6,
+                fontWeight: 600,
                 cursor: 'pointer',
               }}
             >
@@ -1786,6 +1869,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       isAlert: pendingLinkRequests.length > 0,
     },
     { id: 'classes', label: 'CLASSES & SECTIONS', count: activeClassList.length },
+    { id: 'assessments', label: 'EXAM TERMS & MARKS' },
     { id: 'hub', label: 'HOLISTIC HUB', count: hubActivities.length },
     { id: 'settings', label: 'SETTINGS & PASSWORDS' },
     { id: 'support', label: 'HELP & SUPPORT' },
@@ -1923,6 +2007,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 case 'directory': return <Users size={16} />;
                 case 'link_requests': return <UserCheck size={16} />;
                 case 'classes': return <BookOpen size={16} />;
+                case 'assessments': return <FileSpreadsheet size={16} />;
                 case 'hub': return <Award size={16} />;
                 case 'settings': return <Settings size={16} />;
                 case 'support': return <LifeBuoy size={16} />;
@@ -2146,6 +2231,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {activeTab === 'directory' && renderUserDirectory()}
               {activeTab === 'link_requests' && renderLinkRequests()}
               {activeTab === 'classes' && renderClasses()}
+              {activeTab === 'assessments' && (
+                <AdminAssessmentTermsView
+                  currentUser={currentUser}
+                  profiles={profiles}
+                  subjectClasses={subjectClasses}
+                  onOpenMarkRegister={(cls) => setActiveMarkEntryClass(cls)}
+                />
+              )}
               {activeTab === 'hub' && renderHub()}
               {activeTab === 'settings' && (
                 <SettingsView currentUser={currentUser} profiles={profiles} onRefreshData={onRefreshData} />
@@ -2158,6 +2251,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           )}
         </div>
       </main>
+
+      {activeMarkEntryClass && (
+        <MarkEntryModal
+          isOpen={true}
+          onClose={() => setActiveMarkEntryClass(null)}
+          classRoom={activeMarkEntryClass}
+          teacher={currentUser}
+          profiles={profiles}
+        />
+      )}
     </div>
   );
 };

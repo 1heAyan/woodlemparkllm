@@ -464,7 +464,18 @@ export const ReviewTestResultsModal: React.FC<ReviewTestResultsModalProps> = ({
                                 min={0}
                                 max={100}
                                 value={tempScore}
-                                onChange={(e) => setTempScore(Number(e.target.value))}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  if (isNaN(val)) setTempScore(0);
+                                  else if (val < 0) setTempScore(0);
+                                  else if (val > 100) setTempScore(100);
+                                  else setTempScore(val);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E') {
+                                    e.preventDefault();
+                                  }
+                                }}
                                 style={{
                                   width: 60,
                                   padding: '4px 6px',

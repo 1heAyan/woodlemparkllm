@@ -9,6 +9,7 @@ interface SettingsViewProps {
   currentUser: UserProfile;
   profiles?: UserProfile[];
   onRefreshData?: () => void;
+  onUpdateCurrentUser?: (updated: UserProfile) => void;
 }
 
 const GRADES = ['9', '10', '11', '12'] as const;
@@ -18,6 +19,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   currentUser,
   profiles = [],
   onRefreshData,
+  onUpdateCurrentUser,
 }) => {
   const isAdmin = currentUser.role === 'admin';
   const [activeTab, setActiveTabState] = useState<'profile' | 'admin_passwords'>(() => {
@@ -385,12 +387,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       // 1. Compress image to clean lightweight 320x320 JPEG
       const compressedDataUrl = await compressImage(file);
       setAvatarUrl(compressedDataUrl);
-      currentUser.avatar_url = compressedDataUrl;
 
-      // 2. Persist directly to Supabase cloud (both achievements cloud table and profiles table)
-      const userKey = currentUser.id || currentUser.email;
+      const email = (currentUser.email || '').toLowerCase().trim();
+      const userKey = currentUser.id || email;
       const avatarDocId = `avatar_${userKey}`;
 
+      // Instant local cache so it never flickers or disappears on next page loads
+      if (typeof window !== 'undefined') {
+        if (email) localStorage.setItem(`woodlem_avatar_${email}`, compressedDataUrl);
+        if (currentUser.id) localStorage.setItem(`woodlem_avatar_${currentUser.id}`, compressedDataUrl);
+        window.dispatchEvent(
+          new CustomEvent('woodlem-avatar-updated', {
+            detail: { avatarUrl: compressedDataUrl, userId: currentUser.id, email },
+          })
+        );
+      }
+
+      // Notify parent dashboard component to update state immutably
+      const updatedUser: UserProfile = { ...currentUser, avatar_url: compressedDataUrl };
+      if (onUpdateCurrentUser) {
+        onUpdateCurrentUser(updatedUser);
+      }
+
+      // 2. Persist directly to Supabase cloud (both achievements cloud table and profiles table)
       await supabase.from('achievements').upsert({
         id: avatarDocId,
         student_id: currentUser.id || 'system',
@@ -400,7 +419,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         file_name: `${currentUser.name || 'User'}_Avatar.jpg`,
       });
 
-      const email = (currentUser.email || '').toLowerCase().trim();
       if (email) {
         await supabase
           .from('profiles')
@@ -430,17 +448,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const handleRemoveAvatar = async () => {
     setAvatarUrl(null);
-    currentUser.avatar_url = undefined;
+
+    const email = (currentUser.email || '').toLowerCase().trim();
+    if (typeof window !== 'undefined') {
+      if (email) localStorage.removeItem(`woodlem_avatar_${email}`);
+      if (currentUser.id) localStorage.removeItem(`woodlem_avatar_${currentUser.id}`);
+      window.dispatchEvent(
+        new CustomEvent('woodlem-avatar-updated', {
+          detail: { avatarUrl: null, userId: currentUser.id, email },
+        })
+      );
+    }
+
+    const updatedUser: UserProfile = { ...currentUser, avatar_url: undefined };
+    if (onUpdateCurrentUser) {
+      onUpdateCurrentUser(updatedUser);
+    }
 
     try {
-      const userKey = currentUser.id || currentUser.email;
+      const userKey = currentUser.id || email;
       const avatarDocId = `avatar_${userKey}`;
       await supabase.from('achievements').delete().eq('id', avatarDocId);
       if (currentUser.id) {
         await supabase.from('achievements').delete().eq('student_id', currentUser.id).eq('title', '__USER_AVATAR__');
       }
 
-      const email = (currentUser.email || '').toLowerCase().trim();
       if (email) {
         await supabase.from('profiles').update({ avatar_url: null } as any).eq('email', email);
       }

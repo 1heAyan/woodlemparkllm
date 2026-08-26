@@ -18,6 +18,12 @@ export interface ChatMessage {
   sender: 'user' | 'assistant';
   text: string;
   time: string;
+  thoughtTime?: string;
+  thoughtProcess?: string;
+  sourcesCount?: number;
+  model?: string;
+  contextTag?: string;
+  reaction?: 'up' | 'down' | null;
   navigationLinks?: {
     label: string;
     target: PortalNavigationTarget;
@@ -68,7 +74,7 @@ export const PortalNavigationProvider: React.FC<{
     const role = user?.role || 'student';
     const name = user?.name || 'there';
 
-    let greeting = `Hello **${name}**! I am your Woodlem Gemini AI Copilot.`;
+    let greeting = `Hello **${name}**! I am Woodpecker, your AI assistant.`;
     if (role === 'student') {
       greeting += ` I can help you submit assignments, view study resources, check your syllabus checklist, track attendance, and navigate all your subject classrooms.`;
     } else if (role === 'teacher') {
@@ -91,7 +97,7 @@ export const PortalNavigationProvider: React.FC<{
     {
       id: 'welcome-msg',
       sender: 'assistant',
-      text: 'Hello! I am your Woodlem Gemini AI Copilot. I can help you submit assignments, view study resources, check your syllabus checklist, track attendance, and navigate all your subject classrooms.',
+      text: 'Hello! I am Woodpecker, your AI assistant. I can help you submit assignments, view study resources, check your syllabus checklist, track attendance, and navigate all your subject classrooms.',
       time: '12:00 PM',
     },
   ]);
@@ -103,7 +109,15 @@ export const PortalNavigationProvider: React.FC<{
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setMessages(parsed);
+          const cleansed = parsed.map((m: ChatMessage) => ({
+            ...m,
+            text: (m.text || '')
+              .replace(/Woodlem Gemini AI Copilot/gi, 'Woodpecker')
+              .replace(/Woodlem Gemini Copilot/gi, 'Woodpecker')
+              .replace(/AI Copilot/gi, 'AI Assistant')
+              .replace(/Copilot/gi, 'Assistant'),
+          }));
+          setMessages(cleansed);
           return;
         }
       }

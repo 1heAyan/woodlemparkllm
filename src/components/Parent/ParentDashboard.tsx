@@ -28,6 +28,7 @@ import {
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import {
+  supabase,
   UserProfile,
   Student,
   TestItem,
@@ -39,6 +40,7 @@ import {
   ClassBroadcast,
   SubjectClass,
   ParentStudentLinkRequest,
+  LeaveRequest,
 } from '@/lib/supabaseClient';
 import { getIcon } from '../Icons';
 import { SettingsView } from '@/components/Shared/SettingsView';
@@ -61,6 +63,7 @@ interface ParentDashboardProps {
   parentDocuments: ParentDocument[];
   hubActivities: HubActivity[];
   achievements?: Achievement[];
+  leaveRequests?: LeaveRequest[];
   classBroadcasts?: ClassBroadcast[];
   subjectClasses?: SubjectClass[];
   linkRequests?: ParentStudentLinkRequest[];
@@ -77,6 +80,7 @@ interface ParentDashboardProps {
   }) => Promise<void>;
   onApplyLeave?: (
     data: {
+      id?: string;
       startDate: string;
       endDate: string;
       reason: string;
@@ -86,6 +90,8 @@ interface ParentDashboardProps {
     },
     studentId?: string
   ) => Promise<void>;
+  onDeleteLeave?: (leaveId: string, studentId?: string) => Promise<void> | void;
+  onUpdateCurrentUser?: (user: UserProfile) => void;
   onRefreshData?: () => void;
   onSignOut: () => void;
 }
@@ -110,6 +116,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   parentDocuments = [],
   hubActivities = [],
   achievements = [],
+  leaveRequests = [],
   classBroadcasts = [],
   subjectClasses = [],
   linkRequests = [],
@@ -118,12 +125,52 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   onOpenVideoModal,
   onRequestChildLink,
   onApplyLeave,
+  onDeleteLeave,
+  onUpdateCurrentUser,
   onRefreshData,
   onSignOut,
 }) => {
   const [activeTab, setActiveTab] = useState<
     'progress' | 'attendance' | 'broadcasts' | 'achievements' | 'documents' | 'hub' | 'settings' | 'support'
   >('progress');
+
+  // Sidebar profile photo (synced with Supabase cloud & local cache)
+  const [sidebarAvatarUrl, setSidebarAvatarUrl] = useState<string | null>(() => {
+    if (currentUser?.avatar_url) return currentUser.avatar_url;
+    if (typeof window !== 'undefined' && currentUser) {
+      const email = (currentUser.email || '').toLowerCase().trim();
+      return (
+        localStorage.getItem(`woodlem_avatar_${email}`) ||
+        localStorage.getItem(`woodlem_avatar_${currentUser.id}`) ||
+        null
+      );
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (currentUser?.avatar_url) {
+      setSidebarAvatarUrl(currentUser.avatar_url);
+    }
+  }, [currentUser?.avatar_url]);
+
+  useEffect(() => {
+    const handleAvatarUpdate = (e: any) => {
+      const detail = e.detail;
+      if (!detail || !currentUser) return;
+      const { avatarUrl, userId, email } = detail;
+      if (
+        (userId && currentUser.id === userId) ||
+        (email && currentUser.email?.toLowerCase() === email.toLowerCase())
+      ) {
+        setSidebarAvatarUrl(avatarUrl || null);
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('woodlem-avatar-updated', handleAvatarUpdate);
+      return () => window.removeEventListener('woodlem-avatar-updated', handleAvatarUpdate);
+    }
+  }, [currentUser]);
 
   // Currently selected child ID
   const [selectedChildId, setSelectedChildId] = useState<string>(
@@ -151,23 +198,45 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
     return linkedStudents.find((s) => s.id === selectedChildId) || linkedStudents[0] || null;
   }, [linkedStudents, selectedChildId]);
 
+  const [releasedMarks, setReleasedMarks] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchMarks = async () => {
+      if (!activeChild?.id) return;
+      const { data, error } = await supabase
+        .from('offline_assessment_marks')
+        .select('marks, teacher_note, is_visible_to_student, offline_assessments(title, assessment_date, maximum_marks, class_id)')
+        .eq('student_id', activeChild.id)
+        .eq('is_visible_to_student', true);
+      if (!error) {
+        setReleasedMarks(data || []);
+      }
+    };
+    fetchMarks();
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('woodlem-marks-updated', fetchMarks);
+      return () => window.removeEventListener('woodlem-marks-updated', fetchMarks);
+    }
+  }, [activeChild?.id]);
+
   // Sidebar Controller
   const sidebar = useSidebarState('auto-hide');
   const { subscribeToNavigation } = usePortalNavigation();
 
   useEffect(() => {
     const unsubscribe = subscribeToNavigation((target) => {
-      if (target.view === 'progress') {
+      if (target.view === 'progress' || target.view === 'grades') {
         setActiveTab('progress');
       } else if (target.view === 'attendance') {
         setActiveTab('attendance');
-      } else if (target.view === 'documents') {
+      } else if (target.view === 'documents' || target.view === 'clearance') {
         setActiveTab('documents');
-      } else if (target.view === 'hub') {
+      } else if (target.view === 'hub' || target.view === 'activities') {
         setActiveTab('hub');
-      } else if (target.view === 'settings') {
+      } else if (target.view === 'settings' || target.view === 'password') {
         setActiveTab('settings');
-      } else if (target.view === 'support') {
+      } else if (target.view === 'support' || target.view === 'helpdesk') {
         setActiveTab('support');
       }
     });
@@ -275,7 +344,13 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   // Child's achievements
   const childAchievements = useMemo(() => {
     if (!activeChild) return [];
-    return achievements.filter((a) => a.student_id === activeChild.id);
+    return achievements.filter(
+      (a) =>
+        a.student_id === activeChild.id &&
+        a.title !== '__USER_AVATAR__' &&
+        a.title !== '__PARENT_DOC__' &&
+        a.title !== '__LEAVE_REQUEST__'
+    );
   }, [achievements, activeChild]);
 
   // Child's documents
@@ -425,8 +500,15 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           >
             <div className="sidebar-profile-avatar-slot">
               <div className="sidebar-profile-avatar avatar-parent-themed" style={{ overflow: 'hidden' }}>
-                {currentUser?.avatar_url ? (
-                  <img src={currentUser.avatar_url} alt="Profile" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                {sidebarAvatarUrl ? (
+                  <img
+                    src={sidebarAvatarUrl}
+                    alt="Profile"
+                    style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+                    onError={(e) => {
+                      (e.currentTarget as HTMLElement).style.display = 'none';
+                    }}
+                  />
                 ) : (
                   (currentUser?.name || 'P').charAt(0).toUpperCase()
                 )}
@@ -1122,6 +1204,111 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                     </div>
                   );
                 })()}
+              </div>
+
+              {/* RELEASED IN-SCHOOL MARKS */}
+              <div className="panel-block" style={{ marginBottom: 24 }}>
+                <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '0 0 6px' }}>
+                  <span>Released In-School Marks</span>
+                  <span style={{ fontSize: 11, background: '#EAF3EF', color: '#2C6E6A', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
+                    Official Grades
+                  </span>
+                </h3>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                  Verified examination terms and subject grades published by faculty for {activeChild?.name}.
+                </p>
+
+                {releasedMarks.length === 0 ? (
+                  <div className="empty-state">No in-school marks have been released for {activeChild?.name} yet.</div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid var(--border-color)' }}>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Assessment</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Date</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Teacher Notes</th>
+                          <th style={{ textAlign: 'center', padding: '8px 12px', fontWeight: 600, fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', width: 80 }}>Grade</th>
+                          <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 600, fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', width: 120 }}>Score</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {releasedMarks.map((m: any, i: number) => {
+                          const score = Number(m.marks);
+                          const maxScore = Number(m.offline_assessments?.maximum_marks || 100);
+                          const pct = (score / maxScore) * 100;
+
+                          let letter = 'F';
+                          let letterColor = '#DC2626';
+                          let letterBg = '#FEE2E2';
+
+                          if (pct >= 90) {
+                            letter = 'A';
+                            letterColor = '#2C6E6A';
+                            letterBg = '#EAF3EF';
+                          } else if (pct >= 80) {
+                            letter = 'B';
+                            letterColor = '#2C6E6A';
+                            letterBg = '#EAF3EF';
+                          } else if (pct >= 70) {
+                            letter = 'C';
+                            letterColor = '#B8860B';
+                            letterBg = '#FEF3C7';
+                          } else if (pct >= 50) {
+                            letter = 'D';
+                            letterColor = '#D97706';
+                            letterBg = '#FFEDD5';
+                          }
+
+                          return (
+                            <tr
+                              key={i}
+                              style={{
+                                borderBottom: '1px solid var(--border-color)',
+                                background: i % 2 === 0 ? 'transparent' : 'var(--neutral-bg)',
+                              }}
+                            >
+                              <td style={{ padding: '12px 12px', fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                                {m.offline_assessments?.title || 'Assessment'}
+                              </td>
+                              <td style={{ padding: '12px 12px', color: 'var(--text-secondary)', fontSize: 12 }}>
+                                {m.offline_assessments?.assessment_date && new Date(m.offline_assessments.assessment_date + 'T00:00:00').toLocaleDateString()}
+                              </td>
+                              <td style={{ padding: '12px 12px', color: '#475569', fontSize: 12 }}>
+                                {m.teacher_note || <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>No notes provided</span>}
+                              </td>
+                              <td style={{ padding: '12px 12px', textAlign: 'center' }}>
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    width: 26,
+                                    height: 26,
+                                    borderRadius: '50%',
+                                    background: letterBg,
+                                    color: letterColor,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontWeight: 800,
+                                    fontSize: 12,
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                                  }}
+                                >
+                                  {letter}
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px 12px', textAlign: 'right', fontWeight: 800, color: '#1C4D46', fontSize: 14 }}>
+                                {score}
+                                <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 400 }}>
+                                  {' '}/ {maxScore}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               {/* SYLLABUS PROGRESS BY SUBJECT */}
@@ -1835,7 +2022,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
           {/* VIEW 7: SETTINGS */}
           {activeTab === 'settings' && currentUser && (
-            <SettingsView currentUser={currentUser} onRefreshData={onRefreshData} />
+            <SettingsView currentUser={currentUser} onRefreshData={onRefreshData} onUpdateCurrentUser={onUpdateCurrentUser} />
           )}
 
           {/* VIEW 8: SUPPORT */}

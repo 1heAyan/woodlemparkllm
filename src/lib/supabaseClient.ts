@@ -117,6 +117,19 @@ export interface Achievement {
   created_at?: string;
 }
 
+export interface LeaveRequest {
+  id: string;
+  student_id: string;
+  startDate: string;
+  endDate: string;
+  leaveType: string;
+  reason: string;
+  fileName?: string;
+  fileUrl?: string;
+  created_at?: string;
+  status?: 'approved' | 'pending' | 'submitted';
+}
+
 export interface AttendanceRecord {
   id?: string;
   date: string;

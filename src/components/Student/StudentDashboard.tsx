@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Award, Calendar, Settings, LifeBuoy, BookOpen, LogOut, MessageSquare, Megaphone, Pin, PinOff, SlidersHorizontal, Check, FileText, Video, Link2, FolderOpen, User } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Award, Calendar, Settings, LifeBuoy, BookOpen, LogOut, MessageSquare, Megaphone, Pin, PinOff, SlidersHorizontal, Check, FileText, Video, Link2, FolderOpen, User, Trash2, Edit3, Paperclip, Plus } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import {
@@ -15,6 +15,7 @@ import {
   ClassResource,
   ClassBroadcast,
   ResourceType,
+  LeaveRequest,
   supabase,
 } from '@/lib/supabaseClient';
 import { SubmitAssignmentModal } from '../Modals/SubmitAssignmentModal';
@@ -37,6 +38,7 @@ interface StudentDashboardProps {
   assignments: AssignmentItem[];
   syllabus: SyllabusTerm[];
   achievements: Achievement[];
+  leaveRequests?: LeaveRequest[];
   attendance: Record<string, Record<string, string>>; // date -> studentId -> status
   hubActivities: HubActivity[];
   subjectClasses: SubjectClass[];
@@ -54,6 +56,7 @@ interface StudentDashboardProps {
   onToggleHubEnrollment: (activityId: string) => void;
   onOpenVideoModal: (activity: HubActivity) => void;
   onApplyLeave?: (data: {
+    id?: string;
     startDate: string;
     endDate: string;
     reason: string;
@@ -61,6 +64,8 @@ interface StudentDashboardProps {
     fileName?: string;
     fileUrl?: string;
   }) => void;
+  onDeleteLeave?: (leaveId: string) => void;
+  onUpdateCurrentUser?: (user: UserProfile) => void;
   onRefreshData?: () => void;
   onSignOut: () => void;
 }
@@ -71,6 +76,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   assignments,
   syllabus,
   achievements,
+  leaveRequests = [],
   attendance,
   hubActivities,
   subjectClasses,
@@ -88,6 +94,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   onToggleHubEnrollment,
   onOpenVideoModal,
   onApplyLeave,
+  onDeleteLeave,
+  onUpdateCurrentUser,
   onRefreshData,
   onSignOut,
 }) => {
@@ -99,6 +107,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [releasedMarks, setReleasedMarks] = useState<any[]>([]);
   
   const [hubFilter, setHubFilter] = useState('');
+  const [selectedHubActivity, setSelectedHubActivity] = useState<HubActivity | null>(null);
 
   // Resources search & filter
   const [resSearchQuery, setResSearchQuery] = useState('');
@@ -117,21 +126,70 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   // Leave & Sick Note Modal state
   const [isApplyLeaveOpen, setIsApplyLeaveOpen] = useState(false);
+  const [editingLeave, setEditingLeave] = useState<LeaveRequest | null>(null);
+  const [attendanceSubTab, setAttendanceSubTab] = useState<'audit' | 'leaves'>('audit');
   
   // Edge-style Sidebar State Controller
   const sidebar = useSidebarState('auto-hide');
 
+  // Sidebar profile photo (synced with Supabase cloud & local cache)
+  const [sidebarAvatarUrl, setSidebarAvatarUrl] = useState<string | null>(() => {
+    if (currentStudent.avatar_url) return currentStudent.avatar_url;
+    if (typeof window !== 'undefined') {
+      const email = (currentStudent.email || '').toLowerCase().trim();
+      return (
+        localStorage.getItem(`woodlem_avatar_${email}`) ||
+        localStorage.getItem(`woodlem_avatar_${currentStudent.id}`) ||
+        null
+      );
+    }
+    return null;
+  });
+
   useEffect(() => {
-    supabase.from('offline_assessment_marks').select('marks, teacher_note, offline_assessments(title, assessment_date, maximum_marks, class_id)').eq('student_id', currentStudent.id).eq('is_visible_to_student', true)
-      .then(({ data }) => setReleasedMarks(data || []));
+    if (currentStudent.avatar_url) {
+      setSidebarAvatarUrl(currentStudent.avatar_url);
+    }
+  }, [currentStudent.avatar_url]);
+
+  useEffect(() => {
+    const handleAvatarUpdate = (e: any) => {
+      const detail = e.detail;
+      if (!detail) return;
+      const { avatarUrl, userId, email } = detail;
+      if (
+        (userId && currentStudent.id === userId) ||
+        (email && currentStudent.email?.toLowerCase() === email.toLowerCase())
+      ) {
+        setSidebarAvatarUrl(avatarUrl || null);
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('woodlem-avatar-updated', handleAvatarUpdate);
+      return () => window.removeEventListener('woodlem-avatar-updated', handleAvatarUpdate);
+    }
+  }, [currentStudent.id, currentStudent.email]);
+
+  useEffect(() => {
+    const fetchReleasedMarks = () => {
+      supabase.from('offline_assessment_marks')
+        .select('marks, teacher_note, offline_assessments(title, assessment_date, maximum_marks, class_id)')
+        .eq('student_id', currentStudent.id)
+        .eq('is_visible_to_student', true)
+        .then(({ data }) => setReleasedMarks(data || []));
+    };
+
+    fetchReleasedMarks();
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('woodlem-marks-updated', fetchReleasedMarks);
+      return () => window.removeEventListener('woodlem-marks-updated', fetchReleasedMarks);
+    }
   }, [currentStudent.id]);
 
   // Homeroom circulars search & filter state
   const [hrSearchQuery, setHrSearchQuery] = useState('');
   const [hrPriorityFilter, setHrPriorityFilter] = useState<'all' | 'pinned' | 'urgent' | 'important'>('all');
-
-  // Sidebar profile photo (synced with Supabase cloud)
-  const sidebarAvatarUrl = currentStudent.avatar_url || null;
 
   // Student class metadata
   const cleanGrade = useMemo(() => (currentStudent.grade || '10').replace(/[^0-9]/g, '') || '10', [currentStudent.grade]);
@@ -251,25 +309,26 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   useEffect(() => {
     const unsubscribe = subscribeToNavigation((target) => {
-      if (target.view === 'awards') {
+      if (target.view === 'awards' || target.view === 'achievements') {
         setActiveNavType('awards');
       } else if (target.view === 'attendance') {
         setActiveNavType('attendance');
-      } else if (target.view === 'hub') {
+      } else if (target.view === 'hub' || target.view === 'activities') {
         setActiveNavType('hub');
-      } else if (target.view === 'settings') {
+      } else if (target.view === 'settings' || target.view === 'password') {
         setActiveNavType('settings');
-      } else if (target.view === 'support') {
+      } else if (target.view === 'support' || target.view === 'helpdesk') {
         setActiveNavType('support');
-      } else if (target.view === 'class') {
+      } else if (target.view === 'class' || target.view === 'tasks' || target.view === 'resources' || target.view === 'syllabus' || target.view === 'broadcasts') {
         setActiveNavType('class');
         if (target.classId && myClasses.some((c) => c.id === target.classId)) {
           setSelectedClassId(target.classId);
         } else if (myClasses.length > 0 && (!selectedClassId || !myClasses.some((c) => c.id === selectedClassId))) {
           setSelectedClassId(myClasses[0].id);
         }
-        if (target.subTab && ['broadcasts', 'resources', 'tasks', 'syllabus'].includes(target.subTab)) {
-          setClassSubTab(target.subTab as any);
+        const sub = target.subTab || (['tasks', 'resources', 'syllabus', 'broadcasts'].includes(target.view || '') ? target.view : 'tasks');
+        if (sub && ['broadcasts', 'resources', 'tasks', 'syllabus'].includes(sub)) {
+          setClassSubTab(sub as any);
         }
       } else if (target.modalAction === 'add_achievement') {
         onAddAchievementClick();
@@ -461,9 +520,51 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   // Filter achievements
   const myAchievements = useMemo(() => {
     return achievements.filter(
-      (a) => a.student_id === currentStudent.id || (currentStudent.email && a.student_id === currentStudent.email)
+      (a) =>
+        (a.student_id === currentStudent.id || (currentStudent.email && a.student_id === currentStudent.email)) &&
+        a.title !== '__USER_AVATAR__' &&
+        a.title !== '__PARENT_DOC__' &&
+        a.title !== '__LEAVE_REQUEST__'
     );
   }, [achievements, currentStudent.id, currentStudent.email]);
+
+  // Extract student's leave requests
+  const myLeaves = useMemo(() => {
+    if (leaveRequests && leaveRequests.length > 0) {
+      return leaveRequests
+        .filter(
+          (l) => l.student_id === currentStudent.id || (currentStudent.email && l.student_id === currentStudent.email)
+        )
+        .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime());
+    }
+    return achievements
+      .filter(
+        (a) =>
+          (a.student_id === currentStudent.id || (currentStudent.email && a.student_id === currentStudent.email)) &&
+          a.title === '__LEAVE_REQUEST__'
+      )
+      .map((a) => {
+        let details: any = {};
+        try {
+          details = JSON.parse(a.description);
+        } catch {
+          details = { reason: a.description };
+        }
+        return {
+          id: a.id,
+          student_id: a.student_id,
+          startDate: details.startDate || '',
+          endDate: details.endDate || details.startDate || '',
+          leaveType: details.leaveType || 'Authorized Leave',
+          reason: details.reason || '',
+          fileName: a.file_name || details.fileName || '',
+          fileUrl: a.file_url || details.fileUrl || '',
+          created_at: a.created_at || details.appliedAt || '',
+          status: details.status || 'submitted',
+        };
+      })
+      .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime());
+  }, [leaveRequests, achievements, currentStudent.id, currentStudent.email]);
 
   const handleTopicCheck = (termId: string, topicId: string, title: string, isChecked: boolean) => {
     onToggleTopicCheck(termId, topicId, 'student', isChecked, currentStudent.id);
@@ -489,6 +590,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   };
 
   const handleApplyLeaveSubmit = (data: {
+    id?: string;
     startDate: string;
     endDate: string;
     reason: string;
@@ -499,6 +601,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     if (onApplyLeave) {
       onApplyLeave(data);
     }
+    setEditingLeave(null);
+    setIsApplyLeaveOpen(false);
   };
 
   const handleTestSubmitSuccess = (testId: string, answers: Record<string, string>) => {
@@ -518,8 +622,6 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   const handleHubEnroll = (activityId: string, title: string) => {
     onToggleHubEnrollment(activityId);
-    triggerConfetti(0.6, 0.4);
-    showCelebrationToast('Program Enrolled', title, 40);
   };
 
   return (
@@ -544,7 +646,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           >
             <div className="sidebar-profile-avatar avatar-student-themed">
               {sidebarAvatarUrl ? (
-                <img src={sidebarAvatarUrl} alt={currentStudent.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <img
+                  src={sidebarAvatarUrl}
+                  alt={currentStudent.name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={(e) => {
+                    (e.currentTarget as HTMLElement).style.display = 'none';
+                  }}
+                />
               ) : (
                 (currentStudent.name || 'S').charAt(0).toUpperCase()
               )}
@@ -1319,10 +1428,130 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
               {classSubTab === 'marks' && (
                 <div>
-                  <h3 className="section-title" style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Released marks</h3>
-                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16 }}>Only marks your teacher has released to you are shown here.</p>
+                  <h3 className="section-title" style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Released Marks & Grades</h3>
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16 }}>Only marks officially released by your teacher are shown here.</p>
                   <div className="card-list">
-                    {releasedMarks.filter((m: any) => m.offline_assessments?.class_id === activeClassObj?.id).length === 0 ? <div className="panel-block" style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>No marks have been released for this class yet.</div> : releasedMarks.filter((m: any) => m.offline_assessments?.class_id === activeClassObj?.id).map((m: any, index) => <div className="item-card" key={index} style={{ padding: '16px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><span className="badge badge-test" style={{ marginBottom: 5, fontSize: 9.5 }}>In-school assessment</span><h4 style={{ fontSize: 14, margin: '0 0 3px' }}>{m.offline_assessments?.title}</h4><span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{m.offline_assessments?.assessment_date && new Date(m.offline_assessments.assessment_date + 'T00:00:00').toLocaleDateString()}</span>{m.teacher_note && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 5 }}>Teacher note: {m.teacher_note}</div>}</div><div style={{ fontSize: 18, fontWeight: 700, color: '#3D7A6E' }}>{m.marks}<span style={{ fontSize: 12, color: 'var(--text-secondary)' }}> / {m.offline_assessments?.maximum_marks}</span></div></div>)}
+                    {releasedMarks.filter((m: any) => m.offline_assessments?.class_id === activeClassObj?.id).length === 0 ? (
+                      <div className="panel-block" style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
+                        No marks have been released for this class yet.
+                      </div>
+                    ) : (
+                      releasedMarks
+                        .filter((m: any) => m.offline_assessments?.class_id === activeClassObj?.id)
+                        .map((m: any, index) => {
+                          const score = Number(m.marks);
+                          const maxScore = Number(m.offline_assessments?.maximum_marks || 100);
+                          const pct = (score / maxScore) * 100;
+                          
+                          let letter = 'F';
+                          let letterColor = '#DC2626';
+                          let letterBg = '#FEE2E2';
+                          let statusText = 'Needs Attention';
+
+                          if (pct >= 90) {
+                            letter = 'A';
+                            letterColor = '#2C6E6A';
+                            letterBg = '#EAF3EF';
+                            statusText = 'Excellent';
+                          } else if (pct >= 80) {
+                            letter = 'B';
+                            letterColor = '#2C6E6A';
+                            letterBg = '#EAF3EF';
+                            statusText = 'Very Good';
+                          } else if (pct >= 70) {
+                            letter = 'C';
+                            letterColor = '#B8860B';
+                            letterBg = '#FEF3C7';
+                            statusText = 'Satisfactory';
+                          } else if (pct >= 50) {
+                            letter = 'D';
+                            letterColor = '#D97706';
+                            letterBg = '#FFEDD5';
+                            statusText = 'Pass';
+                          }
+
+                          return (
+                            <div
+                              className="item-card"
+                              key={index}
+                              style={{
+                                padding: '16px 18px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                borderLeft: `4px solid ${letterColor}`,
+                                background: 'linear-gradient(to right, #FFF, #FAFBFB)',
+                              }}
+                            >
+                              <div>
+                                <span
+                                  className="badge badge-test"
+                                  style={{
+                                    marginBottom: 5,
+                                    fontSize: 9.5,
+                                    background: '#FAF1ED',
+                                    color: '#8A532B',
+                                    border: '1px solid #F5E8E2',
+                                  }}
+                                >
+                                  In-school Assessment
+                                </span>
+                                <h4 style={{ fontSize: 14, margin: '0 0 3px', fontWeight: 700 }}>
+                                  {m.offline_assessments?.title}
+                                </h4>
+                                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                  Date of Exam: {m.offline_assessments?.assessment_date && new Date(m.offline_assessments.assessment_date + 'T00:00:00').toLocaleDateString()}
+                                </span>
+                                {m.teacher_note && (
+                                  <div
+                                    style={{
+                                      fontSize: 11,
+                                      color: '#475569',
+                                      marginTop: 6,
+                                      padding: '4px 8px',
+                                      background: '#F1F5F9',
+                                      borderRadius: 4,
+                                      display: 'inline-block',
+                                    }}
+                                  >
+                                    <strong>Teacher Note:</strong> {m.teacher_note}
+                                  </div>
+                                )}
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: 18, fontWeight: 800, color: '#1C4D46' }}>
+                                    {score}
+                                    <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 400 }}>
+                                      {' '}/ {maxScore}
+                                    </span>
+                                  </div>
+                                  <span style={{ fontSize: 10, color: letterColor, fontWeight: 700, textTransform: 'uppercase' }}>
+                                    {statusText}
+                                  </span>
+                                </div>
+                                <div
+                                  style={{
+                                    width: 38,
+                                    height: 38,
+                                    borderRadius: '50%',
+                                    background: letterBg,
+                                    color: letterColor,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontWeight: 800,
+                                    fontSize: 15,
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                                  }}
+                                >
+                                  {letter}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                    )}
                   </div>
                 </div>
               )}
@@ -1613,17 +1842,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </>
         )}
 
-        {/* VIEW 3: GLOBAL ATTENDANCE RECORD */}
+        {/* VIEW 3: GLOBAL ATTENDANCE & LEAVE RECORD */}
         {activeNavType === 'attendance' && (
           <>
             <header className="content-header">
               <div className="header-top" style={{ alignItems: 'flex-start' }}>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#2C6E6A', letterSpacing: '0.06em' }}>
-                    ACADEMIC RECORDS · HOMEROOM GRADE {cleanGrade}-{cleanSection}
+                    ACADEMIC RECORDS · GRADE {cleanGrade}-{cleanSection}
                   </div>
                   <h1 className="page-title" style={{ margin: '2px 0 0' }}>
-                    School Attendance History
+                    Attendance &amp; Leave History
                   </h1>
                 </div>
 
@@ -1631,10 +1860,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   <button
                     type="button"
                     className="btn-primary"
-                    onClick={() => setIsApplyLeaveOpen(true)}
-                    style={{ padding: '7px 16px', fontSize: 12 }}
+                    onClick={() => {
+                      setEditingLeave(null);
+                      setIsApplyLeaveOpen(true);
+                    }}
+                    style={{ padding: '7px 16px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
                   >
-                    + Apply for Leave / Sick Note
+                    <Plus size={14} />
+                    <span>Apply for Leave / Sick Note</span>
                   </button>
                   <div style={{ textAlign: 'right', borderLeft: '1px solid var(--border-color)', paddingLeft: 12 }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Overall Rate</div>
@@ -1674,50 +1907,283 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 </div>
               </div>
 
-              <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)' }}>
-                  <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>Daily Attendance Audit History</h4>
+              {/* Subtabs: Attendance Audit vs Uploaded Leaves */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16, borderBottom: '1px solid var(--border-color)', paddingBottom: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setAttendanceSubTab('audit')}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    borderRadius: 6,
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: attendanceSubTab === 'audit' ? '#2C6E6A' : '#F1F5F9',
+                    color: attendanceSubTab === 'audit' ? '#FFFFFF' : 'var(--text-secondary)',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  Daily Attendance Log ({attendanceStats.history.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAttendanceSubTab('leaves')}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    borderRadius: 6,
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: attendanceSubTab === 'leaves' ? '#2C6E6A' : '#F1F5F9',
+                    color: attendanceSubTab === 'leaves' ? '#FFFFFF' : 'var(--text-secondary)',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  My Uploaded Leaves &amp; Sick Notes ({myLeaves.length})
+                </button>
+              </div>
+
+              {/* SUBTAB 1: AUDIT LOG */}
+              {attendanceSubTab === 'audit' && (
+                <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+                  {attendanceStats.history.length === 0 ? (
+                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
+                      No attendance records logged for your profile yet.
+                    </div>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                      <thead>
+                        <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          <th style={{ textAlign: 'left', padding: '8px 16px', fontWeight: 700 }}>Date</th>
+                          <th style={{ textAlign: 'right', padding: '8px 16px', fontWeight: 700 }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {attendanceStats.history.map((h, i) => (
+                          <tr key={h.date} style={{ borderBottom: i < attendanceStats.history.length - 1 ? '1px solid #ECEAE5' : 'none', background: i % 2 === 0 ? '#FFFFFF' : '#FAFAF9' }}>
+                            <td style={{ padding: '8px 16px', fontWeight: 600, color: 'var(--neutral-dark)' }}>{h.date}</td>
+                            <td style={{ padding: '8px 16px', textAlign: 'right' }}>
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '2px 9px',
+                                  borderRadius: 4,
+                                  fontSize: 10.5,
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase',
+                                  background: h.status === 'present' ? '#EAF3EF' : h.status === 'auth_absent' ? '#FEF7EC' : '#FDF1F0',
+                                  color: h.status === 'present' ? '#2D6E5D' : h.status === 'auth_absent' ? '#9E6C1B' : '#A83B38',
+                                }}
+                              >
+                                {h.status === 'present' ? 'Present' : h.status === 'auth_absent' ? 'Auth Absent' : 'Unauth Absent'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
-                {attendanceStats.history.length === 0 ? (
-                  <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-                    No attendance records logged for your profile yet.
-                  </div>
-                ) : (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10, textTransform: 'uppercase' }}>
-                        <th style={{ textAlign: 'left', padding: '8px 14px' }}>Date</th>
-                        <th style={{ textAlign: 'left', padding: '8px 14px' }}>Homeroom Section</th>
-                        <th style={{ textAlign: 'right', padding: '8px 14px' }}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {attendanceStats.history.map((h) => (
-                        <tr key={h.date} style={{ borderBottom: '1px solid #ECEAE5' }}>
-                          <td style={{ padding: '8px 14px', fontWeight: 600 }}>{h.date}</td>
-                          <td style={{ padding: '8px 14px', color: 'var(--text-secondary)' }}>Grade {cleanGrade}-{cleanSection}</td>
-                          <td style={{ padding: '8px 14px', textAlign: 'right' }}>
-                            <span
+              )}
+
+
+              {/* SUBTAB 2: UPLOADED LEAVES & SICK NOTES */}
+              {attendanceSubTab === 'leaves' && (
+                <div>
+                  {myLeaves.length === 0 ? (
+                    <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, padding: '48px 24px', textAlign: 'center' }}>
+                      <FileText size={32} style={{ color: 'var(--text-secondary)', margin: '0 auto 12px', display: 'block', opacity: 0.6 }} />
+                      <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px', color: 'var(--neutral-dark)' }}>No Leaves or Medical Notes Uploaded</h3>
+                      <p style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 420, margin: '0 auto 16px', lineHeight: 1.5 }}>
+                        Pre-declare upcoming leaves, doctor appointments, or upload medical certificates for authorized absences.
+                      </p>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={() => {
+                          setEditingLeave(null);
+                          setIsApplyLeaveOpen(true);
+                        }}
+                        style={{ padding: '8px 18px', fontSize: 12.5 }}
+                      >
+                        + Apply for Leave / Sick Note
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {myLeaves.map((leave) => (
+                        <div
+                          key={leave.id}
+                          style={{
+                            background: '#FFFFFF',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 8,
+                            padding: '12px 16px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span
+                                style={{
+                                  background: '#EAF3EF',
+                                  color: '#2D6E5D',
+                                  fontWeight: 700,
+                                  padding: '3px 9px',
+                                  borderRadius: 6,
+                                  fontSize: 11.5,
+                                }}
+                              >
+                                {leave.leaveType}
+                              </span>
+                              <span
+                                style={{
+                                  background: '#FEF7EC',
+                                  color: '#9E6C1B',
+                                  fontWeight: 700,
+                                  padding: '3px 8px',
+                                  borderRadius: 6,
+                                  fontSize: 10.5,
+                                  textTransform: 'uppercase',
+                                }}
+                              >
+                                Authorized Absence
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                              <Calendar size={14} style={{ color: '#2C6E6A' }} />
+                              <span>
+                                {leave.startDate} {leave.endDate && leave.endDate !== leave.startDate ? `→ ${leave.endDate}` : ''}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div style={{ fontSize: 13, color: 'var(--neutral-dark)', lineHeight: 1.4, marginBottom: 8 }}>
+                            <span style={{ fontWeight: 600, color: 'var(--text-secondary)', marginRight: 6 }}>Reason:</span>
+                            {leave.reason}
+                          </div>
+
+                          {/* Attached Certificate / Document */}
+                          {leave.fileName && (
+                            <div
                               style={{
-                                display: 'inline-block',
-                                padding: '2px 8px',
-                                borderRadius: 4,
-                                fontSize: 10,
-                                fontWeight: 700,
-                                textTransform: 'uppercase',
-                                background: h.status === 'present' ? '#EAF3EF' : h.status === 'auth_absent' ? '#FEF7EC' : '#FDF1F0',
-                                color: h.status === 'present' ? '#2D6E5D' : h.status === 'auth_absent' ? '#9E6C1B' : '#A83B38',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '8px 12px',
+                                background: '#F8F7F4',
+                                border: '1px solid var(--border-color)',
+                                borderRadius: 6,
+                                marginBottom: 12,
                               }}
                             >
-                              {h.status === 'present' ? 'Present' : h.status === 'auth_absent' ? 'Auth Absent' : 'Unauth Absent'}
-                            </span>
-                          </td>
-                        </tr>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+                                <Paperclip size={15} style={{ color: '#2C6E6A', flexShrink: 0 }} />
+                                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--neutral-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {leave.fileName}
+                                </span>
+                              </div>
+                              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setViewingFile({
+                                      fileName: leave.fileName || 'Medical Certificate',
+                                      fileUrl: leave.fileUrl,
+                                      title: leave.leaveType,
+                                      description: leave.reason,
+                                      submissionDate: leave.created_at ? new Date(leave.created_at).toLocaleDateString() : undefined,
+                                    });
+                                  }}
+                                  style={{
+                                    padding: '4px 10px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    color: '#2C6E6A',
+                                    background: '#EAF3EF',
+                                    border: '1px solid #C7E4D8',
+                                    borderRadius: 4,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  View Certificate ↗
+                                </button>
+                                {leave.fileUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => downloadFile({ fileName: leave.fileName || 'certificate.pdf', fileUrl: leave.fileUrl })}
+                                    style={{
+                                      padding: '4px 10px',
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      color: 'var(--neutral-dark)',
+                                      background: '#FFFFFF',
+                                      border: '1px solid var(--border-color)',
+                                      borderRadius: 4,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    Download ⤓
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Card Footer Actions */}
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, borderTop: '1px solid #F1EFEA', paddingTop: 10 }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingLeave(leave);
+                                setIsApplyLeaveOpen(true);
+                              }}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '5px 12px',
+                                fontSize: 11.5,
+                                fontWeight: 600,
+                                color: '#2C6E6A',
+                                background: '#EAF3EF',
+                                border: '1px solid #C7E4D8',
+                                borderRadius: 5,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <Edit3 size={13} />
+                              <span>Edit Leave</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onDeleteLeave?.(leave.id)}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '5px 12px',
+                                fontSize: 11.5,
+                                fontWeight: 600,
+                                color: '#A83B38',
+                                background: '#FDF1F0',
+                                border: '1px solid #F5C6CB',
+                                borderRadius: 5,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <Trash2 size={13} />
+                              <span>Cancel / Delete</span>
+                            </button>
+                          </div>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -1726,7 +2192,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         {activeNavType === 'hub' && (
           <>
             <header className="content-header">
-              <div className="header-top">
+              <div className="header-top" style={{ flexWrap: 'wrap', gap: 12 }}>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#2C6E6A', letterSpacing: '0.06em' }}>
                     CO-CURRICULAR HUB
@@ -1734,74 +2200,293 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   <h1 className="page-title" style={{ margin: '2px 0 0' }}>
                     Holistic Development Programmes
                   </h1>
+                  <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--text-secondary)' }}>
+                    Explore clubs, workshops, events, and leadership opportunities
+                  </p>
                 </div>
 
-                <div style={{ width: 180 }}>
-                  <CustomSelect
-                    value={hubFilter}
-                    onChange={(val) => setHubFilter(val)}
-                    placeholder="All Categories"
-                    options={[
-                      { value: '', label: 'All Categories' },
-                      { value: 'Club Registration', label: 'Clubs' },
-                      { value: 'Workshop', label: 'Workshops' },
-                      { value: 'Event', label: 'Events' },
-                      { value: 'Leadership Programme', label: 'Leadership' },
-                      { value: 'Volunteer Opportunity', label: 'Volunteer' },
-                    ]}
-                  />
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {[
+                    { value: '', label: 'All' },
+                    { value: 'Club Registration', label: '🎨 Clubs' },
+                    { value: 'Workshop', label: '🔧 Workshops' },
+                    { value: 'Event', label: '🎉 Events' },
+                    { value: 'Leadership Programme', label: '🏆 Leadership' },
+                    { value: 'Volunteer Opportunity', label: '🤝 Volunteer' },
+                    { value: 'Sports & Athletics', label: '⚽ Sports' },
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setHubFilter(opt.value)}
+                      style={{
+                        padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: 'pointer',
+                        border: `1.5px solid ${hubFilter === opt.value ? '#2C6E6A' : 'var(--border-color)'}`,
+                        background: hubFilter === opt.value ? '#EAF3EF' : 'var(--surface)',
+                        color: hubFilter === opt.value ? '#1C4D46' : 'var(--text-secondary)',
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
                 </div>
               </div>
             </header>
 
             <div className="content-body" style={{ padding: '24px 32px' }}>
-              <div className="hub-grid">
-                {filteredHub.length === 0 ? (
-                  <div className="panel-block" style={{ gridColumn: '1 / -1', padding: '32px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-                    No activities available in this category right now.
-                  </div>
-                ) : (
-                  filteredHub.map((act) => {
+              {filteredHub.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-secondary)', fontSize: 13, background: '#FFFFFF', borderRadius: 10, border: '2px dashed var(--border-color)' }}>
+                  <div style={{ fontSize: 36, marginBottom: 12 }}>🌿</div>
+                  <div style={{ fontWeight: 700, color: 'var(--neutral-dark)', fontSize: 15, marginBottom: 6 }}>No Activities Found</div>
+                  <div>No activities available in this category right now. Check back soon!</div>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 16 }}>
+                  {filteredHub.map((act) => {
                     const isEnrolled = (act.enrolled_student_ids || []).includes(currentStudent.id);
+                    const typeEmojis: Record<string, string> = {
+                      'Club Registration': '🎨', 'Workshop': '🔧', 'Event': '🎉',
+                      'Leadership Programme': '🏆', 'Volunteer Opportunity': '🤝',
+                      'Counselling Appointment': '💬', 'Summer Programme': '☀️',
+                      'Sports & Athletics': '⚽', 'Science & Technology': '🔬', 'Arts & Culture': '🎭',
+                    };
+                    const typeColors: Record<string, string> = {
+                      'Club Registration': '#7C3AED', 'Workshop': '#2563EB', 'Event': '#D97706',
+                      'Leadership Programme': '#059669', 'Volunteer Opportunity': '#DC2626',
+                      'Counselling Appointment': '#0891B2', 'Summer Programme': '#EA580C',
+                      'Sports & Athletics': '#16A34A', 'Science & Technology': '#4F46E5', 'Arts & Culture': '#C026D3',
+                    };
+                    const emoji = typeEmojis[act.type] || '📌';
+                    const color = typeColors[act.type] || '#2C6E6A';
+                    const enrolledCount = (act.enrolled_student_ids || []).length;
+                    const maxCap = (act as any).max_capacity;
+                    const location = (act as any).location;
+
                     return (
-                      <div className={`hub-card ${isEnrolled ? 'enrolled' : ''}`} key={act.id}>
-                        <div className="hub-card-media">
-                          <img src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600&auto=format&fit=crop&q=80" alt={act.title} />
-                        </div>
-                        <div className="hub-card-body">
-                          <span className="badge badge-hub">{act.type}</span>
-                          <div className="hub-card-title">{act.title}</div>
-                          <div className="hub-card-desc">{act.description}</div>
-                          <div className="hub-card-meta">
-                            <span className="hub-card-date">
-                              <svg className="svg-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                              {act.date}
-                            </span>
-                            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                              Target: {(act.target_grades || []).join(', ') || 'All Grades'}
-                            </span>
+                      <div
+                        key={act.id}
+                        onClick={() => setSelectedHubActivity(act)}
+                        style={{
+                          borderRadius: 12, border: isEnrolled ? `2px solid ${color}60` : '1px solid var(--border-color)',
+                          background: '#FFFFFF', overflow: 'hidden',
+                          display: 'flex', flexDirection: 'column',
+                          cursor: 'pointer',
+                          boxShadow: isEnrolled ? `0 2px 12px ${color}20` : '0 1px 4px rgba(0,0,0,0.04)',
+                          transition: 'box-shadow 0.2s, transform 0.15s',
+                        }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 6px 20px rgba(0,0,0,0.1)'; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = ''; (e.currentTarget as HTMLDivElement).style.boxShadow = isEnrolled ? `0 2px 12px ${color}20` : '0 1px 4px rgba(0,0,0,0.04)'; }}
+                      >
+                        {/* Colour banner */}
+                        <div style={{
+                          background: `linear-gradient(135deg, ${color}28 0%, ${color}12 100%)`,
+                          borderBottom: `1px solid ${color}30`,
+                          padding: '18px 20px',
+                          display: 'flex', alignItems: 'center', gap: 12,
+                        }}>
+                          <div style={{
+                            width: 48, height: 48, borderRadius: 12,
+                            background: color + '20', border: `1.5px solid ${color}40`,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 24, flexShrink: 0,
+                          }}>
+                            {emoji}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                              <span style={{
+                                fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em',
+                                color, background: color + '18', border: `1px solid ${color}30`,
+                                padding: '2px 7px', borderRadius: 4,
+                              }}>{act.type}</span>
+                              {isEnrolled && (
+                                <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#059669', background: '#D1FAE5', border: '1px solid #A7F3D0', padding: '2px 7px', borderRadius: 4 }}>
+                                  ✓ Enrolled
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--neutral-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {act.title}
+                            </div>
                           </div>
                         </div>
-                        <div className="hub-card-footer">
-                          <span className="hub-card-enroll-count">
-                            {(act.enrolled_student_ids || []).length} Enrolled
+
+                        {/* Body */}
+                        <div style={{ padding: '14px 20px', flex: 1 }}>
+                          <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.5, margin: '0 0 12px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                            {act.description}
+                          </p>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', display: 'flex', gap: 6 }}>
+                              <span>📅</span> <strong style={{ color: 'var(--neutral-dark)' }}>{act.date}</strong>
+                            </div>
+                            {location && (
+                              <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', display: 'flex', gap: 6 }}>
+                                <span>📍</span> {location}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div style={{
+                          padding: '10px 20px', borderTop: '1px solid var(--border-color)',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          background: '#FAFAF9',
+                        }}>
+                          <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                            {enrolledCount} enrolled{maxCap ? ` / ${maxCap} max` : ''}
                           </span>
-                          <button
-                            onClick={() => handleHubEnroll(act.id, act.title)}
-                            className={isEnrolled ? 'btn-enrolled action-btn' : 'btn-hub action-btn'}
-                            style={{ padding: '6px 16px', fontWeight: 600 }}
-                          >
-                            {isEnrolled ? 'Enrolled' : 'Register / Apply'}
-                          </button>
+                          <span style={{ fontSize: 12, fontWeight: 600, color, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            View Details →
+                          </span>
                         </div>
                       </div>
                     );
-                  })
-                )}
-              </div>
+                  })}
+                </div>
+              )}
             </div>
+
+            {/* ── Activity Detail Drawer ── */}
+            {selectedHubActivity && (() => {
+              const act = selectedHubActivity;
+              const isEnrolled = (act.enrolled_student_ids || []).includes(currentStudent.id);
+              const typeColors: Record<string, string> = {
+                'Club Registration': '#7C3AED', 'Workshop': '#2563EB', 'Event': '#D97706',
+                'Leadership Programme': '#059669', 'Volunteer Opportunity': '#DC2626',
+                'Counselling Appointment': '#0891B2', 'Summer Programme': '#EA580C',
+                'Sports & Athletics': '#16A34A', 'Science & Technology': '#4F46E5', 'Arts & Culture': '#C026D3',
+              };
+              const typeEmojis: Record<string, string> = {
+                'Club Registration': '🎨', 'Workshop': '🔧', 'Event': '🎉',
+                'Leadership Programme': '🏆', 'Volunteer Opportunity': '🤝',
+                'Counselling Appointment': '💬', 'Summer Programme': '☀️',
+                'Sports & Athletics': '⚽', 'Science & Technology': '🔬', 'Arts & Culture': '🎭',
+              };
+              const color = typeColors[act.type] || '#2C6E6A';
+              const emoji = typeEmojis[act.type] || '📌';
+              const enrolledCount = (act.enrolled_student_ids || []).length;
+              const maxCap = (act as any).max_capacity;
+              const location = (act as any).location;
+
+              // Convert YouTube URL to embed
+              let videoEmbedUrl = '';
+              if (act.video_url) {
+                const ytMatch = act.video_url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+                if (ytMatch) videoEmbedUrl = `https://www.youtube.com/embed/${ytMatch[1]}`;
+              }
+
+              return (
+                <div
+                  style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', zIndex: 900, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}
+                  onClick={() => setSelectedHubActivity(null)}
+                >
+                  <div
+                    onClick={e => e.stopPropagation()}
+                    style={{
+                      width: '100%', maxWidth: 520,
+                      height: '100vh', maxHeight: '100vh',
+                      background: '#FFFFFF', overflowY: 'auto',
+                      display: 'flex', flexDirection: 'column',
+                      boxShadow: '-8px 0 40px rgba(0,0,0,0.15)',
+                      animation: 'slideInRight 0.25s ease',
+                    }}
+                  >
+                    {/* Header banner */}
+                    <div style={{
+                      background: `linear-gradient(135deg, ${color}30 0%, ${color}10 100%)`,
+                      borderBottom: `1px solid ${color}30`,
+                      padding: '28px 28px 24px',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                        <div style={{
+                          width: 56, height: 56, borderRadius: 14,
+                          background: color + '20', border: `2px solid ${color}40`,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 28,
+                        }}>
+                          {emoji}
+                        </div>
+                        <button
+                          onClick={() => setSelectedHubActivity(null)}
+                          style={{ width: 32, height: 32, borderRadius: '50%', border: '1px solid var(--border-color)', background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: 'var(--text-secondary)' }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color, background: color + '18', border: `1px solid ${color}30`, padding: '3px 8px', borderRadius: 4 }}>{act.type}</span>
+                        {isEnrolled && (
+                          <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#059669', background: '#D1FAE5', border: '1px solid #A7F3D0', padding: '3px 8px', borderRadius: 4 }}>✓ Enrolled</span>
+                        )}
+                      </div>
+                      <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: 'var(--neutral-dark)', lineHeight: 1.3 }}>{act.title}</h2>
+                    </div>
+
+                    {/* Content */}
+                    <div style={{ padding: '24px 28px', flex: 1, display: 'flex', flexDirection: 'column', gap: 20 }}>
+                      {/* Quick stats */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        {[
+                          { icon: '📅', label: 'Date', value: act.date },
+                          { icon: '👥', label: 'Enrolled', value: `${enrolledCount}${maxCap ? ` / ${maxCap}` : ''} students` },
+                          ...(location ? [{ icon: '📍', label: 'Location', value: location }] : []),
+                          { icon: '🎯', label: 'Target', value: (act.target_grades || []).join(', ') || 'All Grades' },
+                        ].map((item, i) => (
+                          <div key={i} style={{ padding: '12px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                            <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 3 }}>{item.icon} {item.label}</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>{item.value}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Description */}
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 8 }}>About This Programme</div>
+                        <p style={{ fontSize: 13.5, color: 'var(--neutral-dark)', lineHeight: 1.7, margin: 0, whiteSpace: 'pre-line' }}>{act.description}</p>
+                      </div>
+
+                      {/* Video embed */}
+                      {videoEmbedUrl && (
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 8 }}>📹 Programme Video</div>
+                          <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-color)', aspectRatio: '16/9' }}>
+                            <iframe src={videoEmbedUrl} style={{ width: '100%', height: '100%', border: 'none' }} allowFullScreen title={act.title} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Sticky footer CTA */}
+                    <div style={{ padding: '16px 28px', borderTop: '1px solid var(--border-color)', background: '#FFFFFF', position: 'sticky', bottom: 0 }}>
+                      {maxCap && enrolledCount >= maxCap && !isEnrolled ? (
+                        <div style={{ textAlign: 'center', padding: '12px', background: '#FEF2F2', borderRadius: 8, color: '#DC2626', fontWeight: 600, fontSize: 13 }}>
+                          ⚠️ This programme is fully booked
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { handleHubEnroll(act.id, act.title); setSelectedHubActivity({ ...act, enrolled_student_ids: isEnrolled ? (act.enrolled_student_ids || []).filter(id => id !== currentStudent.id) : [...(act.enrolled_student_ids || []), currentStudent.id] }); }}
+                          style={{
+                            width: '100%', padding: '13px', fontSize: 14, fontWeight: 700,
+                            border: isEnrolled ? '2px solid #DC2626' : 'none',
+                            borderRadius: 10, cursor: 'pointer',
+                            background: isEnrolled ? '#FEF2F2' : color,
+                            color: isEnrolled ? '#DC2626' : '#FFFFFF',
+                            boxShadow: isEnrolled ? 'none' : `0 4px 16px ${color}40`,
+                          }}
+                        >
+                          {isEnrolled ? '✕ Withdraw / Unenrol' : '✓ Register & Enrol'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </>
         )}
+
+
 
         {/* VIEW 4.5: HOMEROOM CIRCULARS & NOTICES FROM CLASS TEACHER */}
         {activeNavType === 'homeroom_circulars' && (
@@ -2364,7 +3049,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         {/* VIEW 5: SETTINGS & PASSWORD RESET */}
         {activeNavType === 'settings' && (
           <div style={{ padding: '24px 32px' }}>
-            <SettingsView currentUser={currentStudent} onRefreshData={onRefreshData} />
+            <SettingsView currentUser={currentStudent} onRefreshData={onRefreshData} onUpdateCurrentUser={onUpdateCurrentUser} />
           </div>
         )}
 
@@ -2426,10 +3111,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           setPreviewingResource(null);
         }}
       />
-      {/* Apply for Authorized Leave / Sick Note Modal */}
+      {/* Apply / Edit Authorized Leave / Sick Note Modal */}
       <ApplyLeaveModal
         isOpen={isApplyLeaveOpen}
-        onClose={() => setIsApplyLeaveOpen(false)}
+        initialLeave={editingLeave}
+        onClose={() => {
+          setIsApplyLeaveOpen(false);
+          setEditingLeave(null);
+        }}
         onSubmit={handleApplyLeaveSubmit}
         studentName={currentStudent.name}
         studentGrade={`Grade ${cleanGrade}-${cleanSection}`}

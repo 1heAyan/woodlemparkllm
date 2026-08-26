@@ -20,6 +20,7 @@ import {
   ClassBroadcast,
   ResourceType,
   ParentStudentLinkRequest,
+  LeaveRequest,
 } from '@/lib/supabaseClient';
 
 import { LoginView } from '@/components/Auth/LoginView';
@@ -44,7 +45,14 @@ import { AssignmentSubmissionRecord } from '@/components/Modals/GradeAssignmentM
 import { AiChatbot } from '@/components/Shared/AiChatbot';
 import { PortalNavigationProvider } from '@/lib/PortalNavigationContext';
 
-export default function Home() {
+function getCachedAvatar(id?: string, email?: string): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const eKey = email ? `woodlem_avatar_${email.toLowerCase().trim()}` : '';
+  const iKey = id ? `woodlem_avatar_${id}` : '';
+  return (eKey && localStorage.getItem(eKey)) || (iKey && localStorage.getItem(iKey)) || undefined;
+}
+
+export default function WoodlemApp() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [isMounted, setIsMounted] = useState(false);
 
@@ -54,6 +62,7 @@ export default function Home() {
   const [assignments, setAssignments] = useState<AssignmentItem[]>([]);
   const [syllabus, setSyllabus] = useState<SyllabusTerm[]>([]);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [attendance, setAttendance] = useState<Record<string, Record<string, string>>>({});
   const [hubActivities, setHubActivities] = useState<HubActivity[]>([]);
   const [parentDocuments, setParentDocuments] = useState<ParentDocument[]>([]);
@@ -76,6 +85,7 @@ export default function Home() {
   const [targetClassForModal, setTargetClassForModal] = useState<string>('10-A');
   const [targetClassForTerm, setTargetClassForTerm] = useState<{ id?: string; subject?: string; className?: string } | null>(null);
   const [isCreateHubActivityOpen, setIsCreateHubActivityOpen] = useState(false);
+  const [editingHubActivity, setEditingHubActivity] = useState<any>(null);
   const [isProvisionUserOpen, setIsProvisionUserOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
@@ -83,44 +93,35 @@ export default function Home() {
   const [subjectClasses, setSubjectClasses] = useState<SubjectClass[]>([]);
   const [isCreateClassOpen, setIsCreateClassOpen] = useState(false);
 
-  // Load all data from Supabase tables
+  // Load All Cloud Data from Supabase
   const loadAllData = useCallback(async () => {
     try {
-      setSchemaError(null);
-
-      // Fetch all tables from Supabase in parallel
       const [
         profRes,
         testRes,
-        assRes,
-        termRes,
-        topicRes,
+        assignRes,
+        sylRes,
         achRes,
         attRes,
         hubRes,
-        enrRes,
-        docRes,
+        parentDocRes,
         subClassRes,
-        auditRes,
-        resRes,
-        castRes,
+        classResRes,
+        classBroadRes,
         testResultsRes,
-        assSubmissionsRes,
-        studentSyllabusRes,
+        assignSubsRes,
+        sylProgRes,
         linkReqRes,
       ] = await Promise.all([
-        supabase.from('profiles').select('*').order('created_at', { ascending: true }).range(0, 4999),
+        supabase.from('profiles').select('*'),
         supabase.from('tests').select('*').order('created_at', { ascending: false }),
         supabase.from('assignments').select('*').order('created_at', { ascending: false }),
-        supabase.from('syllabus_terms').select('*').order('created_at', { ascending: true }),
-        supabase.from('syllabus_topics').select('*').order('created_at', { ascending: true }),
+        supabase.from('syllabus_terms').select('*, syllabus_topics(*)').order('term_number', { ascending: true }),
         supabase.from('achievements').select('*').order('created_at', { ascending: false }),
         supabase.from('attendance').select('*'),
-        supabase.from('hub_activities').select('*').order('date', { ascending: true }),
-        supabase.from('hub_enrollments').select('*'),
-        supabase.from('parent_documents').select('*'),
-        supabase.from('subject_classes').select('*').order('created_at', { ascending: false }),
-        supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(200),
+        supabase.from('hub_activities').select('*').order('created_at', { ascending: false }),
+        supabase.from('parent_documents').select('*').order('created_at', { ascending: false }),
+        supabase.from('subject_classes').select('*').order('created_at', { ascending: true }),
         supabase.from('class_resources').select('*').order('created_at', { ascending: false }),
         supabase.from('class_broadcasts').select('*').order('created_at', { ascending: false }),
         supabase.from('test_results').select('*'),
@@ -152,7 +153,23 @@ export default function Home() {
         setSchemaError('The school portal is currently synchronizing. Please refresh the page if data does not appear immediately.');
       } else {
         const loadedProfiles: UserProfile[] = (profRes.data || []).map((p: any) => {
-          const cloudAvatar = p.avatar_url || avatarMap[p.id] || avatarMap[p.email] || avatarMap[p.id?.toLowerCase()] || undefined;
+          const emailLower = (p.email || '').toLowerCase().trim();
+          const cached = getCachedAvatar(p.id, p.email);
+          const cloudAvatar =
+            p.avatar_url ||
+            avatarMap[p.id] ||
+            avatarMap[p.id?.toLowerCase()] ||
+            avatarMap[p.email] ||
+            avatarMap[emailLower] ||
+            cached ||
+            undefined;
+
+          // Cache in local storage for instant render without network flash
+          if (cloudAvatar && typeof window !== 'undefined') {
+            if (emailLower) localStorage.setItem(`woodlem_avatar_${emailLower}`, cloudAvatar);
+            if (p.id) localStorage.setItem(`woodlem_avatar_${p.id}`, cloudAvatar);
+          }
+
           return { ...p, avatar_url: cloudAvatar };
         });
         setProfiles(loadedProfiles);
@@ -163,7 +180,12 @@ export default function Home() {
           const fresh = loadedProfiles.find(
             (p) => (prev.id && p.id === prev.id) || (p.email && p.email.toLowerCase() === prev.email.toLowerCase())
           );
-          return fresh || prev;
+          if (!fresh) return prev;
+          // Preserve avatar_url if previously loaded
+          return {
+            ...fresh,
+            avatar_url: fresh.avatar_url || prev.avatar_url || getCachedAvatar(fresh.id, fresh.email),
+          };
         });
       }
 
@@ -200,9 +222,9 @@ export default function Home() {
       });
 
       setTests(builtTests);
-      setAssignments(assRes.data || []);
+      setAssignments(assignRes.data || []);
 
-      const builtSyllabus: SyllabusTerm[] = (termRes.data || [])
+      const builtSyllabus: SyllabusTerm[] = (sylRes.data || [])
         .map((term: any) => ({
           id: term.id,
           name: term.name,
@@ -210,8 +232,7 @@ export default function Home() {
           class_name: term.class_name || '',
           class_id: term.class_id || '',
           order_index: term.order_num ?? term.order_index ?? 0,
-          topics: (topicRes.data || [])
-            .filter((tp: any) => tp.term_id === term.id)
+          topics: (term.syllabus_topics || [])
             .map((tp: any) => ({
               id: tp.id,
               term_id: tp.term_id,
@@ -233,8 +254,35 @@ export default function Home() {
         }
       });
 
+      // Extract all cloud-stored leave applications from Supabase
+      const builtLeaves: LeaveRequest[] = (achRes.data || [])
+        .filter((ach: any) => ach.title === '__LEAVE_REQUEST__')
+        .map((ach: any) => {
+          let details: any = {};
+          try {
+            details = JSON.parse(ach.desc_text || ach.description || '{}');
+          } catch {
+            details = { reason: ach.desc_text || ach.description || '' };
+          }
+          return {
+            id: ach.id,
+            student_id: ach.student_id,
+            startDate: details.startDate || '',
+            endDate: details.endDate || details.startDate || '',
+            leaveType: details.leaveType || 'Authorized Leave',
+            reason: details.reason || '',
+            fileName: ach.file_name || details.fileName || '',
+            fileUrl: ach.file_url || details.fileUrl || '',
+            created_at: ach.created_at || details.appliedAt || '',
+            status: details.status || 'submitted',
+          };
+        })
+        .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime());
+
+      setLeaveRequests(builtLeaves);
+
       const builtAchievements: Achievement[] = (achRes.data || [])
-        .filter((ach: any) => ach.title !== '__USER_AVATAR__' && ach.title !== '__PARENT_DOC__')
+        .filter((ach: any) => ach.title !== '__USER_AVATAR__' && ach.title !== '__PARENT_DOC__' && ach.title !== '__LEAVE_REQUEST__')
         .map((ach: any) => {
           let description = ach.desc_text || ach.description || '';
           let fileName = ach.file_name || '';
@@ -271,14 +319,12 @@ export default function Home() {
 
       const builtHub: HubActivity[] = (hubRes.data || []).map((act: any) => ({
         ...act,
-        enrolled_student_ids: (enrRes.data || [])
-          .filter((e: any) => e.activity_id === act.id)
-          .map((e: any) => e.student_id),
+        enrolled_student_ids: [],
       }));
       setHubActivities(builtHub);
 
       // Load parent clearance documents directly from Supabase with cloud file URLs
-      const loadedParentDocs: ParentDocument[] = (docRes.data || []).map((d: any) => ({
+      const loadedParentDocs: ParentDocument[] = (parentDocRes.data || []).map((d: any) => ({
         id: d.id,
         student_id: d.student_id,
         doc_type: d.doc_type,
@@ -293,9 +339,8 @@ export default function Home() {
 
       // Pure Supabase state loading: 100% in sync with database
       setSubjectClasses(subClassRes.data || []);
-      setAuditLogs(auditRes.data || []);
-      setClassResources(resRes.data || []);
-      setClassBroadcasts(castRes.data || []);
+      setClassResources(classResRes.data || []);
+      setClassBroadcasts(classBroadRes.data || []);
 
       const testResMap: Record<string, TestResultRecord> = {};
       (testResultsRes.data || []).forEach((row: any) => {
@@ -312,7 +357,7 @@ export default function Home() {
       setTestResults(testResMap);
 
       const assSubMap: Record<string, AssignmentSubmissionRecord> = {};
-      (assSubmissionsRes.data || []).forEach((row: any) => {
+      (assignSubsRes.data || []).forEach((row: any) => {
         const key = `${row.assignment_id}_${row.student_id}`;
         assSubMap[key] = {
           assignment_id: row.assignment_id,
@@ -329,7 +374,7 @@ export default function Home() {
       setAssignmentSubmissions(assSubMap);
 
       const sylProgMap: Record<string, boolean> = {};
-      (studentSyllabusRes.data || []).forEach((row: any) => {
+      (sylProgRes.data || []).forEach((row: any) => {
         sylProgMap[`${row.student_id}_${row.topic_id}`] = !!row.is_completed;
       });
       setStudentSyllabusProgress(sylProgMap);
@@ -352,7 +397,11 @@ export default function Home() {
             .maybeSingle();
 
           if (prof) {
-            setCurrentUser(prof);
+            const cached = getCachedAvatar(prof.id, prof.email);
+            setCurrentUser({
+              ...prof,
+              avatar_url: prof.avatar_url || cached || undefined,
+            });
           }
         }
       } catch (e) {}
@@ -374,10 +423,40 @@ export default function Home() {
           .eq('email', userEmail)
           .maybeSingle();
         if (prof) {
-          setCurrentUser(prof);
+          const cached = getCachedAvatar(prof.id, prof.email);
+          setCurrentUser({
+            ...prof,
+            avatar_url: prof.avatar_url || cached || undefined,
+          });
         }
       }
     });
+
+    // Real-time custom avatar updates across window
+    const handleAvatarEvent = (e: any) => {
+      const detail = e.detail;
+      if (!detail) return;
+      const { avatarUrl, userId, email } = detail;
+      setCurrentUser((prev) => {
+        if (!prev) return null;
+        if ((userId && prev.id === userId) || (email && prev.email?.toLowerCase() === email.toLowerCase())) {
+          return { ...prev, avatar_url: avatarUrl || undefined };
+        }
+        return prev;
+      });
+      setProfiles((prev) =>
+        prev.map((p) => {
+          if ((userId && p.id === userId) || (email && p.email?.toLowerCase() === email.toLowerCase())) {
+            return { ...p, avatar_url: avatarUrl || undefined };
+          }
+          return p;
+        })
+      );
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('woodlem-avatar-updated', handleAvatarEvent);
+    }
 
     // Subscribe to real-time database updates across public schema
     const channel = supabase
@@ -390,14 +469,34 @@ export default function Home() {
     return () => {
       subscription.unsubscribe();
       supabase.removeChannel(channel);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('woodlem-avatar-updated', handleAvatarEvent);
+      }
     };
   }, [loadAllData]);
 
   // Handlers
   const handleLoginSuccess = (profile: UserProfile) => {
-    setCurrentUser(profile);
+    const cached = getCachedAvatar(profile.id, profile.email);
+    const enriched = {
+      ...profile,
+      avatar_url: profile.avatar_url || cached || undefined,
+    };
+    setCurrentUser(enriched);
     loadAllData();
   };
+
+  const handleUpdateCurrentUser = useCallback((updated: UserProfile) => {
+    setCurrentUser(updated);
+    setProfiles((prev) =>
+      prev.map((p) =>
+        (updated.id && p.id === updated.id) ||
+        (updated.email && p.email && p.email.toLowerCase() === updated.email.toLowerCase())
+          ? { ...p, avatar_url: updated.avatar_url }
+          : p
+      )
+    );
+  }, []);
 
   const handleSignOut = async () => {
     try {
@@ -1578,9 +1677,10 @@ export default function Home() {
     }
   };
 
-  // Student / Parent Apply for Authorized Leave / Sick Note
+  // Student / Parent Apply or Update Authorized Leave / Sick Note
   const handleApplyLeave = async (
     data: {
+      id?: string;
       startDate: string;
       endDate: string;
       reason: string;
@@ -1592,6 +1692,24 @@ export default function Home() {
   ) => {
     if (!currentUser) return;
     const targetStudentId = studentId || currentUser.id;
+    const leaveId = data.id || `leave_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+    // If editing existing leave, clean up old attendance records that might no longer be in range
+    if (data.id) {
+      const oldLeave = leaveRequests.find((l) => l.id === data.id);
+      if (oldLeave) {
+        const oldStart = new Date(oldLeave.startDate);
+        const oldEnd = new Date(oldLeave.endDate);
+        for (let d = new Date(oldStart); d <= oldEnd; d.setDate(d.getDate() + 1)) {
+          const dateStr = d.toISOString().split('T')[0];
+          await supabase
+            .from('attendance')
+            .delete()
+            .eq('date', dateStr)
+            .eq('student_id', targetStudentId);
+        }
+      }
+    }
 
     // Collect all dates between startDate and endDate (inclusive)
     const start = new Date(data.startDate);
@@ -1619,7 +1737,36 @@ export default function Home() {
       return updated;
     });
 
-    // Sync to Supabase: upsert auth_absent for each school day
+    const leavePayload = {
+      startDate: data.startDate,
+      endDate: data.endDate,
+      leaveType: data.leaveType,
+      reason: data.reason,
+      fileName: data.fileName || '',
+      status: 'submitted',
+      appliedAt: new Date().toISOString(),
+    };
+
+    // Optimistically update leaveRequests state
+    const optimisticLeaveRecord: LeaveRequest = {
+      id: leaveId,
+      student_id: targetStudentId,
+      startDate: data.startDate,
+      endDate: data.endDate,
+      leaveType: data.leaveType,
+      reason: data.reason,
+      fileName: data.fileName || '',
+      fileUrl: data.fileUrl || '',
+      created_at: new Date().toISOString(),
+      status: 'submitted',
+    };
+
+    setLeaveRequests((prev) => {
+      const filtered = prev.filter((l) => l.id !== leaveId);
+      return [optimisticLeaveRecord, ...filtered];
+    });
+
+    // Sync to Supabase: upsert auth_absent for each school day and save leave record
     try {
       for (const date of datesToMark) {
         await supabase
@@ -1635,6 +1782,15 @@ export default function Home() {
         });
       }
 
+      await supabase.from('achievements').upsert({
+        id: leaveId,
+        student_id: targetStudentId,
+        title: '__LEAVE_REQUEST__',
+        desc_text: JSON.stringify(leavePayload),
+        file_name: data.fileName || '',
+        file_url: data.fileUrl || '',
+      });
+
       const dayCount = datesToMark.length;
       const displayRange =
         data.startDate === data.endDate
@@ -1642,13 +1798,46 @@ export default function Home() {
           : `${data.startDate} → ${data.endDate}`;
 
       alert(
-        `Leave Request Registered: ${dayCount} school day${
+        `Leave Request Saved: ${dayCount} school day${
           dayCount > 1 ? 's' : ''
-        } (${displayRange}) logged as Authorized Absence for reason "${data.reason}". Class teacher and attendance records updated.`
+        } (${displayRange}) registered as Authorized Absence. Class teacher and attendance records updated.`
       );
     } catch (err: any) {
       console.error('Leave submission error:', err);
       alert('Unable to sync leave request with the database. Please try again.');
+    }
+    loadAllData();
+  };
+
+  const handleDeleteLeave = async (leaveId: string, studentId?: string) => {
+    if (!confirm('Are you sure you want to cancel/delete this leave request?')) return;
+    const targetStudentId = studentId || currentUser?.id;
+    if (!targetStudentId) return;
+
+    const targetLeave = leaveRequests.find((l) => l.id === leaveId);
+    let datesToClear: string[] = [];
+    if (targetLeave) {
+      const start = new Date(targetLeave.startDate);
+      const end = new Date(targetLeave.endDate);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        datesToClear.push(d.toISOString().split('T')[0]);
+      }
+    }
+
+    setLeaveRequests((prev) => prev.filter((l) => l.id !== leaveId));
+
+    try {
+      await supabase.from('achievements').delete().eq('id', leaveId);
+
+      for (const date of datesToClear) {
+        await supabase
+          .from('attendance')
+          .delete()
+          .eq('date', date)
+          .eq('student_id', targetStudentId);
+      }
+    } catch (err) {
+      console.error('Delete leave error:', err);
     }
     loadAllData();
   };
@@ -1677,6 +1866,22 @@ export default function Home() {
         created_by: currentUser?.id || currentUser?.name || 'teacher',
       },
     ]);
+    loadAllData();
+  };
+
+  const handleUpdateHubActivity = async (id: string, data: {
+    title: string; type: string; description: string; date: string;
+    videoUrl?: string; targetGrades: string[]; location?: string; maxCapacity?: number;
+  }) => {
+    await supabase.from('hub_activities').update({
+      title: data.title,
+      type: data.type,
+      description: data.description,
+      date: data.date,
+      video_url: data.videoUrl || '',
+      target_grades: data.targetGrades,
+    }).eq('id', id);
+    setEditingHubActivity(null);
     loadAllData();
   };
 
@@ -2137,6 +2342,7 @@ export default function Home() {
           assignments={assignments}
           syllabus={syllabus}
           achievements={achievements}
+          leaveRequests={leaveRequests}
           attendance={attendance}
           hubActivities={hubActivities}
           subjectClasses={subjectClasses}
@@ -2154,6 +2360,8 @@ export default function Home() {
           onToggleHubEnrollment={handleToggleHubEnrollment}
           onOpenVideoModal={(act) => setSelectedVideoActivity(act)}
           onApplyLeave={handleApplyLeave}
+          onDeleteLeave={handleDeleteLeave}
+          onUpdateCurrentUser={handleUpdateCurrentUser}
           onRefreshData={loadAllData}
           onSignOut={handleSignOut}
         />
@@ -2207,6 +2415,8 @@ export default function Home() {
           onSaveAttendance={handleSaveAttendance}
           onOpenCreateHubActivityModal={() => setIsCreateHubActivityOpen(true)}
           onDeleteHubActivity={handleDeleteHubActivity}
+          onEditHubActivity={(act) => setEditingHubActivity(act)}
+          onUpdateCurrentUser={handleUpdateCurrentUser}
           onRefreshData={loadAllData}
           onSignOut={handleSignOut}
         />
@@ -2216,6 +2426,7 @@ export default function Home() {
           profiles={profiles}
           parentDocuments={parentDocuments}
           hubActivities={hubActivities}
+          subjectClasses={subjectClasses}
           linkRequests={linkRequests}
           onOpenProvisionModal={() => setIsProvisionUserOpen(true)}
           onOpenBulkModal={() => setIsBulkImportOpen(true)}
@@ -2240,6 +2451,7 @@ export default function Home() {
           parentDocuments={parentDocuments}
           hubActivities={hubActivities}
           achievements={achievements}
+          leaveRequests={leaveRequests}
           classBroadcasts={classBroadcasts}
           subjectClasses={subjectClasses}
           linkRequests={linkRequests}
@@ -2248,13 +2460,33 @@ export default function Home() {
           onOpenVideoModal={(act) => setSelectedVideoActivity(act)}
           onRequestChildLink={handleCreateLinkRequest}
           onApplyLeave={handleApplyLeave}
+          onDeleteLeave={handleDeleteLeave}
+          onUpdateCurrentUser={handleUpdateCurrentUser}
           onRefreshData={loadAllData}
           onSignOut={handleSignOut}
         />
       )}
 
       {/* AI Copilot — flex sibling, pushes dashboard content */}
-      <AiChatbot currentUser={currentUser} />
+      <AiChatbot
+        currentUser={currentUser}
+        profiles={profiles}
+        subjectClasses={subjectClasses}
+        tests={tests}
+        assignments={assignments}
+        syllabus={syllabus}
+        attendance={attendance}
+        classResources={classResources}
+        classBroadcasts={classBroadcasts}
+        achievements={achievements}
+        leaveRequests={leaveRequests}
+        hubActivities={hubActivities}
+        parentDocuments={parentDocuments}
+        linkRequests={linkRequests}
+        testResults={testResults}
+        assignmentSubmissions={assignmentSubmissions}
+        studentSyllabusProgress={studentSyllabusProgress}
+      />
       </div>
 
       {/* Modals */}
@@ -2303,9 +2535,11 @@ export default function Home() {
       />
 
       <CreateHubActivityModal
-        isOpen={isCreateHubActivityOpen}
-        onClose={() => setIsCreateHubActivityOpen(false)}
+        isOpen={isCreateHubActivityOpen || !!editingHubActivity}
+        onClose={() => { setIsCreateHubActivityOpen(false); setEditingHubActivity(null); }}
         onSubmit={handleCreateHubActivity}
+        onUpdate={handleUpdateHubActivity}
+        editActivity={editingHubActivity}
         teacherClass={
           currentUser?.assigned_class ||
           (currentUser?.grade && currentUser?.class_letter
