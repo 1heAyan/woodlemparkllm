@@ -72,9 +72,14 @@
     display: none;
 }
 body, html {
-    height: 100vh; width: 100vw;
-    background-color: var(--neutral-bg); color: var(--neutral-dark);
-    overflow: hidden; font-family: var(--font-label); -webkit-font-smoothing: antialiased;
+    height: 100vh;
+    height: 100dvh;
+    width: 100vw;
+    background-color: var(--neutral-bg);
+    color: var(--neutral-dark);
+    overflow: hidden;
+    font-family: var(--font-label);
+    -webkit-font-smoothing: antialiased;
 }
 
 /* App View Container */
@@ -82,7 +87,9 @@ body, html {
     display: flex; 
     flex: 1;
     min-width: 0;
-    height: 100vh; 
+    height: 100vh;
+    height: 100dvh;
+    width: 100vw;
     overflow: hidden; 
 }
 
@@ -1624,18 +1631,16 @@ textarea.form-input { resize: vertical; }
     display: flex !important;
     align-items: center;
     justify-content: space-between;
-    height: 56px;
-    min-height: 56px;
-    background: #FFFFFF;
+    height: calc(56px + env(safe-area-inset-top, 0px)) !important;
+    min-height: calc(56px + env(safe-area-inset-top, 0px)) !important;
+    padding: env(safe-area-inset-top, 0px) 14px 0 14px !important;
+    background: #FFFFFF !important;
     border-bottom: 1px solid var(--border-color);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
-    padding: 0 14px;
-    position: sticky;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 40;
-    box-sizing: border-box;
+    position: relative !important;
+    flex-shrink: 0 !important;
+    z-index: 50 !important;
+    box-sizing: border-box !important;
   }
 
   .mobile-top-bar-brand {
@@ -1776,7 +1781,7 @@ textarea.form-input { resize: vertical; }
   }
 
   .mobile-drawer-header {
-    padding: 16px 14px 12px;
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 14px 12px !important;
     border-bottom: 1px solid var(--border-color);
     display: flex;
     align-items: center;
@@ -1843,15 +1848,23 @@ textarea.form-input { resize: vertical; }
 
   /* Main Viewport Content Adaptation */
   .main-content {
-    height: calc(100vh - 56px);
+    flex: 1 1 0% !important;
+    height: auto !important;
+    min-height: 0 !important;
     overflow-y: auto !important;
     overflow-x: hidden !important;
-    padding-bottom: 24px !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)) !important;
+    box-sizing: border-box !important;
   }
 
   .content-header {
-    padding: 16px 16px 0 16px !important;
+    padding: 16px 16px 8px 16px !important;
     background-color: var(--neutral-bg);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    box-sizing: border-box;
   }
 
   /* Parent portal green header mobile overrides */
