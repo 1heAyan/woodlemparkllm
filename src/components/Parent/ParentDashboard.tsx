@@ -1232,7 +1232,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             {/* RIGHT: ward switcher + action buttons */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
               {linkedStudents.length > 1 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div className="hide-mobile" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                   <span className="parent-header-ward-label" style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>Ward:</span>
                   <CustomSelect
                     value={selectedChildId}
