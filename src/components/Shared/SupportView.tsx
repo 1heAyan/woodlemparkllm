@@ -114,9 +114,9 @@ export const SupportView: React.FC<SupportViewProps> = () => {
               fontWeight: activeSubTab === 'contacts' ? 700 : 500,
               borderRadius: 4,
               border: 'none',
-              background: activeSubTab === 'contacts' ? '#FFFFFF' : 'transparent',
-              color: activeSubTab === 'contacts' ? '#2C6E6A' : 'var(--text-secondary)',
-              boxShadow: activeSubTab === 'contacts' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+              background: activeSubTab === 'contacts' ? '#2D2C2A' : 'transparent',
+              color: activeSubTab === 'contacts' ? '#FFFFFF' : 'var(--text-secondary)',
+              boxShadow: activeSubTab === 'contacts' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
               cursor: 'pointer',
             }}
           >
@@ -131,9 +131,9 @@ export const SupportView: React.FC<SupportViewProps> = () => {
               fontWeight: activeSubTab === 'faq' ? 700 : 500,
               borderRadius: 4,
               border: 'none',
-              background: activeSubTab === 'faq' ? '#FFFFFF' : 'transparent',
-              color: activeSubTab === 'faq' ? '#2C6E6A' : 'var(--text-secondary)',
-              boxShadow: activeSubTab === 'faq' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+              background: activeSubTab === 'faq' ? '#2D2C2A' : 'transparent',
+              color: activeSubTab === 'faq' ? '#FFFFFF' : 'var(--text-secondary)',
+              boxShadow: activeSubTab === 'faq' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
               cursor: 'pointer',
             }}
           >
@@ -351,9 +351,9 @@ export const SupportView: React.FC<SupportViewProps> = () => {
                     fontSize: 11.5,
                     fontWeight: selectedFaqCategory === cat ? 700 : 500,
                     borderRadius: 20,
-                    border: selectedFaqCategory === cat ? '1px solid #2C6E6A' : '1px solid var(--border-color)',
-                    background: selectedFaqCategory === cat ? '#EAF3EF' : '#FFFFFF',
-                    color: selectedFaqCategory === cat ? '#2C6E6A' : 'var(--neutral-dark)',
+                    border: selectedFaqCategory === cat ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
+                    background: selectedFaqCategory === cat ? '#2D2C2A' : '#FFFFFF',
+                    color: selectedFaqCategory === cat ? '#FFFFFF' : 'var(--neutral-dark)',
                     cursor: 'pointer',
                   }}
                 >

@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { UserProfile } from '@/lib/supabaseClient';
+import { UserProfile, SubjectClass } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import { AlertTriangle } from 'lucide-react';
 
 const GRADES = ['9', '10', '11', '12'] as const;
@@ -25,6 +26,7 @@ const SUBJECTS = [
 interface ProvisionUserModalProps {
   isOpen: boolean;
   profiles: UserProfile[];
+  subjectClasses?: SubjectClass[];
   onClose: () => void;
   onSubmit: (userData: {
     name: string;
@@ -44,6 +46,7 @@ interface ProvisionUserModalProps {
 export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
   isOpen,
   profiles = [],
+  subjectClasses = [],
   onClose,
   onSubmit,
 }) => {
@@ -87,12 +90,23 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
     if (role !== 'teacher' || !isClassTeacher) return null;
     return profiles.find((p) => {
       if (p.role !== 'teacher') return false;
-      const cleanG = (p.grade || '').replace(/[^0-9]/g, '');
-      const cleanS = (p.class_letter || '').toUpperCase().trim();
-      const assigned = (p.assigned_class || (cleanG && cleanS ? `${cleanG}-${cleanS}` : '')).replace(/^Grade\s*/i, '');
-      return assigned === targetClassKey;
+      const pInfo = extractClassTeacherInfo(p, subjectClasses);
+      return pInfo.isClassTeacher && pInfo.classKey === targetClassKey;
     });
-  }, [profiles, role, isClassTeacher, targetClassKey]);
+  }, [profiles, role, isClassTeacher, targetClassKey, subjectClasses]);
+
+  // Duplicate admission/user code detection across all users
+  const duplicateCodeUser = useMemo(() => {
+    const clean = admissionNumber.trim().toLowerCase();
+    if (!clean || clean === '—' || clean === '-' || clean === 'null' || clean === 'undefined') {
+      return null;
+    }
+    return profiles.find(
+      (p) =>
+        ((p.admission_number && p.admission_number.trim().toLowerCase() === clean) ||
+          (p.user_code && p.user_code.trim().toLowerCase() === clean))
+    );
+  }, [profiles, admissionNumber]);
 
   if (!isOpen) return null;
 
@@ -106,6 +120,11 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
 
     if (role === 'teacher' && isClassTeacher && existingClassTeacher) {
       alert(`Cannot assign as Class Teacher: Grade ${grade}-${section} is already assigned to ${existingClassTeacher.name} (${existingClassTeacher.subject || 'Faculty'}). Each class section can only have one Class Teacher.`);
+      return;
+    }
+
+    if (duplicateCodeUser) {
+      alert(`Cannot create account: Code "${admissionNumber.trim()}" is already assigned to ${duplicateCodeUser.name} (${duplicateCodeUser.role.toUpperCase()}). Every user must have a unique code.`);
       return;
     }
 
@@ -249,7 +268,29 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
               placeholder={role === 'student' ? 'e.g. WPS-104829' : 'e.g. EMP-204'}
               value={admissionNumber}
               onChange={(e) => setAdmissionNumber(e.target.value)}
+              style={{
+                borderColor: duplicateCodeUser ? '#DC2626' : undefined,
+                background: duplicateCodeUser ? '#FEF2F2' : undefined,
+              }}
             />
+            {duplicateCodeUser && (
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 11.5,
+                  color: '#DC2626',
+                  background: '#FEF2F2',
+                  border: '1px solid #FECACA',
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <span>⚠️ <strong>Conflict:</strong> This code is already in use by <strong>{duplicateCodeUser.name}</strong> ({duplicateCodeUser.role.toUpperCase()}).</span>
+              </div>
+            )}
           </div>
 
           {/* ── STUDENT COHORT FIELDS ── */}
@@ -280,9 +321,9 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
                         flex: 1,
                         padding: '10px 0',
                         borderRadius: 8,
-                        border: grade === g ? '2px solid #2C6E6A' : '1.5px solid #CBD5E1',
-                        background: grade === g ? '#EAF3EF' : '#fff',
-                        color: grade === g ? '#20554E' : '#64748B',
+                        border: grade === g ? '1.5px solid #2D2C2A' : '1.5px solid #CBD5E1',
+                        background: grade === g ? '#2D2C2A' : '#fff',
+                        color: grade === g ? '#FFFFFF' : '#64748B',
                         fontWeight: 700,
                         fontSize: 13,
                         cursor: 'pointer',
@@ -364,9 +405,9 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
                               flex: 1,
                               padding: '8px 0',
                               borderRadius: 6,
-                              border: grade === g ? '2px solid #2C6E6A' : '1px solid #CBD5E1',
-                              background: grade === g ? '#EAF3EF' : '#FFFFFF',
-                              color: grade === g ? '#20554E' : '#64748B',
+                              border: grade === g ? '1.5px solid #2D2C2A' : '1px solid #CBD5E1',
+                              background: grade === g ? '#2D2C2A' : '#FFFFFF',
+                              color: grade === g ? '#FFFFFF' : '#64748B',
                               fontWeight: 700,
                               fontSize: 12.5,
                               cursor: 'pointer',

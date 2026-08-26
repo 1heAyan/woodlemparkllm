@@ -3,6 +3,7 @@
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { UserProfile } from '@/lib/supabaseClient';
 
 export interface BulkUserRow {
   name: string;
@@ -21,12 +22,14 @@ interface BulkImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onBulkSubmit: (users: BulkUserRow[], onProgress?: (current: number, total: number) => void) => Promise<void>;
+  profiles?: UserProfile[];
 }
 
 export const BulkImportModal: React.FC<BulkImportModalProps> = ({
   isOpen,
   onClose,
   onBulkSubmit,
+  profiles = [],
 }) => {
   const [file, setFile] = useState<File | null>(null);
   const [parsedRows, setParsedRows] = useState<BulkUserRow[]>([]);
@@ -187,6 +190,18 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
           } else if (!rawEmail) {
             isValid = false;
             error = 'Missing email';
+          } else if (finalCode) {
+            const cleanCode = finalCode.toLowerCase();
+            const existsInProfiles = profiles.some(
+              (p) =>
+                p.email.toLowerCase() !== rawEmail.toLowerCase() &&
+                ((p.admission_number && p.admission_number.toLowerCase() === cleanCode) ||
+                  (p.user_code && p.user_code.toLowerCase() === cleanCode))
+            );
+            if (existsInProfiles) {
+              isValid = false;
+              error = `Code "${finalCode}" is already assigned in database`;
+            }
           }
 
           return {
@@ -201,6 +216,21 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             isValid,
             error,
           };
+        });
+
+        // Detect duplicate codes within the imported batch itself
+        const codeCounts = new Map<string, number>();
+        rows.forEach((r) => {
+          if (r.userCode) {
+            const c = r.userCode.toLowerCase();
+            codeCounts.set(c, (codeCounts.get(c) || 0) + 1);
+          }
+        });
+        rows.forEach((r) => {
+          if (r.userCode && (codeCounts.get(r.userCode.toLowerCase()) || 0) > 1) {
+            r.isValid = false;
+            r.error = r.error ? `${r.error}; Duplicate code within file` : `Duplicate code "${r.userCode}" within file`;
+          }
         });
 
         setParsedRows(rows);

@@ -660,7 +660,7 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
           }}
         >
           <Plus size={14} />
-          <span>+ Add Term for Grade {selectedGrade}</span>
+          <span>Add Term for Grade {selectedGrade}</span>
         </button>
       </div>
 

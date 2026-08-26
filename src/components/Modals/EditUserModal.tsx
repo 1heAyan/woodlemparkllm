@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { UserProfile, ParentDocument } from '@/lib/supabaseClient';
+import { UserProfile, ParentDocument, SubjectClass } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
+import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import { Eye, EyeOff, Lock, FileText, CheckCircle2, Clock, AlertCircle, AlertTriangle } from 'lucide-react';
 
 const GRADES = ['9', '10', '11', '12'] as const;
@@ -27,8 +29,9 @@ interface EditUserModalProps {
   user: UserProfile | null;
   profiles: UserProfile[];
   parentDocuments?: ParentDocument[];
+  subjectClasses?: SubjectClass[];
   onClose: () => void;
-  onSubmit: (updatedUser: UserProfile) => void;
+  onSubmit: (updatedUser: UserProfile) => Promise<void> | void;
 }
 
 export const EditUserModal: React.FC<EditUserModalProps> = ({
@@ -36,6 +39,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
   user,
   profiles = [],
   parentDocuments = [],
+  subjectClasses = [],
   onClose,
   onSubmit,
 }) => {
@@ -45,6 +49,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
   const [userCode, setUserCode] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Student & Teacher Grade & Section
   const [grade, setGrade] = useState<'9' | '10' | '11' | '12'>('12');
@@ -87,62 +92,91 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       setEmail(user.email || '');
       setRole(user.role || 'student');
       setUserCode(user.user_code || user.admission_number || '');
-      setPassword(user.temp_password || 'woodlem123');
+      setPassword(resolveUserPassword(user));
       setShowPassword(false);
       setSelectedStudentIds(user.linked_student_ids || []);
       setStudentSearchTerm('');
 
-      // Parse grade (9, 10, 11, 12)
-      let parsedGrade: '9' | '10' | '11' | '12' = '12';
-      let parsedSection = 'A';
-
-      if (user.assigned_class && user.assigned_class.includes('-')) {
-        const parts = user.assigned_class.split('-');
-        const g = parts[0].replace(/[^0-9]/g, '');
-        if (['9', '10', '11', '12'].includes(g)) parsedGrade = g as any;
-        if (parts[1]) parsedSection = parts[1].toUpperCase().trim();
-        setIsClassTeacher(true);
-      } else if (user.grade) {
-        const cleanG = user.grade.replace(/[^0-9]/g, '');
-        if (['9', '10', '11', '12'].includes(cleanG)) parsedGrade = cleanG as any;
-        if (user.class_letter) parsedSection = user.class_letter.toUpperCase().trim();
-        setIsClassTeacher(user.role === 'teacher' && !!user.assigned_class);
-      } else {
-        setIsClassTeacher(false);
-      }
-
-      setGrade(parsedGrade);
-      setSection(SECTIONS.includes(parsedSection) ? parsedSection : 'A');
+      const classInfo = extractClassTeacherInfo(user, subjectClasses);
+      setGrade(classInfo.grade);
+      setSection(classInfo.section);
+      setIsClassTeacher(classInfo.isClassTeacher);
       setSubject(user.subject || 'English');
     }
-  }, [user]);
+  }, [user, subjectClasses]);
+
+  useEffect(() => {
+    const handlePwdEvent = (e: any) => {
+      const detail = e.detail;
+      if (!detail || !user) return;
+      const cleanTargetEmail = (email || user.email || '').toLowerCase().trim();
+      const eventEmail = (detail.email || '').toLowerCase().trim();
+      if (
+        (detail.userId && user.id && detail.userId === user.id) ||
+        (eventEmail && cleanTargetEmail && eventEmail === cleanTargetEmail)
+      ) {
+        if (detail.newPassword) {
+          setPassword(detail.newPassword);
+        }
+      }
+    };
+    window.addEventListener('woodlem-password-updated', handlePwdEvent);
+    return () => window.removeEventListener('woodlem-password-updated', handlePwdEvent);
+  }, [user, email]);
 
   const targetClassKey = `${grade}-${section}`;
 
   const existingClassTeacher = useMemo(() => {
     if (role !== 'teacher' || !isClassTeacher || !user) return null;
     return profiles.find((p) => {
-      if (p.id === user.id || (p.email && user.email && p.email.toLowerCase() === user.email.toLowerCase())) {
+      if (
+        p.id === user.id ||
+        (p.email && user.email && p.email.toLowerCase().trim() === user.email.toLowerCase().trim()) ||
+        (p.email && email && p.email.toLowerCase().trim() === email.trim().toLowerCase())
+      ) {
         return false;
       }
       if (p.role !== 'teacher') return false;
-      const cleanG = (p.grade || '').replace(/[^0-9]/g, '');
-      const cleanS = (p.class_letter || '').toUpperCase().trim();
-      const assigned = (p.assigned_class || (cleanG && cleanS ? `${cleanG}-${cleanS}` : '')).replace(/^Grade\s*/i, '');
-      return assigned === targetClassKey;
+      const pInfo = extractClassTeacherInfo(p, subjectClasses);
+      return pInfo.isClassTeacher && pInfo.classKey === targetClassKey;
     });
-  }, [profiles, role, isClassTeacher, targetClassKey, user]);
+  }, [profiles, role, isClassTeacher, targetClassKey, user, email, subjectClasses]);
+
+  // Duplicate admission/user code detection across all other users
+  const duplicateCodeUser = useMemo(() => {
+    if (!user) return null;
+    const clean = userCode.trim().toLowerCase();
+    if (!clean || clean === '—' || clean === '-' || clean === 'null' || clean === 'undefined') {
+      return null;
+    }
+    return profiles.find(
+      (p) =>
+        p.id !== user.id &&
+        p.email.toLowerCase() !== user.email.toLowerCase() &&
+        p.email.toLowerCase() !== email.trim().toLowerCase() &&
+        ((p.admission_number && p.admission_number.trim().toLowerCase() === clean) ||
+          (p.user_code && p.user_code.trim().toLowerCase() === clean))
+    );
+  }, [profiles, userCode, user, email]);
 
   if (!isOpen || !user) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim()) return;
+    if (!name.trim() || !email.trim()) {
+      alert('Please provide both Full Name and Email Address.');
+      return;
+    }
 
     if (role === 'teacher' && isClassTeacher && existingClassTeacher) {
       alert(
         `Cannot assign as Class Teacher: Grade ${grade}-${section} is already assigned to ${existingClassTeacher.name} (${existingClassTeacher.subject || 'Faculty'}). Each class section can only have one Class Teacher.`
       );
+      return;
+    }
+
+    if (duplicateCodeUser) {
+      alert(`Cannot save: Code "${userCode.trim()}" is already assigned to ${duplicateCodeUser.name} (${duplicateCodeUser.role.toUpperCase()}). Every user must have a unique code.`);
       return;
     }
 
@@ -154,22 +188,32 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
     const assignedClassStr = role === 'teacher' && isClassTeacher ? `${grade}-${section}` : null;
     const finalGrade = role === 'student' ? grade : role === 'teacher' && isClassTeacher ? grade : '';
     const finalSection = role === 'student' ? section : role === 'teacher' && isClassTeacher ? section : '';
+    const finalPassword = password.trim() || resolveUserPassword(user);
 
-    onSubmit({
-      ...user,
-      name: name.trim(),
-      email: cleanEmail,
-      role,
-      user_code: userCode.trim(),
-      admission_number: userCode.trim(),
-      temp_password: password.trim() || user.temp_password || 'woodlem123',
-      grade: finalGrade,
-      class_letter: finalSection,
-      subject: role === 'teacher' ? subject : null,
-      assigned_class: assignedClassStr,
-      linked_student_ids: role === 'parent' ? selectedStudentIds : user.linked_student_ids,
-    });
-    onClose();
+    setIsSubmitting(true);
+    try {
+      await saveUserPasswordToCloudAndLocal(user.id, cleanEmail, finalPassword);
+
+      await onSubmit({
+        ...user,
+        name: name.trim(),
+        email: cleanEmail,
+        role,
+        user_code: userCode.trim(),
+        admission_number: userCode.trim(),
+        temp_password: finalPassword,
+        grade: finalGrade,
+        class_letter: finalSection,
+        subject: role === 'teacher' ? subject : null,
+        assigned_class: assignedClassStr,
+        linked_student_ids: role === 'parent' ? selectedStudentIds : user.linked_student_ids,
+      });
+      onClose();
+    } catch (err: any) {
+      console.error('Edit user submission error:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -241,8 +285,30 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
               className="form-input"
               value={userCode}
               onChange={(e) => setUserCode(e.target.value)}
+              style={{
+                borderColor: duplicateCodeUser ? '#DC2626' : undefined,
+                background: duplicateCodeUser ? '#FEF2F2' : undefined,
+              }}
               required
             />
+            {duplicateCodeUser && (
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 11.5,
+                  color: '#DC2626',
+                  background: '#FEF2F2',
+                  border: '1px solid #FECACA',
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <span>⚠️ <strong>Conflict:</strong> This code is already in use by <strong>{duplicateCodeUser.name}</strong> ({duplicateCodeUser.role.toUpperCase()}).</span>
+              </div>
+            )}
           </div>
 
           {/* ── PASSWORD MANAGEMENT SECTION ── */}
@@ -372,9 +438,9 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                         flex: 1,
                         padding: '8px',
                         borderRadius: 6,
-                        border: grade === g ? '2px solid #2C6E6A' : '1px solid var(--border-color)',
-                        background: grade === g ? '#EAF3EF' : '#FFFFFF',
-                        color: grade === g ? '#2D6E5D' : 'var(--neutral-dark)',
+                        border: grade === g ? '1.5px solid #2D2C2A' : '1px solid var(--border-color)',
+                        background: grade === g ? '#2D2C2A' : '#FFFFFF',
+                        color: grade === g ? '#FFFFFF' : 'var(--neutral-dark)',
                         fontWeight: grade === g ? 700 : 500,
                         fontSize: 13,
                         cursor: 'pointer',
@@ -472,7 +538,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                     type="checkbox"
                     checked={isClassTeacher}
                     onChange={(e) => setIsClassTeacher(e.target.checked)}
-                    style={{ width: 16, height: 16, accentColor: '#2C6E6A', cursor: 'pointer' }}
+                    style={{ width: 16, height: 16, accentColor: '#2D2C2A', cursor: 'pointer' }}
                   />
                   <span>Designate as Homeroom Class Teacher</span>
                 </label>
@@ -504,9 +570,9 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                               flex: 1,
                               padding: '6px',
                               borderRadius: 4,
-                              border: grade === g ? '2px solid #2C6E6A' : '1px solid var(--border-color)',
-                              background: grade === g ? '#EAF3EF' : '#FFFFFF',
-                              color: grade === g ? '#2D6E5D' : 'var(--neutral-dark)',
+                              border: grade === g ? '1.5px solid #2D2C2A' : '1px solid var(--border-color)',
+                              background: grade === g ? '#2D2C2A' : '#FFFFFF',
+                              color: grade === g ? '#FFFFFF' : 'var(--neutral-dark)',
                               fontWeight: grade === g ? 700 : 500,
                               fontSize: 12,
                               cursor: 'pointer',
@@ -826,19 +892,22 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
 
           {/* Submit Buttons */}
           <div className="modal-footer" style={{ marginTop: 24 }}>
-            <button type="button" className="btn-secondary" onClick={onClose}>
+            <button type="button" className="btn-secondary" onClick={onClose} disabled={isSubmitting}>
               Cancel
             </button>
             <button
               type="submit"
               className="btn-primary"
-              disabled={role === 'teacher' && isClassTeacher && !!existingClassTeacher}
+              disabled={isSubmitting || (role === 'teacher' && isClassTeacher && !!existingClassTeacher)}
               style={{
-                opacity: role === 'teacher' && isClassTeacher && !!existingClassTeacher ? 0.6 : 1,
-                cursor: role === 'teacher' && isClassTeacher && !!existingClassTeacher ? 'not-allowed' : 'pointer',
+                background: '#2D2C2A',
+                color: '#FFFFFF',
+                border: 'none',
+                opacity: isSubmitting || (role === 'teacher' && isClassTeacher && !!existingClassTeacher) ? 0.6 : 1,
+                cursor: isSubmitting || (role === 'teacher' && isClassTeacher && !!existingClassTeacher) ? 'not-allowed' : 'pointer',
               }}
             >
-              Save Changes
+              {isSubmitting ? 'Saving Changes...' : 'Save Changes'}
             </button>
           </div>
         </form>

@@ -75,6 +75,9 @@ CREATE TABLE IF NOT EXISTS public.achievements (
 );
 
 ALTER TABLE public.achievements ALTER COLUMN id TYPE TEXT;
+ALTER TABLE public.achievements ALTER COLUMN description DROP NOT NULL;
+ALTER TABLE public.achievements ALTER COLUMN description SET DEFAULT '';
+ALTER TABLE public.achievements ALTER COLUMN student_id DROP NOT NULL;
 ALTER TABLE public.achievements ADD COLUMN IF NOT EXISTS desc_text TEXT DEFAULT '';
 ALTER TABLE public.achievements ADD COLUMN IF NOT EXISTS file_name TEXT DEFAULT '';
 ALTER TABLE public.achievements ADD COLUMN IF NOT EXISTS file_url TEXT DEFAULT '';

@@ -3,6 +3,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { supabase, createIsolatedSupabaseClient, UserProfile } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
+import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import { Camera, Lock, Eye, EyeOff, Copy, Check } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -139,15 +141,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
   const [copiedUserId, setCopiedUserId] = useState<string | null>(null);
 
-  // Sync profile temp_passwords into storedPasswords on mount/profiles change
+  // Sync profile passwords into storedPasswords on mount/profiles change
   useEffect(() => {
     if (profiles && profiles.length > 0) {
       setStoredPasswords((prev) => {
         const updated = { ...prev };
         let hasChanges = false;
         profiles.forEach((p) => {
-          if (p.temp_password && !updated[p.id]) {
-            updated[p.id] = p.temp_password;
+          const cleanEmail = (p.email || '').toLowerCase().trim();
+          const pwd = resolveUserPassword(p);
+          if (pwd && updated[p.id] !== pwd) {
+            updated[p.id] = pwd;
+            if (cleanEmail) updated[cleanEmail] = pwd;
             hasChanges = true;
           }
         });
@@ -215,12 +220,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       if (error) {
         setPasswordFeedback({ type: 'error', text: 'Unable to update password. Please check your connection and try again.' });
       } else {
+        // Multi-tier local and cloud persistence
+        await saveUserPasswordToCloudAndLocal(currentUser.id, currentUser.email, newPassword);
+
+        // Update local credentials map
+        const updatedMap = {
+          ...storedPasswords,
+          [currentUser.id]: newPassword,
+          [(currentUser.email || '').toLowerCase().trim()]: newPassword,
+        };
+        setStoredPasswords(updatedMap);
+
+        if (onUpdateCurrentUser) {
+          onUpdateCurrentUser({ ...currentUser, temp_password: newPassword });
+        }
+
         setPasswordFeedback({
           type: 'success',
           text: 'Your password has been updated successfully. You can use it on your next login.',
         });
         setNewPassword('');
         setConfirmPassword('');
+        if (onRefreshData) onRefreshData();
       }
     } catch (err: any) {
       setPasswordFeedback({ type: 'error', text: 'Unable to update password. Please try again.' });
@@ -238,21 +259,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setIsProcessingAdminReset(true);
     setAdminActionFeedback(null);
     try {
-      // 1. Update stored passwords locally and in localStorage
-      const updatedMap = { ...storedPasswords, [user.id]: 'woodlem123' };
+      await saveUserPasswordToCloudAndLocal(user.id, user.email, 'woodlem123');
+
+      const updatedMap = {
+        ...storedPasswords,
+        [user.id]: 'woodlem123',
+        [(user.email || '').toLowerCase().trim()]: 'woodlem123',
+      };
       setStoredPasswords(updatedMap);
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('woodlem_user_credentials', JSON.stringify(updatedMap));
-        } catch (e) {}
-      }
 
-      // 2. Try saving to Supabase profiles table
-      try {
-        await supabase.from('profiles').update({ temp_password: 'woodlem123' } as any).eq('id', user.id);
-      } catch (e) {}
-
-      // 3. Dispatch reset email
+      // Dispatch reset email
       try {
         await supabase.auth.resetPasswordForEmail(user.email.toLowerCase().trim(), {
           redirectTo: typeof window !== 'undefined' ? `${window.location.origin}` : undefined,
@@ -263,6 +279,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         type: 'success',
         text: `Password for "${user.name}" has been reset to "woodlem123". The password is now visible in the table below.`,
       });
+      if (onRefreshData) onRefreshData();
     } catch (err: any) {
       setAdminActionFeedback({
         type: 'error',
@@ -286,21 +303,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setIsProcessingAdminReset(true);
     setAdminActionFeedback(null);
     try {
-      // 1. Update stored passwords locally and in localStorage
-      const updatedMap = { ...storedPasswords, [customPasswordUser.id]: newPwd };
+      await saveUserPasswordToCloudAndLocal(customPasswordUser.id, customPasswordUser.email, newPwd);
+
+      const updatedMap = {
+        ...storedPasswords,
+        [customPasswordUser.id]: newPwd,
+        [(customPasswordUser.email || '').toLowerCase().trim()]: newPwd,
+      };
       setStoredPasswords(updatedMap);
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('woodlem_user_credentials', JSON.stringify(updatedMap));
-        } catch (e) {}
-      }
 
-      // 2. Try saving to Supabase profiles table
-      try {
-        await supabase.from('profiles').update({ temp_password: newPwd } as any).eq('id', customPasswordUser.id);
-      } catch (e) {}
-
-      // 3. Dispatch reset email
+      // Dispatch reset email
       try {
         await supabase.auth.resetPasswordForEmail(customPasswordUser.email.toLowerCase().trim(), {
           redirectTo: typeof window !== 'undefined' ? `${window.location.origin}` : undefined,
@@ -313,6 +325,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       });
       setCustomPasswordUser(null);
       setCustomPasswordInput('');
+      if (onRefreshData) onRefreshData();
     } catch (err: any) {
       setAdminActionFeedback({
         type: 'error',
@@ -529,9 +542,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 fontWeight: activeTab === 'profile' ? 700 : 500,
                 borderRadius: 4,
                 border: 'none',
-                background: activeTab === 'profile' ? '#FFFFFF' : 'transparent',
-                color: activeTab === 'profile' ? '#2C6E6A' : 'var(--text-secondary)',
-                boxShadow: activeTab === 'profile' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                background: activeTab === 'profile' ? '#2D2C2A' : 'transparent',
+                color: activeTab === 'profile' ? '#FFFFFF' : 'var(--text-secondary)',
+                boxShadow: activeTab === 'profile' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
                 cursor: 'pointer',
               }}
             >
@@ -546,9 +559,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 fontWeight: activeTab === 'admin_passwords' ? 700 : 500,
                 borderRadius: 4,
                 border: 'none',
-                background: activeTab === 'admin_passwords' ? '#FFFFFF' : 'transparent',
-                color: activeTab === 'admin_passwords' ? '#2C6E6A' : 'var(--text-secondary)',
-                boxShadow: activeTab === 'admin_passwords' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                background: activeTab === 'admin_passwords' ? '#2D2C2A' : 'transparent',
+                color: activeTab === 'admin_passwords' ? '#FFFFFF' : 'var(--text-secondary)',
+                boxShadow: activeTab === 'admin_passwords' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
                 cursor: 'pointer',
               }}
             >
@@ -621,7 +634,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         width: 28,
                         height: 28,
                         borderRadius: '50%',
-                        background: '#2D6E5D',
+                        background: '#2D2C2A',
                         border: '2px solid var(--surface)',
                         display: 'flex',
                         alignItems: 'center',
@@ -693,12 +706,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         padding: '8px 12px',
                         fontSize: 12,
                         fontWeight: 700,
-                        background: '#2D6E5D',
+                        background: '#2D2C2A',
                         color: '#FFFFFF',
                         border: 'none',
                         borderRadius: 6,
                         cursor: 'pointer',
-                        boxShadow: '0 2px 6px rgba(45, 110, 93, 0.3)',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
                       }}
                     >
                       {isUploadingAvatar ? 'Uploading...' : 'Upload New Photo'}
@@ -756,7 +769,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 14px', background: '#FAF9F6', borderRadius: 8 }}>
                       <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Class Teacher Homeroom</span>
-                      <strong style={{ color: 'var(--neutral-dark)' }}>{currentUser.assigned_class ? `Grade ${currentUser.assigned_class}` : 'Subject Teacher'}</strong>
+                      <strong style={{ color: 'var(--neutral-dark)' }}>
+                        {(() => {
+                          const info = extractClassTeacherInfo(currentUser);
+                          return info.isClassTeacher ? info.classLabel : 'Subject Teacher';
+                        })()}
+                      </strong>
                     </div>
                   </>
                 )}
@@ -871,7 +889,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 type="submit"
                 className="btn-primary"
                 disabled={isUpdatingPassword}
-                style={{ padding: '14px', fontWeight: 700, fontSize: 14, borderRadius: 8, marginTop: 4, background: '#2D6E5D', border: 'none', boxShadow: '0 4px 12px rgba(45, 110, 93, 0.3)' }}
+                style={{ padding: '14px', fontWeight: 700, fontSize: 14, borderRadius: 8, marginTop: 4, background: '#2D2C2A', border: 'none', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }}
               >
                 {isUpdatingPassword ? 'Updating Password...' : 'Save New Password'}
               </button>
@@ -1021,9 +1039,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     filteredUsers.map((u, idx) => {
                       const g = (u.grade || '').replace(/[^0-9]/g, '');
                       const s = (u.class_letter || '').toUpperCase().trim();
-                      const cohortStr = g && s ? `Grade ${g}-${s}` : (u.subject || '—');
-                      const userPwd = storedPasswords[u.id] || u.temp_password || 'woodlem123';
-                      const hasCustom = !!(storedPasswords[u.id] || u.temp_password);
+                      const uInfo = extractClassTeacherInfo(u);
+                      const cohortStr =
+                        u.role === 'student'
+                          ? g && s
+                            ? `Grade ${g}-${s}`
+                            : '—'
+                          : u.role === 'teacher'
+                          ? uInfo.isClassTeacher
+                            ? `CT: ${uInfo.classLabel}`
+                            : u.subject || 'Faculty'
+                          : u.subject || '—';
+                      const userPwd = resolveUserPassword(u);
+                      const hasCustom = userPwd !== 'woodlem123';
                       const isRevealed = !!visiblePasswords[u.id];
 
                       return (
@@ -1218,10 +1246,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
                       <code style={{ fontSize: 13, fontWeight: 700, color: '#2C6E6A', fontFamily: 'monospace' }}>
-                        {storedPasswords[customPasswordUser.id] || customPasswordUser.temp_password || 'woodlem123'}
+                        {resolveUserPassword(customPasswordUser)}
                       </code>
                       <span style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
-                        {storedPasswords[customPasswordUser.id] || customPasswordUser.temp_password ? 'Custom Set' : 'Default Preset'}
+                        {resolveUserPassword(customPasswordUser) !== 'woodlem123' ? 'Custom Set' : 'Default Preset'}
                       </span>
                     </div>
                   </div>

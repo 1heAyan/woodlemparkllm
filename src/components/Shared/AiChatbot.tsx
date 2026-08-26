@@ -163,6 +163,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   // Floating Draggable Orb Launcher State
   const [orbPosition, setOrbPosition] = useState<{ x: number; y: number } | null>(null);
@@ -187,6 +188,10 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
 
   useEffect(() => {
     setIsMounted(true);
+    const checkMobile = () => setIsMobile(window.innerWidth <= 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
   // Initialize and restore saved orb position
@@ -762,7 +767,24 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
       {/* DOCKED / PUSH SIDE PANEL (SLIDES SMOOTHLY FROM THE RIGHT EDGE) */}
       <div
         className="woodlem-ai-side-dock"
-        style={{
+        style={isMobile ? {
+          position: 'fixed',
+          inset: isAiPanelOpen ? 0 : undefined,
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: isAiPanelOpen ? '100vw' : 0,
+          height: isAiPanelOpen ? '100dvh' : 0,
+          overflow: 'hidden',
+          zIndex: 9999,
+          background: 'rgba(255, 255, 255, 0.98)',
+          display: 'flex',
+          flexDirection: 'column',
+          opacity: isAiPanelOpen ? 1 : 0,
+          pointerEvents: isAiPanelOpen ? 'auto' : 'none',
+          transition: 'opacity 0.25s ease',
+        } : {
           width: isAiPanelOpen ? 400 : 0,
           minWidth: isAiPanelOpen ? 400 : 0,
           height: '100%',
@@ -782,7 +804,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
         <div
           className="woodlem-ai-dock-shell"
           style={{
-            width: 400,
+            width: isMobile ? '100%' : 400,
             height: '100%',
             display: 'flex',
             flexDirection: 'column',

@@ -12,6 +12,7 @@ import { UserDetailView } from '@/components/Admin/UserDetailView';
 import { AdminAssessmentTermsView } from '@/components/Admin/AdminAssessmentTermsView';
 import { formatShortFileName, openFileInNewTab, downloadFile } from '@/lib/fileHelper';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
+import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import { MarkEntryModal } from '../Modals/MarkEntryModal';
 
 interface AdminDashboardProps {
@@ -112,6 +113,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const parents = useMemo(() => profiles.filter((p) => p.role === 'parent'), [profiles]);
   const admins = useMemo(() => profiles.filter((p) => p.role === 'admin'), [profiles]);
 
+  // Duplicate admission/employee codes map across all active profiles
+  const duplicateCodesMap = useMemo(() => {
+    const codeCounts = new Map<string, number>();
+    profiles.forEach((p) => {
+      const code = (p.admission_number || p.user_code || '').trim().toLowerCase();
+      if (code && code !== '—' && code !== '-' && code !== 'null' && code !== 'undefined') {
+        codeCounts.set(code, (codeCounts.get(code) || 0) + 1);
+      }
+    });
+    return codeCounts;
+  }, [profiles]);
+
   // Dynamic list of all active or standard classes (Grades 9-12, Sections A-Z)
   const activeClassList = useMemo(() => {
     const classSet = new Set<string>();
@@ -131,8 +144,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     // Add any teacher assigned class cohorts
     teachers.forEach((t) => {
-      if (t.assigned_class && t.assigned_class !== 'none') {
-        classSet.add(t.assigned_class);
+      const info = extractClassTeacherInfo(t, subjectClasses);
+      if (info.isClassTeacher) {
+        classSet.add(info.classKey);
       }
     });
 
@@ -158,7 +172,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const studentClass = `${cleanG}-${cleanS}`;
           if (studentClass !== classFilter) return false;
         } else if (p.role === 'teacher') {
-          if (p.assigned_class !== classFilter) return false;
+          const info = extractClassTeacherInfo(p, subjectClasses);
+          if (!info.isClassTeacher || info.classKey !== classFilter) return false;
         } else {
           return false;
         }
@@ -195,14 +210,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (p.role === 'teacher') {
       const parts: string[] = [];
       if (p.subject) parts.push(p.subject);
-      const homeroom =
-        p.assigned_class ||
-        (p.grade && p.class_letter
-          ? `${p.grade.replace(/[^0-9]/g, '')}-${p.class_letter.toUpperCase()}`
-          : null);
-      if (homeroom && homeroom !== 'none') {
-        const cleanHomeroom = homeroom.replace(/^Grade\s*/i, '');
-        parts.push(`Class Teacher (${cleanHomeroom})`);
+      const info = extractClassTeacherInfo(p, subjectClasses);
+      if (info.isClassTeacher) {
+        parts.push(`Class Teacher (${info.classKey})`);
       }
       return parts.length > 0 ? parts.join(' | ') : 'Faculty';
     }
@@ -234,7 +244,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       `"${p.grade || ''}"`,
       `"${p.class_letter || ''}"`,
       `"${p.subject || ''}"`,
-      `"${p.assigned_class || ''}"`,
+      `"${extractClassTeacherInfo(p, subjectClasses).isClassTeacher ? extractClassTeacherInfo(p, subjectClasses).classKey : (p.assigned_class || '')}"`,
     ]);
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
@@ -503,7 +513,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </span>
             <button
               onClick={() => setActiveTab('classes')}
-              style={{ background: 'none', border: 'none', color: '#2C6E6A', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+              style={{ background: 'none', border: 'none', color: 'var(--neutral-dark)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
             >
               Inspect Matrix
             </button>
@@ -517,7 +527,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 const cleanS = (st.class_letter || '').toUpperCase().trim();
                 return cleanG === g && cleanS === s;
               }).length;
-              const ct = teachers.find((t) => t.assigned_class === cls);
+              const ct = teachers.find((t) => {
+                const info = extractClassTeacherInfo(t, subjectClasses);
+                return info.isClassTeacher && info.classKey === cls;
+              });
               return (
                 <div
                   key={cls}
@@ -607,7 +620,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </span>
           <button
             onClick={() => setActiveTab('directory')}
-            style={{ background: 'none', border: 'none', color: '#2C6E6A', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+            style={{ background: 'none', border: 'none', color: 'var(--neutral-dark)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
           >
             View Full Directory ({profiles.length})
           </button>
@@ -797,7 +810,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 fontSize: 11.5,
                 fontWeight: 600,
                 color: '#FFFFFF',
-                background: '#1C4D46',
+                background: '#2D2C2A',
                 border: 'none',
                 borderRadius: 5,
                 cursor: 'pointer',
@@ -893,7 +906,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <td style={tdStyle}>{rolePill(p.role)}</td>
                   <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11.5 }}>{p.email}</td>
                   <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11, color: '#44423E' }}>
-                    {p.admission_number || p.user_code || '—'}
+                    {(() => {
+                      const code = (p.admission_number || p.user_code || '').trim();
+                      const isDup = code && (duplicateCodesMap.get(code.toLowerCase()) || 0) > 1;
+                      return (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span>{code || '—'}</span>
+                          {isDup && (
+                            <span
+                              title="Duplicate admission code shared by multiple accounts. Click Edit to assign a unique code."
+                              style={{
+                                fontSize: 9.5,
+                                fontWeight: 700,
+                                color: '#DC2626',
+                                background: '#FEF2F2',
+                                border: '1px solid #FECACA',
+                                padding: '1px 5px',
+                                borderRadius: 4,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.04em',
+                                cursor: 'help',
+                              }}
+                            >
+                              Duplicate
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td style={{ ...tdStyle, fontSize: 11.5, color: '#4A4843' }}>
                     {formatUserAssignment(p)}
@@ -967,7 +1007,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               const cleanS = (st.class_letter || '').toUpperCase().trim();
               return cleanG === g && cleanS === s;
             });
-            const ct = teachers.find((t) => t.assigned_class === cls);
+            const ct = teachers.find((t) => {
+              const info = extractClassTeacherInfo(t, subjectClasses);
+              return info.isClassTeacher && info.classKey === cls;
+            });
             const isSelected = selectedClassInspect === cls;
 
             return (
@@ -975,10 +1018,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 key={cls}
                 onClick={() => setSelectedClassInspect(isSelected ? null : cls)}
                 style={{
-                  border: isSelected ? '1.5px solid #2C6E6A' : '1px solid var(--border-color)',
+                  border: isSelected ? '1.5px solid #2D2C2A' : '1px solid var(--border-color)',
                   borderRadius: 6,
                   padding: '10px 12px',
-                  background: isSelected ? '#F0F6F5' : '#FFFFFF',
+                  background: isSelected ? '#FAF9F6' : '#FFFFFF',
+                  boxShadow: isSelected ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
                   cursor: 'pointer',
                   transition: 'all 0.1s',
                 }}
@@ -1137,7 +1181,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             display: 'flex',
                             alignItems: 'center',
                             gap: 4,
-                            background: '#2C6E6A',
+                            background: '#2D2C2A',
                             border: 'none',
                             borderRadius: 4,
                             color: '#fff',
@@ -1174,9 +1218,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               fontSize: 12,
               fontWeight: docSubTab === 'clearances' ? 700 : 500,
               borderRadius: 6,
-              border: docSubTab === 'clearances' ? '1px solid #2C6E6A' : '1px solid var(--border-color)',
-              background: docSubTab === 'clearances' ? '#EAF3EF' : '#FFFFFF',
-              color: docSubTab === 'clearances' ? '#20554E' : 'var(--text-secondary)',
+              border: docSubTab === 'clearances' ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
+              background: docSubTab === 'clearances' ? '#2D2C2A' : '#FFFFFF',
+              color: docSubTab === 'clearances' ? '#FFFFFF' : 'var(--text-secondary)',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -1187,7 +1231,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <span
               style={{
                 fontSize: 10.5,
-                background: docSubTab === 'clearances' ? '#2C6E6A' : '#E2E8F0',
+                background: docSubTab === 'clearances' ? 'rgba(255,255,255,0.2)' : '#E2E8F0',
                 color: docSubTab === 'clearances' ? '#FFFFFF' : '#475569',
                 padding: '1px 6px',
                 borderRadius: 10,
@@ -1205,9 +1249,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               fontSize: 12,
               fontWeight: docSubTab === 'link_requests' ? 700 : 500,
               borderRadius: 6,
-              border: docSubTab === 'link_requests' ? '1px solid #2C6E6A' : '1px solid var(--border-color)',
-              background: docSubTab === 'link_requests' ? '#EAF3EF' : '#FFFFFF',
-              color: docSubTab === 'link_requests' ? '#20554E' : 'var(--text-secondary)',
+              border: docSubTab === 'link_requests' ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
+              background: docSubTab === 'link_requests' ? '#2D2C2A' : '#FFFFFF',
+              color: docSubTab === 'link_requests' ? '#FFFFFF' : 'var(--text-secondary)',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -1355,7 +1399,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                     padding: '4px 10px',
                                     fontSize: 11,
                                     fontWeight: 700,
-                                    background: '#2C6E6A',
+                                    background: '#2D2C2A',
                                     color: '#FFFFFF',
                                     border: 'none',
                                     borderRadius: 4,
@@ -1501,7 +1545,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                     padding: '5px 12px',
                                     fontSize: 11.5,
                                     fontWeight: 700,
-                                    background: '#2C6E6A',
+                                    background: '#2D2C2A',
                                     color: '#FFFFFF',
                                     border: 'none',
                                     borderRadius: 5,
@@ -1711,7 +1755,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   padding: '5px 12px',
                                   fontSize: 11.5,
                                   fontWeight: 700,
-                                  background: '#2C6E6A',
+                                  background: '#2D2C2A',
                                   color: '#FFFFFF',
                                   border: 'none',
                                   borderRadius: 5,
@@ -2206,26 +2250,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         {/* Scrollable Viewport Content */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
-          {selectedUserForEdit ? (
-            <UserDetailView
-              user={selectedUserForEdit}
-              profiles={profiles}
-              parentDocuments={parentDocuments}
-              onBack={() => setSelectedUserForEdit(null)}
-              onSave={async (updated) => {
-                if (onUpdateUser) {
-                  await onUpdateUser(updated);
-                } else {
-                  onEditUser(updated);
-                }
-                setSelectedUserForEdit(updated);
-              }}
-              onDelete={(userId) => {
-                onDeleteUser(userId);
-                setSelectedUserForEdit(null);
-              }}
-            />
-          ) : (
+          {selectedUserForEdit ? (() => {
+            const activeUser = profiles.find(
+              (p) =>
+                (selectedUserForEdit.id && p.id === selectedUserForEdit.id) ||
+                (p.email && selectedUserForEdit.email && p.email.toLowerCase().trim() === selectedUserForEdit.email.toLowerCase().trim())
+            ) || selectedUserForEdit;
+
+            return (
+              <UserDetailView
+                user={activeUser}
+                profiles={profiles}
+                parentDocuments={parentDocuments}
+                subjectClasses={subjectClasses}
+                onBack={() => setSelectedUserForEdit(null)}
+                onSave={async (updated) => {
+                  if (onUpdateUser) {
+                    await onUpdateUser(updated);
+                  } else {
+                    onEditUser(updated);
+                  }
+                  setSelectedUserForEdit(updated);
+                }}
+                onDelete={(userId) => {
+                  onDeleteUser(userId);
+                  setSelectedUserForEdit(null);
+                }}
+              />
+            );
+          })() : (
             <>
               {activeTab === 'overview' && renderOverview()}
               {activeTab === 'directory' && renderUserDirectory()}

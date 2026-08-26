@@ -17,6 +17,7 @@ ALTER TABLE public.offline_assessments DROP CONSTRAINT IF EXISTS offline_assessm
 ALTER TABLE public.offline_assessments DROP CONSTRAINT IF EXISTS offline_assessments_class_id_fkey;
 ALTER TABLE public.offline_assessment_marks ALTER COLUMN student_id TYPE TEXT USING student_id::TEXT;
 ALTER TABLE public.offline_assessments ALTER COLUMN teacher_id TYPE TEXT USING teacher_id::TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS temp_password TEXT DEFAULT 'woodlem123';
 
 -- 3. Ensure RLS is enabled
 ALTER TABLE public.offline_assessments ENABLE ROW LEVEL SECURITY;

@@ -84,9 +84,9 @@ export const CreateAssignmentModal: React.FC<CreateAssignmentModalProps> = ({
                 style={{
                   padding: '9px 12px',
                   borderRadius: 6,
-                  border: taskType === 'assignment' ? '1.5px solid #2C6E6A' : '1px solid var(--border-color)',
-                  background: taskType === 'assignment' ? '#EAF3EF' : '#FFFFFF',
-                  color: taskType === 'assignment' ? '#2D6E5D' : 'var(--neutral-dark)',
+                  border: taskType === 'assignment' ? '1.5px solid #2D2C2A' : '1px solid var(--border-color)',
+                  background: taskType === 'assignment' ? '#2D2C2A' : '#FFFFFF',
+                  color: taskType === 'assignment' ? '#FFFFFF' : 'var(--neutral-dark)',
                   fontWeight: taskType === 'assignment' ? 700 : 500,
                   fontSize: 12,
                   cursor: 'pointer',
@@ -165,7 +165,7 @@ export const CreateAssignmentModal: React.FC<CreateAssignmentModalProps> = ({
           </div>
 
           <button type="submit" className="btn-primary" style={{ width: '100%', padding: 12 }}>
-            {taskType === 'assignment' ? '+ Assign Coursework' : '+ Publish Assessment'}
+            {taskType === 'assignment' ? 'Assign Coursework' : 'Publish Assessment'}
           </button>
         </form>
       </div>

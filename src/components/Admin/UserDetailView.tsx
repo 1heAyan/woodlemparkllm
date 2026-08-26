@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { UserProfile, ParentDocument } from '@/lib/supabaseClient';
+import { UserProfile, ParentDocument, SubjectClass } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { openFileInNewTab, downloadFile } from '@/lib/fileHelper';
+import { resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
+import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import {
   ArrowLeft,
   Lock,
@@ -46,8 +48,9 @@ interface UserDetailViewProps {
   user: UserProfile;
   profiles: UserProfile[];
   parentDocuments?: ParentDocument[];
+  subjectClasses?: SubjectClass[];
   onBack: () => void;
-  onSave: (updatedUser: UserProfile) => void;
+  onSave: (updatedUser: UserProfile) => Promise<void> | void;
   onDelete?: (userId: string) => void;
 }
 
@@ -55,25 +58,29 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
   user,
   profiles = [],
   parentDocuments = [],
+  subjectClasses = [],
   onBack,
   onSave,
   onDelete,
 }) => {
+  const initialClassInfo = useMemo(() => extractClassTeacherInfo(user, subjectClasses), [user, subjectClasses]);
+
   const [name, setName] = useState(user.name || '');
   const [email, setEmail] = useState(user.email || '');
   const [role, setRole] = useState<'student' | 'teacher' | 'admin' | 'parent'>(user.role || 'student');
   const [userCode, setUserCode] = useState(user.user_code || user.admission_number || '');
-  const [password, setPassword] = useState(user.temp_password || 'woodlem123');
+  const [password, setPassword] = useState(() => resolveUserPassword(user));
   const [showPassword, setShowPassword] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Student & Teacher Grade & Section
-  const [grade, setGrade] = useState<'9' | '10' | '11' | '12'>('12');
-  const [section, setSection] = useState<string>('A');
+  // Student & Teacher Grade & Section initialized directly from user profile
+  const [grade, setGrade] = useState<'9' | '10' | '11' | '12'>(() => initialClassInfo.grade);
+  const [section, setSection] = useState<string>(() => initialClassInfo.section);
 
   // Teacher specific fields
   const [subject, setSubject] = useState(user.subject || 'English');
-  const [isClassTeacher, setIsClassTeacher] = useState(false);
+  const [isClassTeacher, setIsClassTeacher] = useState(() => initialClassInfo.isClassTeacher);
 
   // Parent specific linked students
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>(user.linked_student_ids || []);
@@ -118,60 +125,96 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
     setEmail(user.email || '');
     setRole(user.role || 'student');
     setUserCode(user.user_code || user.admission_number || '');
-    setPassword(user.temp_password || 'woodlem123');
     setShowPassword(false);
     setSelectedStudentIds(user.linked_student_ids || []);
     setIsLinkingMore(false);
     setStudentSearchTerm('');
     setSaveSuccess(false);
 
-    // Parse grade (9, 10, 11, 12)
-    let parsedGrade: '9' | '10' | '11' | '12' = '12';
-    let parsedSection = 'A';
-
-    if (user.assigned_class && user.assigned_class.includes('-')) {
-      const parts = user.assigned_class.split('-');
-      const g = parts[0].replace(/[^0-9]/g, '');
-      if (['9', '10', '11', '12'].includes(g)) parsedGrade = g as any;
-      if (parts[1]) parsedSection = parts[1].toUpperCase().trim();
-      setIsClassTeacher(true);
-    } else if (user.grade) {
-      const cleanG = user.grade.replace(/[^0-9]/g, '');
-      if (['9', '10', '11', '12'].includes(cleanG)) parsedGrade = cleanG as any;
-      if (user.class_letter) parsedSection = user.class_letter.toUpperCase().trim();
-      setIsClassTeacher(user.role === 'teacher' && !!user.assigned_class);
-    } else {
-      setIsClassTeacher(false);
-    }
-
-    setGrade(parsedGrade);
-    setSection(SECTIONS.includes(parsedSection) ? parsedSection : 'A');
+    const classInfo = extractClassTeacherInfo(user, subjectClasses);
+    setGrade(classInfo.grade);
+    setSection(classInfo.section);
+    setIsClassTeacher(classInfo.isClassTeacher);
     setSubject(user.subject || 'English');
-  }, [user]);
+    setPassword(resolveUserPassword(user));
+  }, [user, subjectClasses]);
+
+  // Always keep the password field in sync with the latest resolved password
+  useEffect(() => {
+    setPassword(resolveUserPassword(user));
+  }, [user.temp_password, user.id, user.email]);
+
+  // Duplicate admission/employee code detection across all other users
+  const duplicateCodeUser = useMemo(() => {
+    if (!user) return null;
+    const cleanCode = userCode.trim().toLowerCase();
+    if (!cleanCode || cleanCode === '—' || cleanCode === '-' || cleanCode === 'null' || cleanCode === 'undefined') {
+      return null;
+    }
+    return profiles.find(
+      (p) =>
+        p.id !== user.id &&
+        p.email.toLowerCase() !== user.email.toLowerCase() &&
+        p.email.toLowerCase() !== email.trim().toLowerCase() &&
+        ((p.admission_number && p.admission_number.trim().toLowerCase() === cleanCode) ||
+          (p.user_code && p.user_code.trim().toLowerCase() === cleanCode))
+    );
+  }, [profiles, userCode, user, email]);
+
+  useEffect(() => {
+    const handlePwdEvent = (e: any) => {
+      const detail = e.detail;
+      if (!detail) return;
+      const cleanTargetEmail = (email || user.email || '').toLowerCase().trim();
+      const eventEmail = (detail.email || '').toLowerCase().trim();
+      if (
+        (detail.userId && user.id && detail.userId === user.id) ||
+        (eventEmail && cleanTargetEmail && eventEmail === cleanTargetEmail)
+      ) {
+        if (detail.newPassword) {
+          setPassword(detail.newPassword);
+        }
+      }
+    };
+    window.addEventListener('woodlem-password-updated', handlePwdEvent);
+    return () => window.removeEventListener('woodlem-password-updated', handlePwdEvent);
+  }, [user.id, user.email, email]);
 
   const targetClassKey = `${grade}-${section}`;
 
   const existingClassTeacher = useMemo(() => {
     if (role !== 'teacher' || !isClassTeacher || !user) return null;
     return profiles.find((p) => {
-      if (p.id === user.id || (p.email && user.email && p.email.toLowerCase() === user.email.toLowerCase())) {
+      if (
+        p.id === user.id ||
+        (p.email && user.email && p.email.toLowerCase().trim() === user.email.toLowerCase().trim()) ||
+        (p.email && email && p.email.toLowerCase().trim() === email.trim().toLowerCase())
+      ) {
         return false;
       }
       if (p.role !== 'teacher') return false;
-      const cleanG = (p.grade || '').replace(/[^0-9]/g, '');
-      const cleanS = (p.class_letter || '').toUpperCase().trim();
-      const assigned = (p.assigned_class || (cleanG && cleanS ? `${cleanG}-${cleanS}` : '')).replace(/^Grade\s*/i, '');
-      return assigned === targetClassKey;
+      const pInfo = extractClassTeacherInfo(p, subjectClasses);
+      return pInfo.isClassTeacher && pInfo.classKey === targetClassKey;
     });
-  }, [profiles, role, isClassTeacher, targetClassKey, user]);
+  }, [profiles, role, isClassTeacher, targetClassKey, user, email, subjectClasses]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim()) return;
+    if (!name.trim() || !email.trim()) {
+      alert('Please provide both Full Name and Email Address.');
+      return;
+    }
 
     if (role === 'teacher' && isClassTeacher && existingClassTeacher) {
       alert(
         `Cannot assign as Class Teacher: Grade ${grade}-${section} is already assigned to ${existingClassTeacher.name} (${existingClassTeacher.subject || 'Faculty'}). Each class section can only have one Class Teacher.`
+      );
+      return;
+    }
+
+    if (duplicateCodeUser) {
+      alert(
+        `Cannot save: Code "${userCode.trim()}" is already assigned to ${duplicateCodeUser.name} (${duplicateCodeUser.role.toUpperCase()}). Every user must have a unique admission/employee code.`
       );
       return;
     }
@@ -184,24 +227,34 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
     const assignedClassStr = role === 'teacher' && isClassTeacher ? `${grade}-${section}` : null;
     const finalGrade = role === 'student' ? grade : role === 'teacher' && isClassTeacher ? grade : '';
     const finalSection = role === 'student' ? section : role === 'teacher' && isClassTeacher ? section : '';
+    const finalPassword = password.trim() || resolveUserPassword(user);
 
-    onSave({
-      ...user,
-      name: name.trim(),
-      email: cleanEmail,
-      role,
-      user_code: userCode.trim(),
-      admission_number: userCode.trim(),
-      temp_password: password.trim() || user.temp_password || 'woodlem123',
-      grade: finalGrade,
-      class_letter: finalSection,
-      subject: role === 'teacher' ? subject : null,
-      assigned_class: assignedClassStr,
-      linked_student_ids: role === 'parent' ? selectedStudentIds : user.linked_student_ids,
-    });
+    setIsSaving(true);
+    try {
+      await saveUserPasswordToCloudAndLocal(user.id, cleanEmail, finalPassword);
 
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 3000);
+      await onSave({
+        ...user,
+        name: name.trim(),
+        email: cleanEmail,
+        role,
+        user_code: userCode.trim(),
+        admission_number: userCode.trim(),
+        temp_password: finalPassword,
+        grade: finalGrade,
+        class_letter: finalSection,
+        subject: role === 'teacher' ? subject : null,
+        assigned_class: assignedClassStr,
+        linked_student_ids: role === 'parent' ? selectedStudentIds : user.linked_student_ids,
+      });
+
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 4000);
+    } catch (err: any) {
+      console.error('Error saving user profile in UserDetailView:', err);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const getRoleBadge = (r: string) => {
@@ -344,8 +397,8 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {onDelete && role !== 'admin' && (
+        {onDelete && role !== 'admin' && (
+          <div>
             <button
               type="button"
               onClick={() => {
@@ -370,31 +423,8 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
             >
               Delete User
             </button>
-          )}
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={role === 'teacher' && isClassTeacher && !!existingClassTeacher}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '9px 20px',
-              fontSize: 13,
-              fontWeight: 700,
-              color: '#FFFFFF',
-              background: '#1A1A1A',
-              border: 'none',
-              borderRadius: 6,
-              cursor: role === 'teacher' && isClassTeacher && !!existingClassTeacher ? 'not-allowed' : 'pointer',
-              opacity: role === 'teacher' && isClassTeacher && !!existingClassTeacher ? 0.6 : 1,
-              transition: 'background 0.12s',
-            }}
-          >
-            <Save size={15} />
-            Save Profile Changes
-          </button>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* ── TWO-COLUMN FORM LAYOUT ── */}
@@ -481,8 +511,33 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                   value={userCode}
                   onChange={(e) => setUserCode(e.target.value)}
                   placeholder={role === 'student' ? 'e.g. WPS-2026' : 'e.g. EMP-104'}
+                  style={{
+                    borderColor: duplicateCodeUser ? '#DC2626' : undefined,
+                    background: duplicateCodeUser ? '#FEF2F2' : undefined,
+                  }}
                   required
                 />
+                {duplicateCodeUser && (
+                  <div
+                    style={{
+                      marginTop: 6,
+                      fontSize: 11.5,
+                      color: '#DC2626',
+                      background: '#FEF2F2',
+                      border: '1px solid #FECACA',
+                      padding: '6px 10px',
+                      borderRadius: 6,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <AlertTriangle size={13} style={{ flexShrink: 0 }} />
+                    <span>
+                      <strong>Duplicate Code:</strong> Already assigned to <strong>{duplicateCodeUser.name}</strong> ({duplicateCodeUser.role.toUpperCase()}).
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -637,9 +692,9 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                         style={{
                           padding: '10px',
                           borderRadius: 6,
-                          border: grade === g ? '2px solid #2C6E6A' : '1px solid var(--border-color)',
-                          background: grade === g ? '#EAF3EF' : '#FFFFFF',
-                          color: grade === g ? '#2D6E5D' : 'var(--neutral-dark)',
+                          border: grade === g ? '1.5px solid #2D2C2A' : '1px solid var(--border-color)',
+                          background: grade === g ? '#2D2C2A' : '#FFFFFF',
+                          color: grade === g ? '#FFFFFF' : 'var(--neutral-dark)',
                           fontWeight: grade === g ? 700 : 500,
                           fontSize: 13,
                           cursor: 'pointer',
@@ -748,7 +803,7 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                       type="checkbox"
                       checked={isClassTeacher}
                       onChange={(e) => setIsClassTeacher(e.target.checked)}
-                      style={{ width: 18, height: 18, accentColor: '#2C6E6A', cursor: 'pointer' }}
+                      style={{ width: 18, height: 18, accentColor: '#2D2C2A', cursor: 'pointer' }}
                     />
                     <span>Designate as Homeroom Class Teacher</span>
                   </label>
@@ -779,9 +834,9 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                               style={{
                                 padding: '8px',
                                 borderRadius: 4,
-                                border: grade === g ? '2px solid #2C6E6A' : '1px solid var(--border-color)',
-                                background: grade === g ? '#EAF3EF' : '#FFFFFF',
-                                color: grade === g ? '#2D6E5D' : 'var(--neutral-dark)',
+                                border: grade === g ? '1.5px solid #2D2C2A' : '1px solid var(--border-color)',
+                                background: grade === g ? '#2D2C2A' : '#FFFFFF',
+                                color: grade === g ? '#FFFFFF' : 'var(--neutral-dark)',
                                 fontWeight: grade === g ? 700 : 500,
                                 fontSize: 12,
                                 cursor: 'pointer',
@@ -1011,18 +1066,18 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                         padding: '9px 14px',
                         fontSize: 12.5,
                         fontWeight: 600,
-                        color: '#2C6E6A',
-                        background: '#EAF3EF',
-                        border: '1px dashed #2C6E6A',
+                        color: 'var(--neutral-dark)',
+                        background: '#FFFFFF',
+                        border: '1px dashed var(--border-color)',
                         borderRadius: 7,
                         cursor: 'pointer',
                         transition: 'background 0.12s',
                       }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = '#DFECE7')}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = '#EAF3EF')}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = '#FAF9F6')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = '#FFFFFF')}
                     >
                       <UserPlus size={14} />
-                      + Link Another Student
+                      Link Another Student
                     </button>
                   ) : (
                     <div
@@ -1125,14 +1180,14 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                                     padding: '4px 10px',
                                     fontSize: 11,
                                     fontWeight: 700,
-                                    color: '#2D6E5D',
-                                    background: '#EAF3EF',
-                                    border: '1px solid #C7E4D8',
+                                    color: '#FFFFFF',
+                                    background: '#2D2C2A',
+                                    border: '1px solid #2D2C2A',
                                     borderRadius: 4,
                                     cursor: 'pointer',
                                   }}
                                 >
-                                  + Link
+                                  Link Student
                                 </button>
                               </div>
                             );
@@ -1430,7 +1485,7 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
 
           <button
             type="submit"
-            disabled={role === 'teacher' && isClassTeacher && !!existingClassTeacher}
+            disabled={isSaving || (role === 'teacher' && isClassTeacher && !!existingClassTeacher)}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -1439,15 +1494,15 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
               fontSize: 13.5,
               fontWeight: 700,
               color: '#FFFFFF',
-              background: '#1A1A1A',
+              background: '#2D2C2A',
               border: 'none',
               borderRadius: 6,
-              cursor: role === 'teacher' && isClassTeacher && !!existingClassTeacher ? 'not-allowed' : 'pointer',
-              opacity: role === 'teacher' && isClassTeacher && !!existingClassTeacher ? 0.6 : 1,
+              cursor: isSaving || (role === 'teacher' && isClassTeacher && !!existingClassTeacher) ? 'not-allowed' : 'pointer',
+              opacity: isSaving || (role === 'teacher' && isClassTeacher && !!existingClassTeacher) ? 0.6 : 1,
             }}
           >
             <Save size={15} />
-            Save Profile Changes
+            {isSaving ? 'Saving Changes...' : 'Save Profile Changes'}
           </button>
         </div>
       </form>

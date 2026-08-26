@@ -393,9 +393,9 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
                   style={{
                     padding: '7px 14px',
                     borderRadius: 6,
-                    border: '1px solid #C7E4D8',
-                    background: '#EAF3EF',
-                    color: '#2D6E5D',
+                    border: '1px solid #2D2C2A',
+                    background: '#2D2C2A',
+                    color: '#FFFFFF',
                     fontSize: 12,
                     fontWeight: 700,
                     cursor: 'pointer',

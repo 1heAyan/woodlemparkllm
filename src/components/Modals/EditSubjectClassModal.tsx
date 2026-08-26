@@ -276,8 +276,8 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
                   fontSize: 11,
                   fontWeight: rosterScope === 'section' ? 700 : 500,
                   borderRadius: 14,
-                  border: rosterScope === 'section' ? '1px solid #2C6E6A' : '1px solid var(--border-color)',
-                  background: rosterScope === 'section' ? '#2C6E6A' : '#FFFFFF',
+                  border: rosterScope === 'section' ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
+                  background: rosterScope === 'section' ? '#2D2C2A' : '#FFFFFF',
                   color: rosterScope === 'section' ? '#FFFFFF' : 'var(--text-secondary)',
                   cursor: 'pointer',
                 }}
@@ -292,8 +292,8 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
                   fontSize: 11,
                   fontWeight: rosterScope === 'grade' ? 700 : 500,
                   borderRadius: 14,
-                  border: rosterScope === 'grade' ? '1px solid #2C6E6A' : '1px solid var(--border-color)',
-                  background: rosterScope === 'grade' ? '#2C6E6A' : '#FFFFFF',
+                  border: rosterScope === 'grade' ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
+                  background: rosterScope === 'grade' ? '#2D2C2A' : '#FFFFFF',
                   color: rosterScope === 'grade' ? '#FFFFFF' : 'var(--text-secondary)',
                   cursor: 'pointer',
                 }}
@@ -308,8 +308,8 @@ export const EditSubjectClassModal: React.FC<EditSubjectClassModalProps> = ({
                   fontSize: 11,
                   fontWeight: rosterScope === 'all' ? 700 : 500,
                   borderRadius: 14,
-                  border: rosterScope === 'all' ? '1px solid #2C6E6A' : '1px solid var(--border-color)',
-                  background: rosterScope === 'all' ? '#2C6E6A' : '#FFFFFF',
+                  border: rosterScope === 'all' ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
+                  background: rosterScope === 'all' ? '#2D2C2A' : '#FFFFFF',
                   color: rosterScope === 'all' ? '#FFFFFF' : 'var(--text-secondary)',
                   cursor: 'pointer',
                 }}

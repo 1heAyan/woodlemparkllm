@@ -21,6 +21,8 @@ import {
   Grid,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { supabase, SubjectClass, UserProfile } from '@/lib/supabaseClient';
 import { getStoredGradeTerms } from '../Admin/AdminAssessmentTermsView';
 
@@ -610,7 +612,240 @@ export function MarkEntryModal({
     showToast('Filled empty cells with 0.', 'info');
   };
 
-  // ── Excel Export ─────────────────────────────────────────────────────────
+  // ── PDF Marksheet Export ───────────────────────────────────────────────────
+  const handleExportPDF = () => {
+    try {
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'pt',
+        format: 'a4',
+      });
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+
+      // Top brand header banner
+      doc.setFillColor(28, 77, 70); // #1C4D46 Woodlem Dark Green
+      doc.rect(0, 0, pageWidth, 52, 'F');
+
+      // Gold/Emerald accent line
+      doc.setFillColor(212, 160, 23); // #D4A017 Gold accent
+      doc.rect(0, 52, pageWidth, 3, 'F');
+
+      // School Name
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(15);
+      doc.setTextColor(255, 255, 255);
+      doc.text('WOODLEM PARK SCHOOL', 28, 24);
+
+      // Subtitle
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(200, 230, 225);
+      doc.text('Official Marks Register & Academic Performance Marksheet', 28, 40);
+
+      // Date / Academic Info (Top Right)
+      const exportDateStr = new Date().toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+      doc.setFontSize(9);
+      doc.setTextColor(220, 240, 235);
+      doc.text(`Generated: ${exportDateStr}`, pageWidth - 28, 24, { align: 'right' });
+      doc.text(`Academic Cohort 2025–2026`, pageWidth - 28, 40, { align: 'right' });
+
+      // Classroom Info Box (Below Header)
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(28, 64, pageWidth - 56, 32, 4, 4, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(30, 41, 59);
+      doc.text(`${classRoom.name}`, 38, 80);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Grade ${classGrade} · Cohort ${classRoom.section || classRoom.class_name || 'Standard'}`, 38, 91);
+
+      // Right side metrics inside box
+      const classAvgText = overallKPIs.classAverage > 0 ? `${overallKPIs.classAverage.toFixed(1)}%` : '—';
+      const topScoreText = overallKPIs.highestScore ? `${overallKPIs.highestScore.pct.toFixed(0)}%` : '—';
+      const passRateText = overallKPIs.gradedCells > 0 ? `${overallKPIs.passRate.toFixed(0)}%` : '—';
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(44, 110, 106);
+      const metricsText = `Enrolled Students: ${enrolledStudents.length}    |    Class Average: ${classAvgText}    |    Top Score: ${topScoreText}    |    Pass Rate: ${passRateText}`;
+      doc.text(metricsText, pageWidth - 38, 84, { align: 'right' });
+
+      // Build Table Headers
+      const headers: string[] = ['#', 'Student Name', 'Admission No.'];
+      assessments.forEach((a) => {
+        headers.push(`${a.title}\n(Max ${a.maximum_marks})`);
+      });
+      headers.push('Total\nScored', 'Total\nMax', 'Overall\n%', 'Status');
+
+      // Build Table Body
+      const tableBody: any[] = [];
+      displayedStudents.forEach((s, idx) => {
+        const row: (string | number)[] = [
+          idx + 1,
+          s.name,
+          s.admission_number || s.user_code || '—',
+        ];
+
+        assessments.forEach((a) => {
+          const md = gridData[s.id]?.[a.id];
+          const val = md && md.marks !== '' ? `${md.marks}` : '—';
+          row.push(val);
+        });
+
+        const st = studentStatsMap[s.id];
+        const scored = st ? st.totalScored : 0;
+        const max = st ? st.totalMax : 0;
+        const pct = st && st.totalMax > 0 ? `${st.percentage.toFixed(1)}%` : '—';
+        const isPass = st && st.totalMax > 0 ? st.percentage >= 50 : null;
+        const resultLabel = isPass === null ? '—' : isPass ? 'PASS' : 'RETEST';
+
+        row.push(scored, max, pct, resultLabel);
+        tableBody.push(row);
+      });
+
+      // Build Summary / Average Footer Rows
+      const avgRow: (string | number)[] = ['', 'CLASS AVERAGE', ''];
+      const highRow: (string | number)[] = ['', 'HIGHEST SCORE', ''];
+      const lowRow: (string | number)[] = ['', 'LOWEST SCORE', ''];
+      const passRow: (string | number)[] = ['', 'PASS RATE (≥ 50%)', ''];
+
+      assessments.forEach((a) => {
+        const colStats = getColStats(a.id, a.maximum_marks);
+        avgRow.push(colStats.avg !== '—' ? `${colStats.avg}` : '—');
+        highRow.push(colStats.high !== '—' ? `${colStats.high}` : '—');
+        lowRow.push(colStats.low !== '—' ? `${colStats.low}` : '—');
+        passRow.push(colStats.pass !== '—' ? `${colStats.pass}` : '—');
+      });
+
+      avgRow.push(
+        overallKPIs.classAverage > 0 ? `${overallKPIs.classAverage.toFixed(1)}%` : '—',
+        '—',
+        overallKPIs.classAverage > 0 ? `${overallKPIs.classAverage.toFixed(1)}%` : '—',
+        '—'
+      );
+      highRow.push(
+        overallKPIs.highestScore ? `${overallKPIs.highestScore.score}` : '—',
+        '—',
+        overallKPIs.highestScore ? `${overallKPIs.highestScore.pct.toFixed(0)}%` : '—',
+        '—'
+      );
+      lowRow.push('—', '—', '—', '—');
+      passRow.push(
+        overallKPIs.gradedCells > 0 ? `${overallKPIs.passRate.toFixed(0)}%` : '—',
+        '—',
+        overallKPIs.gradedCells > 0 ? `${overallKPIs.passRate.toFixed(0)}%` : '—',
+        '—'
+      );
+
+      tableBody.push(avgRow, highRow, lowRow, passRow);
+
+      // AutoTable generation
+      autoTable(doc, {
+        head: [headers],
+        body: tableBody,
+        startY: 104,
+        margin: { left: 28, right: 28, bottom: 42 },
+        theme: 'grid',
+        styles: {
+          fontSize: 8,
+          cellPadding: 3.5,
+          textColor: [30, 41, 59],
+          valign: 'middle',
+          halign: 'center',
+          lineColor: [226, 232, 240],
+          lineWidth: 0.5,
+        },
+        headStyles: {
+          fillColor: [44, 110, 106], // #2C6E6A
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'center',
+          fontSize: 8,
+        },
+        columnStyles: {
+          0: { cellWidth: 22, halign: 'center' }, // #
+          1: { halign: 'left', fontStyle: 'bold' }, // Student Name
+          2: { halign: 'center', font: 'courier' }, // Admission No
+        },
+        didParseCell: (data: any) => {
+          // Highlight Summary Rows at bottom
+          const totalRows = tableBody.length;
+          if (data.row.index >= totalRows - 4) {
+            data.cell.styles.fontStyle = 'bold';
+            data.cell.styles.fillColor = [241, 245, 249]; // Slate 100
+            if (data.row.index === totalRows - 4) {
+              data.cell.styles.textColor = [44, 110, 106]; // Emerald
+            } else if (data.row.index === totalRows - 3) {
+              data.cell.styles.textColor = [16, 185, 129]; // Green
+            } else if (data.row.index === totalRows - 2) {
+              data.cell.styles.textColor = [100, 116, 139]; // Gray
+            } else {
+              data.cell.styles.textColor = [79, 70, 229]; // Indigo
+            }
+          }
+          // Highlight Status column
+          if (data.section === 'body' && data.column.index === headers.length - 1) {
+            const val = String(data.cell.raw);
+            if (val === 'PASS') {
+              data.cell.styles.textColor = [22, 101, 52];
+              data.cell.styles.fontStyle = 'bold';
+            } else if (val === 'RETEST') {
+              data.cell.styles.textColor = [185, 28, 28];
+              data.cell.styles.fontStyle = 'bold';
+            }
+          }
+        },
+      });
+
+      // Footer / Signatures on each page
+      const totalPages = (doc as any).internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+
+        // Signatures on the last page
+        if (i === totalPages) {
+          const sigY = pageHeight - 30;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+
+          doc.text('Faculty Signature: ___________________________', 28, sigY);
+          doc.text('Principal / Academic Head Signature: ___________________________', pageWidth / 2, sigY);
+        }
+
+        // Bottom system footer
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text(
+          'Woodlem Park School Assessment Portal • Official Academic Document',
+          28,
+          pageHeight - 12
+        );
+        doc.text(`Page ${i} of ${totalPages}`, pageWidth - 28, pageHeight - 12, { align: 'right' });
+      }
+
+      const fileName = `${classRoom.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_Marks_Register.pdf`;
+      doc.save(fileName);
+      showToast(`Exported ${fileName} in PDF format successfully.`, 'success');
+    } catch (err: any) {
+      console.error('PDF export failed:', err);
+      showToast('PDF Export failed. Please try again.', 'error');
+    }
+  };
+
+  // ── Excel Export (Fallback / Alternative) ─────────────────────────────────
   const handleExportExcel = () => {
     try {
       const rows: Record<string, string | number>[] = [];
@@ -875,7 +1110,7 @@ export function MarkEntryModal({
           {/* Action Buttons Header Group */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <button
-              onClick={handleExportExcel}
+              onClick={handleExportPDF}
               disabled={enrolledStudents.length === 0 || assessments.length === 0}
               className="btn-secondary"
               style={{
@@ -888,10 +1123,10 @@ export function MarkEntryModal({
                 cursor: enrolledStudents.length === 0 || assessments.length === 0 ? 'not-allowed' : 'pointer',
                 opacity: enrolledStudents.length === 0 || assessments.length === 0 ? 0.6 : 1,
               }}
-              title="Download Excel spreadsheet"
+              title="Export Marksheet in PDF format"
             >
               <Download size={14} />
-              <span>Export</span>
+              <span>Export PDF</span>
             </button>
 
             <button

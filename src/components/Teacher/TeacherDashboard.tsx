@@ -27,6 +27,7 @@ import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 import { openFileInNewTab, downloadFile, formatShortFileName } from '@/lib/fileHelper';
+import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 
 interface TeacherDashboardProps {
   currentUser: UserProfile;
@@ -344,8 +345,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   }, [teacherClasses, selectedClassId]);
 
   // Homeroom class identification
-  const homeroomGrade = useMemo(() => (currentUser.grade || '12').replace(/[^0-9]/g, '') || '12', [currentUser.grade]);
-  const homeroomSection = useMemo(() => (currentUser.class_letter || 'C').toUpperCase().trim() || 'C', [currentUser.class_letter]);
+  const homeroomClassInfo = useMemo(
+    () => extractClassTeacherInfo(currentUser, subjectClasses),
+    [currentUser, subjectClasses]
+  );
+  const homeroomGrade = homeroomClassInfo.grade;
+  const homeroomSection = homeroomClassInfo.section;
   const homeroomLabel = `Grade ${homeroomGrade}-${homeroomSection}`;
 
   // Homeroom students
@@ -1119,7 +1124,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', justifyContent: sidebar.isCollapsed ? 'center' : 'flex-start' }}>
                 <Plus size={15} className="icon" style={{ color: 'var(--primary)', flexShrink: 0 }} />
-                <span className="sidebar-text" style={{ fontWeight: 600, fontSize: 12 }}>+ Create Class</span>
+                <span className="sidebar-text" style={{ fontWeight: 600, fontSize: 12 }}>Create Class</span>
               </div>
             </button>
             {sidebar.isCollapsed && (
@@ -1341,7 +1346,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         onClick={() => onOpenCreateTestModal(`${activeClassObj.name} (${activeClassObj.class_name})`)}
                         style={{ padding: '7px 16px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
                       >
-                        <span>+ Create Class Test</span>
+                        <Plus size={14} />
+                        <span>Create Class Test</span>
                       </button>
                     </>
                   )}
@@ -1801,7 +1807,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                                     padding: '4px 9px',
                                                     fontSize: 11,
                                                     fontWeight: 700,
-                                                    background: '#2C6E6A',
+                                                    background: '#2D2C2A',
                                                     color: '#FFFFFF',
                                                     border: 'none',
                                                     borderRadius: 4,
@@ -1883,7 +1889,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           onClick={() => setIsResourceFormExpanded(!isResourceFormExpanded)}
                           style={{ padding: '8px 16px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
                         >
-                          {isResourceFormExpanded ? (<><X size={13} /> Close Form</>) : '+ Upload New Resource'}
+                          {isResourceFormExpanded ? (<><X size={13} /> Close Form</>) : (<><Plus size={13} /> Upload New Resource</>)}
                         </button>
                       </div>
 
@@ -1892,7 +1898,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         <div
                           style={{
                             background: '#FFFFFF',
-                            border: '1.5px solid #2C6E6A',
+                            border: '1.5px solid var(--border-color)',
                             borderRadius: 10,
                             padding: '22px 26px',
                             boxShadow: '0 4px 14px rgba(44,110,106,0.08)',
@@ -2101,8 +2107,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                 fontSize: 11,
                                 fontWeight: 600,
                                 borderRadius: 4,
-                                border: resTypeFilter === pill.id ? '1px solid #2C6E6A' : '1px solid var(--border-color)',
-                                background: resTypeFilter === pill.id ? '#2C6E6A' : '#FFFFFF',
+                                border: resTypeFilter === pill.id ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
+                                background: resTypeFilter === pill.id ? '#2D2C2A' : '#FFFFFF',
                                 color: resTypeFilter === pill.id ? '#FFFFFF' : 'var(--neutral-dark)',
                                 cursor: 'pointer',
                               }}
@@ -2235,7 +2241,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                         padding: '5px 12px',
                                         fontSize: 11.5,
                                         fontWeight: 700,
-                                        background: '#2C6E6A',
+                                        background: '#2D2C2A',
                                         color: '#FFFFFF',
                                         border: 'none',
                                         borderRadius: 4,
@@ -3917,9 +3923,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       fontWeight: hrActiveTab === 'broadcasts' ? 700 : 600,
                       borderRadius: 6,
                       border: 'none',
-                      background: hrActiveTab === 'broadcasts' ? '#FFFFFF' : 'transparent',
-                      color: hrActiveTab === 'broadcasts' ? '#2C6E6A' : 'var(--text-secondary)',
-                      boxShadow: hrActiveTab === 'broadcasts' ? '0 2px 5px rgba(0,0,0,0.08)' : 'none',
+                      background: hrActiveTab === 'broadcasts' ? '#2D2C2A' : 'transparent',
+                      color: hrActiveTab === 'broadcasts' ? '#FFFFFF' : 'var(--text-secondary)',
+                      boxShadow: hrActiveTab === 'broadcasts' ? '0 2px 5px rgba(0,0,0,0.12)' : 'none',
                       cursor: 'pointer',
                       transition: 'all 0.2s',
                     }}
@@ -3932,8 +3938,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         fontWeight: 800,
                         padding: '1px 7px',
                         borderRadius: 10,
-                        background: hrActiveTab === 'broadcasts' ? '#EAF3EF' : '#ECEAE5',
-                        color: hrActiveTab === 'broadcasts' ? '#2D6E5D' : 'var(--text-secondary)',
+                        background: hrActiveTab === 'broadcasts' ? 'rgba(255,255,255,0.2)' : '#ECEAE5',
+                        color: hrActiveTab === 'broadcasts' ? '#FFFFFF' : 'var(--text-secondary)',
                       }}
                     >
                       {homeroomBroadcasts.length}
@@ -3952,9 +3958,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       fontWeight: hrActiveTab === 'resources' ? 700 : 600,
                       borderRadius: 6,
                       border: 'none',
-                      background: hrActiveTab === 'resources' ? '#FFFFFF' : 'transparent',
-                      color: hrActiveTab === 'resources' ? '#2C6E6A' : 'var(--text-secondary)',
-                      boxShadow: hrActiveTab === 'resources' ? '0 2px 5px rgba(0,0,0,0.08)' : 'none',
+                      background: hrActiveTab === 'resources' ? '#2D2C2A' : 'transparent',
+                      color: hrActiveTab === 'resources' ? '#FFFFFF' : 'var(--text-secondary)',
+                      boxShadow: hrActiveTab === 'resources' ? '0 2px 5px rgba(0,0,0,0.12)' : 'none',
                       cursor: 'pointer',
                       transition: 'all 0.2s',
                     }}
@@ -3967,8 +3973,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         fontWeight: 800,
                         padding: '1px 7px',
                         borderRadius: 10,
-                        background: hrActiveTab === 'resources' ? '#EAF3EF' : '#ECEAE5',
-                        color: hrActiveTab === 'resources' ? '#2D6E5D' : 'var(--text-secondary)',
+                        background: hrActiveTab === 'resources' ? 'rgba(255,255,255,0.2)' : '#ECEAE5',
+                        color: hrActiveTab === 'resources' ? '#FFFFFF' : 'var(--text-secondary)',
                       }}
                     >
                       {homeroomResources.length}
@@ -3981,9 +3987,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     type="button"
                     className="btn-primary"
                     onClick={() => setHrIsResourceFormExpanded(!hrIsResourceFormExpanded)}
-                    style={{ padding: '7px 16px', fontSize: 12 }}
+                    style={{ padding: '7px 16px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
                   >
-                    {hrIsResourceFormExpanded ? 'Close Form ▲' : '+ Upload Class Resource'}
+                    {hrIsResourceFormExpanded ? 'Close Form ▲' : (<><Plus size={13} /> Upload Class Resource</>)}
                   </button>
                 )}
               </div>
@@ -4577,19 +4583,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
                     {myHubActivities.map((act) => {
-                      const typeEmojis: Record<string, string> = {
-                        'Club Registration': '🎨', 'Workshop': '🔧', 'Event': '🎉',
-                        'Leadership Programme': '🏆', 'Volunteer Opportunity': '🤝',
-                        'Counselling Appointment': '💬', 'Summer Programme': '☀️',
-                        'Sports & Athletics': '⚽', 'Science & Technology': '🔬', 'Arts & Culture': '🎭',
-                      };
                       const typeColors: Record<string, string> = {
                         'Club Registration': '#7C3AED', 'Workshop': '#2563EB', 'Event': '#D97706',
                         'Leadership Programme': '#059669', 'Volunteer Opportunity': '#DC2626',
                         'Counselling Appointment': '#0891B2', 'Summer Programme': '#EA580C',
                         'Sports & Athletics': '#16A34A', 'Science & Technology': '#4F46E5', 'Arts & Culture': '#C026D3',
                       };
-                      const emoji = typeEmojis[act.type] || '📌';
                       const color = typeColors[act.type] || '#2C6E6A';
                       const enrolledCount = (act.enrolled_student_ids || []).length;
                       const location = (act as any).location;
@@ -4605,7 +4604,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                             transition: 'box-shadow 0.2s',
                           }}
                         >
-                          {/* Colour banner */}
                           <div style={{
                             background: `linear-gradient(135deg, ${color}22 0%, ${color}10 100%)`,
                             borderBottom: `1px solid ${color}30`,
@@ -4613,12 +4611,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                             display: 'flex', alignItems: 'center', gap: 12,
                           }}>
                             <div style={{
-                              width: 46, height: 46, borderRadius: 12,
+                              width: 36, height: 36, borderRadius: 6,
                               background: color + '18', border: `1.5px solid ${color}40`,
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              fontSize: 22, flexShrink: 0,
+                              flexShrink: 0,
                             }}>
-                              {emoji}
+                              <div style={{ width: 10, height: 10, borderRadius: '50%', background: color }} />
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <span style={{
@@ -4638,16 +4636,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                               {act.description}
                             </p>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                              <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', display: 'flex', gap: 6 }}>
-                                <span>📅</span> <strong style={{ color: 'var(--neutral-dark)' }}>{act.date}</strong>
+                              <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <Calendar size={11} /><strong style={{ color: 'var(--neutral-dark)' }}>{act.date}</strong>
                               </div>
                               {location && (
-                                <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', display: 'flex', gap: 6 }}>
-                                  <span>📍</span> {location}
+                                <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span style={{ fontWeight: 600 }}>Location:</span> {location}
                                 </div>
                               )}
-                              <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', display: 'flex', gap: 6 }}>
-                                <span>🎯</span> {(act.target_grades || []).join(', ') || 'All Grades'}
+                              <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                                {(act.target_grades || []).join(', ') || 'All Grades'}
                               </div>
                             </div>
                           </div>
@@ -4675,7 +4673,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                   background: 'var(--surface)', color: 'var(--neutral-dark)', cursor: 'pointer',
                                 }}
                               >
-                                ✏️ Edit
+                                Edit
                               </button>
                               <button
                                 onClick={() => onDeleteHubActivity(act.id)}

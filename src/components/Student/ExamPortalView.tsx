@@ -313,23 +313,121 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
         ))}
       </div>
 
+      {/* ── RESPONSIVE STYLES FOR EXAM PORTAL ── */}
+      <style>{`
+        .exam-portal-header {
+          background: var(--surface);
+          color: var(--neutral-dark);
+          padding: 12px 24px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          border-bottom: 1px solid var(--border-color);
+          box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+          position: relative;
+          z-index: 10;
+        }
+        .exam-portal-body {
+          flex: 1;
+          display: flex;
+          overflow: hidden;
+          position: relative;
+          z-index: 2;
+        }
+        .exam-sidebar {
+          width: 280px;
+          background: #FFFFFF;
+          border-right: 1px solid #E2E8F0;
+          padding: 20px 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 18px;
+          overflow-y: auto;
+          flex-shrink: 0;
+        }
+        .exam-main {
+          flex: 1;
+          padding: 32px 48px;
+          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
+          max-width: 960px;
+          margin: 0 auto;
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .exam-nav-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 8px;
+        }
+        @media (max-width: 768px) {
+          .exam-portal-header {
+            padding: 8px 12px !important;
+            flex-wrap: wrap;
+            gap: 8px;
+          }
+          .exam-portal-header-left {
+            gap: 8px !important;
+          }
+          .exam-portal-header-center {
+            order: 3;
+            width: 100%;
+            justify-content: space-between !important;
+            gap: 8px !important;
+          }
+          .exam-shield-text {
+            display: none;
+          }
+          .exam-portal-body {
+            flex-direction: column !important;
+            overflow-y: auto !important;
+          }
+          .exam-sidebar {
+            width: 100% !important;
+            border-right: none !important;
+            border-bottom: 1px solid #E2E8F0 !important;
+            padding: 8px 12px !important;
+            gap: 8px !important;
+            flex-shrink: 0;
+          }
+          .exam-nav-grid {
+            display: flex !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            scrollbar-width: none !important;
+            gap: 6px !important;
+            padding-bottom: 2px !important;
+          }
+          .exam-nav-grid::-webkit-scrollbar {
+            display: none !important;
+          }
+          .exam-nav-btn {
+            min-width: 40px !important;
+            height: 38px !important;
+            padding: 0 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            flex-shrink: 0 !important;
+          }
+          .exam-sidebar-legend {
+            display: none !important;
+          }
+          .exam-main {
+            padding: 12px 10px 32px 10px !important;
+          }
+          .exam-question-card {
+            padding: 16px 14px !important;
+            border-radius: 10px !important;
+          }
+        }
+      `}</style>
+
       {/* ── HIGH-SECURITY EXAMINATION HEADER ── */}
-      <header
-        style={{
-          background: 'var(--surface)',
-          color: 'var(--neutral-dark)',
-          padding: '12px 24px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          borderBottom: '1px solid var(--border-color)',
-          boxShadow: '0 2px 10px rgba(0,0,0,0.03)',
-          position: 'relative',
-          zIndex: 10,
-        }}
-      >
+      <header className="exam-portal-header">
         {/* Left: Exam Info */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div className="exam-portal-header-left" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <div
             style={{
               width: 38,
@@ -342,43 +440,44 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
               fontWeight: 800,
               fontSize: 18,
               color: '#FFFFFF',
+              flexShrink: 0,
             }}
           >
             W
           </div>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', padding: '2px 8px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Woodlem Secure Assessment Mode
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10.5, fontWeight: 700, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', padding: '2px 8px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Secure Mode
               </span>
-              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{test.class_name || 'Academic Assessment'}</span>
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{test.class_name || 'Assessment'}</span>
             </div>
-            <h1 style={{ margin: '2px 0 0', fontSize: 16, fontWeight: 800, color: 'var(--neutral-dark)', letterSpacing: '0.01em' }}>
+            <h1 style={{ margin: '2px 0 0', fontSize: 15, fontWeight: 800, color: 'var(--neutral-dark)', letterSpacing: '0.01em' }}>
               {test.title}
             </h1>
           </div>
         </div>
 
         {/* Center: Proctoring Pill & Live Timer */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+        <div className="exam-portal-header-center" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           {/* Proctoring Shield Pill */}
           <div
             style={{
               background: '#F8FAFC',
               border: '1px solid var(--border-color)',
               borderRadius: 20,
-              padding: '5px 14px',
+              padding: '4px 12px',
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
-              fontSize: 11.5,
+              gap: 6,
+              fontSize: 11,
               color: 'var(--text-secondary)',
             }}
           >
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981', display: 'inline-block', boxShadow: '0 0 8px #10B981' }} />
-            <span>Anti-Cheat &amp; Screen Shield Active</span>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#10B981', display: 'inline-block', boxShadow: '0 0 8px #10B981' }} />
+            <span className="exam-shield-text">Proctoring Active</span>
             {securityWarnings.length > 0 && (
-              <span style={{ background: '#EF4444', color: '#FFF', padding: '1px 6px', borderRadius: 10, fontSize: 10, fontWeight: 700 }}>
+              <span style={{ background: '#EF4444', color: '#FFF', padding: '1px 6px', borderRadius: 10, fontSize: 9.5, fontWeight: 700 }}>
                 {securityWarnings.length} Alert{securityWarnings.length > 1 ? 's' : ''}
               </span>
             )}
@@ -391,43 +490,38 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
                 background: timeLeft < 300 ? '#FEF2F2' : '#F0F9FF',
                 border: timeLeft < 300 ? '1px solid #FECACA' : '1px solid #BAE6FD',
                 borderRadius: 8,
-                padding: '6px 14px',
+                padding: '5px 12px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
+                gap: 6,
                 color: timeLeft < 300 ? '#991B1B' : '#0369A1',
                 fontWeight: 800,
-                fontSize: 14,
+                fontSize: 13.5,
                 fontFamily: 'monospace',
                 letterSpacing: '0.05em',
                 transition: 'all 0.2s',
               }}
             >
-              <Clock size={16} />
+              <Clock size={15} />
               <span>{formatTime(timeLeft)}</span>
             </div>
           )}
         </div>
 
         {/* Right: Candidate & Action */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)' }}>{student.name}</div>
-            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>{student.admission_number || student.user_code || 'Candidate'}</div>
-          </div>
-
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {!isSubmitted ? (
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 6 }}>
               <button
                 type="button"
                 onClick={() => setShowExitConfirm(true)}
                 style={{
-                  padding: '7px 12px',
+                  padding: '6px 10px',
                   borderRadius: 6,
                   border: '1px solid var(--border-color)',
                   background: 'transparent',
                   color: 'var(--text-secondary)',
-                  fontSize: 12,
+                  fontSize: 11.5,
                   fontWeight: 600,
                   cursor: 'pointer',
                 }}
@@ -438,18 +532,18 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
                 type="button"
                 onClick={() => setShowSubmitConfirm(true)}
                 style={{
-                  padding: '7px 16px',
+                  padding: '6px 14px',
                   borderRadius: 6,
                   border: 'none',
                   background: '#2D6E5D',
                   color: '#FFFFFF',
-                  fontSize: 12.5,
+                  fontSize: 12,
                   fontWeight: 700,
                   cursor: 'pointer',
                   boxShadow: '0 2px 8px rgba(45, 110, 93, 0.4)',
                 }}
               >
-                Submit Exam ({answeredCount}/{questions.length})
+                Submit ({answeredCount}/{questions.length})
               </button>
             </div>
           ) : (
@@ -457,24 +551,24 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
               type="button"
               onClick={onClose}
               style={{
-                padding: '7px 18px',
+                padding: '6px 14px',
                 borderRadius: 6,
                 border: 'none',
                 background: '#10B981',
                 color: '#FFFFFF',
-                fontSize: 12.5,
+                fontSize: 12,
                 fontWeight: 700,
                 cursor: 'pointer',
               }}
             >
-              Finish &amp; Close
+              Finish
             </button>
           )}
         </div>
       </header>
 
       {/* ── MAIN EXAM CONTAINER ── */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative', zIndex: 2 }}>
+      <div className="exam-portal-body">
         {isSubmitted ? (
           /* RESULT / COMPLETION SUMMARY SCREEN */
           <div
@@ -483,7 +577,7 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: 24,
+              padding: 16,
             }}
           >
             <div
@@ -491,8 +585,8 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
                 background: '#FFFFFF',
                 borderRadius: 14,
                 border: '1px solid #E2E8F0',
-                padding: '36px 48px',
-                maxWidth: 540,
+                padding: '28px 24px',
+                maxWidth: 500,
                 width: '100%',
                 textAlign: 'center',
                 boxShadow: '0 20px 40px rgba(0,0,0,0.08)',
@@ -500,27 +594,27 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
             >
               <div
                 style={{
-                  width: 72,
-                  height: 72,
+                  width: 64,
+                  height: 64,
                   borderRadius: '50%',
                   background: '#EAF3EF',
                   color: '#2D6E5D',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: 34,
-                  margin: '0 auto 16px',
+                  fontSize: 30,
+                  margin: '0 auto 14px',
                   fontWeight: 800,
                 }}
               >
-                <Check size={36} />
+                <Check size={32} />
               </div>
 
-              <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#0F172A' }}>
-                Assessment Submitted Successfully
+              <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#0F172A' }}>
+                Assessment Submitted
               </h2>
-              <p style={{ margin: '6px 0 0', fontSize: 13.5, color: '#64748B' }}>
-                Your responses have been verified, encrypted, and recorded in the academic gradebook.
+              <p style={{ margin: '6px 0 0', fontSize: 13, color: '#64748B' }}>
+                Your responses have been verified, encrypted, and recorded in the gradebook.
               </p>
 
               <div
@@ -528,27 +622,27 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
                   background: '#F8FAFC',
                   border: '1px solid #E2E8F0',
                   borderRadius: 10,
-                  padding: '20px',
-                  margin: '24px 0',
+                  padding: '16px',
+                  margin: '20px 0',
                   display: 'grid',
                   gridTemplateColumns: '1fr 1fr',
-                  gap: 16,
+                  gap: 12,
                 }}
               >
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#64748B' }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: '#64748B' }}>
                     Calculated Score
                   </div>
-                  <div style={{ fontSize: 32, fontWeight: 900, color: '#2C6E6A', marginTop: 2 }}>
+                  <div style={{ fontSize: 28, fontWeight: 900, color: '#2C6E6A', marginTop: 2 }}>
                     {finalScore}%
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#64748B' }}>
-                    Questions Completed
+                  <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: '#64748B' }}>
+                    Completed
                   </div>
-                  <div style={{ fontSize: 32, fontWeight: 900, color: '#0F172A', marginTop: 2 }}>
-                    {answeredCount} / {questions.length}
+                  <div style={{ fontSize: 28, fontWeight: 900, color: '#0F172A', marginTop: 2 }}>
+                    {answeredCount}/{questions.length}
                   </div>
                 </div>
               </div>
@@ -559,14 +653,14 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
                     background: '#FEF2F2',
                     border: '1px solid #FECACA',
                     borderRadius: 6,
-                    padding: '10px 14px',
-                    fontSize: 12,
+                    padding: '8px 12px',
+                    fontSize: 11.5,
                     color: '#991B1B',
-                    marginBottom: 20,
+                    marginBottom: 16,
                     textAlign: 'left',
                   }}
                 >
-                  <strong>Proctoring Notice:</strong> {securityWarnings.length} window focus/proctoring alert(s) were flagged during this session for teacher review.
+                  <strong>Proctoring Notice:</strong> {securityWarnings.length} alert(s) flagged during session.
                 </div>
               )}
 
@@ -576,35 +670,26 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
                 onClick={onClose}
                 style={{ width: '100%', padding: '12px', fontSize: 14, fontWeight: 700 }}
               >
-                Return to Student Dashboard
+                Return to Dashboard
               </button>
             </div>
           </div>
         ) : (
           /* ACTIVE FULL-SCREEN EXAM QUESTIONS FLOW */
           <>
-            {/* Left Sidebar: Question Palette & Navigation */}
-            <aside
-              style={{
-                width: 280,
-                background: '#FFFFFF',
-                borderRight: '1px solid #E2E8F0',
-                padding: '20px 18px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 18,
-                overflowY: 'auto',
-              }}
-            >
+            {/* Question Palette & Navigation */}
+            <aside className="exam-sidebar">
               <div>
-                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>
-                  Question Navigator
-                </div>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)', marginTop: 2 }}>
-                  {answeredCount} of {questions.length} Answered
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>
+                    Questions
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                    {answeredCount}/{questions.length} Answered
+                  </span>
                 </div>
                 {/* Mini Progress Bar */}
-                <div style={{ height: 6, background: '#E2E8F0', borderRadius: 3, marginTop: 8, overflow: 'hidden' }}>
+                <div style={{ height: 5, background: '#E2E8F0', borderRadius: 3, marginTop: 6, overflow: 'hidden' }}>
                   <div
                     style={{
                       height: '100%',
@@ -617,7 +702,7 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
               </div>
 
               {/* Grid of Question Number Buttons */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+              <div className="exam-nav-grid">
                 {questions.map((q, idx) => {
                   const isAns = !!selectedAnswers[q.id];
                   const isCurrent = currentQIndex === idx;
@@ -626,9 +711,10 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
                     <button
                       key={q.id}
                       type="button"
+                      className="exam-nav-btn"
                       onClick={() => setCurrentQIndex(idx)}
                       style={{
-                        padding: '10px 0',
+                        padding: '9px 0',
                         borderRadius: 6,
                         border: isCurrent
                           ? '2px solid #2D6E5D'
@@ -659,42 +745,32 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
               </div>
 
               {/* Legend */}
-              <div style={{ marginTop: 'auto', borderTop: '1px solid #F1F5F9', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11, color: '#64748B' }}>
+              <div className="exam-sidebar-legend" style={{ marginTop: 'auto', borderTop: '1px solid #F1F5F9', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11, color: '#64748B' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 12, height: 12, borderRadius: 3, background: '#ECFDF5', border: '1px solid #A7F3D0', display: 'inline-block' }} />
-                  <span>Answered Question</span>
+                  <span style={{ width: 10, height: 10, borderRadius: 3, background: '#ECFDF5', border: '1px solid #A7F3D0', display: 'inline-block' }} />
+                  <span>Answered</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 12, height: 12, borderRadius: 3, background: '#FFFFFF', border: '1px solid #CBD5E1', display: 'inline-block' }} />
-                  <span>Unanswered Question</span>
+                  <span style={{ width: 10, height: 10, borderRadius: 3, background: '#FFFFFF', border: '1px solid #CBD5E1', display: 'inline-block' }} />
+                  <span>Unanswered</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 12, height: 12, borderRadius: 3, background: '#EAF3EF', border: '2px solid #2C6E6A', display: 'inline-block' }} />
-                  <span>Current Question</span>
+                  <span style={{ width: 10, height: 10, borderRadius: 3, background: '#EAF3EF', border: '2px solid #2C6E6A', display: 'inline-block' }} />
+                  <span>Current</span>
                 </div>
               </div>
             </aside>
 
             {/* Main Stage: Question Prompt & Radio Options */}
-            <main
-              style={{
-                flex: 1,
-                padding: '32px 48px',
-                overflowY: 'auto',
-                display: 'flex',
-                flexDirection: 'column',
-                maxWidth: 960,
-                margin: '0 auto',
-                width: '100%',
-              }}
-            >
+            <main className="exam-main">
               {/* Question Card */}
               <div
+                className="exam-question-card"
                 style={{
                   background: '#FFFFFF',
                   borderRadius: 12,
                   border: '1px solid #E2E8F0',
-                  padding: '28px 32px',
+                  padding: '24px 28px',
                   boxShadow: '0 2px 10px rgba(0,0,0,0.03)',
                   flex: 1,
                   display: 'flex',
@@ -828,13 +904,13 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
                 )}
 
                 {/* Bottom Navigation Buttons */}
-                <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 20, borderTop: '1px solid #F1F5F9' }}>
+                <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 16, borderTop: '1px solid #F1F5F9', flexWrap: 'wrap', gap: 10 }}>
                   <button
                     type="button"
                     disabled={currentQIndex === 0}
                     onClick={() => setCurrentQIndex((prev) => Math.max(0, prev - 1))}
                     style={{
-                      padding: '10px 20px',
+                      padding: '10px 16px',
                       borderRadius: 6,
                       border: '1px solid #CBD5E1',
                       background: currentQIndex === 0 ? '#F8FAFC' : '#FFFFFF',
@@ -842,18 +918,19 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
                       fontSize: 13,
                       fontWeight: 600,
                       cursor: currentQIndex === 0 ? 'default' : 'pointer',
+                      minHeight: 42,
                     }}
                   >
-                    ← Previous Question
+                    ← Previous
                   </button>
 
-                  <div style={{ display: 'flex', gap: 10 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     {currentQIndex < questions.length - 1 ? (
                       <button
                         type="button"
                         onClick={() => setCurrentQIndex((prev) => Math.min(questions.length - 1, prev + 1))}
                         style={{
-                          padding: '10px 24px',
+                          padding: '10px 20px',
                           borderRadius: 6,
                           border: 'none',
                           background: 'var(--btn-main)',
@@ -861,16 +938,17 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
                           fontSize: 13,
                           fontWeight: 700,
                           cursor: 'pointer',
+                          minHeight: 42,
                         }}
                       >
-                        Next Question →
+                        Next →
                       </button>
                     ) : (
                       <button
                         type="button"
                         onClick={() => setShowSubmitConfirm(true)}
                         style={{
-                          padding: '10px 24px',
+                          padding: '10px 20px',
                           borderRadius: 6,
                           border: 'none',
                           background: '#2D6E5D',
@@ -878,10 +956,11 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
                           fontSize: 13,
                           fontWeight: 700,
                           cursor: 'pointer',
+                          minHeight: 42,
                           boxShadow: '0 2px 8px rgba(45, 110, 93, 0.4)',
                         }}
                       >
-                        Complete &amp; Submit Exam
+                        Submit Exam ({answeredCount}/{questions.length})
                       </button>
                     )}
                   </div>

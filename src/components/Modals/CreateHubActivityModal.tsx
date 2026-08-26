@@ -33,16 +33,16 @@ interface CreateHubActivityModalProps {
 }
 
 const TYPE_OPTIONS = [
-  { value: 'Club Registration', label: '🎨 Club', color: '#7C3AED' },
-  { value: 'Workshop', label: '🔧 Workshop', color: '#2563EB' },
-  { value: 'Event', label: '🎉 Event', color: '#D97706' },
-  { value: 'Leadership Programme', label: '🏆 Leadership', color: '#059669' },
-  { value: 'Volunteer Opportunity', label: '🤝 Volunteer', color: '#DC2626' },
-  { value: 'Counselling Appointment', label: '💬 Counselling', color: '#0891B2' },
-  { value: 'Summer Programme', label: '☀️ Summer', color: '#EA580C' },
-  { value: 'Sports & Athletics', label: '⚽ Sports', color: '#16A34A' },
-  { value: 'Science & Technology', label: '🔬 Science', color: '#4F46E5' },
-  { value: 'Arts & Culture', label: '🎭 Arts', color: '#C026D3' },
+  { value: 'Club Registration', label: 'Club Registration', color: '#7C3AED' },
+  { value: 'Workshop', label: 'Workshop', color: '#2563EB' },
+  { value: 'Event', label: 'Event', color: '#D97706' },
+  { value: 'Leadership Programme', label: 'Leadership Programme', color: '#059669' },
+  { value: 'Volunteer Opportunity', label: 'Volunteer Opportunity', color: '#DC2626' },
+  { value: 'Counselling Appointment', label: 'Counselling Appointment', color: '#0891B2' },
+  { value: 'Summer Programme', label: 'Summer Programme', color: '#EA580C' },
+  { value: 'Sports & Athletics', label: 'Sports & Athletics', color: '#16A34A' },
+  { value: 'Science & Technology', label: 'Science & Technology', color: '#4F46E5' },
+  { value: 'Arts & Culture', label: 'Arts & Culture', color: '#C026D3' },
 ];
 
 const GRADE_OPTIONS = ['Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'];
@@ -260,9 +260,9 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({
                   <button key={g} type="button" onClick={() => handleGradeToggle(g)}
                     style={{
                       padding: '6px 14px', fontSize: 12.5, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
-                      border: `1.5px solid ${targetGrades.includes(g) ? '#2C6E6A' : 'var(--border-color)'}`,
-                      background: targetGrades.includes(g) ? '#EAF3EF' : 'var(--surface)',
-                      color: targetGrades.includes(g) ? '#1C4D46' : 'var(--text-secondary)',
+                      border: `1.5px solid ${targetGrades.includes(g) ? '#2D2C2A' : 'var(--border-color)'}`,
+                      background: targetGrades.includes(g) ? '#2D2C2A' : 'var(--surface)',
+                      color: targetGrades.includes(g) ? '#FFFFFF' : 'var(--text-secondary)',
                     }}
                   >{g}</button>
                 ))}

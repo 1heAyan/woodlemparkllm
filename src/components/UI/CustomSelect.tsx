@@ -205,8 +205,8 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
                 borderRadius: 4,
                 fontSize: 12,
                 fontWeight: isSelected ? 700 : 500,
-                color: opt.disabled ? '#A09E9A' : isSelected ? '#2C6E6A' : 'var(--neutral-dark, #2D2C2A)',
-                background: isSelected ? '#EAF3EF' : 'transparent',
+                color: opt.disabled ? '#A09E9A' : isSelected ? '#2D2C2A' : 'var(--neutral-dark, #2D2C2A)',
+                background: isSelected ? '#F2F1EE' : 'transparent',
                 cursor: opt.disabled ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -231,7 +231,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
                 )}
               </div>
               {isSelected && (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2C6E6A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2D2C2A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               )}
@@ -273,7 +273,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
           justifyContent: 'space-between',
           padding: '8px 12px',
           background: '#FFFFFF',
-          border: isOpen ? '1px solid #2C6E6A' : '1px solid var(--border-color, #E5E3DF)',
+          border: isOpen ? '1px solid #2D2C2A' : '1px solid var(--border-color, #E5E3DF)',
           borderRadius: 6,
           color: selectedOption ? 'var(--neutral-dark, #2D2C2A)' : 'var(--text-secondary, #7A7874)',
           fontSize: 12.5,
@@ -281,7 +281,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
           textAlign: 'left',
           cursor: disabled ? 'not-allowed' : 'pointer',
           outline: 'none',
-          boxShadow: isOpen ? '0 0 0 2px rgba(44, 110, 106, 0.12)' : 'none',
+          boxShadow: isOpen ? '0 0 0 2px rgba(45, 44, 42, 0.12)' : 'none',
           transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
           ...buttonStyle,
         }}

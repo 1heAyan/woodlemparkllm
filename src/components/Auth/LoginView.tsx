@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { supabase, UserProfile } from '@/lib/supabaseClient';
+import { saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
 
 interface LoginViewProps {
   onLoginSuccess: (profile: UserProfile) => void;
@@ -75,34 +76,45 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     setLoading(true);
 
     try {
-      let resolvedEmail = rawIdentifier.toLowerCase();
+      let resolvedEmail = rawIdentifier.trim().toLowerCase();
+      let preProfile: any = null;
 
-      // If user typed an ID / Admission Code instead of email, resolve email from profiles
+      // 1. Resolve Profile from Supabase (by ID/code or Email)
       if (!rawIdentifier.includes('@')) {
         const { data: matchedProfiles } = await supabase
           .from('profiles')
-          .select('email, role, name')
-          .eq('role', role)
-          .or(`admission_number.ilike.${rawIdentifier},user_code.ilike.${rawIdentifier}`)
+          .select('*')
+          .or(`admission_number.ilike.${rawIdentifier.trim()},user_code.ilike.${rawIdentifier.trim()}`)
           .limit(1);
 
-        if (matchedProfiles && matchedProfiles.length > 0 && matchedProfiles[0].email) {
-          resolvedEmail = matchedProfiles[0].email.toLowerCase();
+        if (matchedProfiles && matchedProfiles.length > 0) {
+          preProfile = matchedProfiles[0];
+          resolvedEmail = preProfile.email.toLowerCase();
         } else {
-          // Check if code exists under a different role to provide helpful guidance
-          const { data: anyMatch } = await supabase
-            .from('profiles')
-            .select('email, role')
-            .or(`admission_number.ilike.${rawIdentifier},user_code.ilike.${rawIdentifier}`)
-            .limit(1);
+          throw new Error(`No account found with ID "${rawIdentifier.trim()}". Please check your credentials or enter your email address.`);
+        }
+      } else {
+        const { data: matchedByEmail } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('email', resolvedEmail)
+          .maybeSingle();
 
-          if (anyMatch && anyMatch.length > 0 && anyMatch[0].role !== role) {
-            throw new Error(`No ${activeRole.label.toLowerCase()} account found with this ID. Please select the correct portal tab.`);
-          }
+        if (matchedByEmail) {
+          preProfile = matchedByEmail;
         }
       }
 
-      // Real Authentication
+      // 2. PRE-AUTH ROLE VALIDATION:
+      // Prevent signing in to the wrong role session to avoid flashing the wrong dashboard
+      if (preProfile && preProfile.role !== role) {
+        const foundRoleName = preProfile.role.charAt(0).toUpperCase() + preProfile.role.slice(1);
+        throw new Error(
+          `Account "${preProfile.name || resolvedEmail}" is registered as a ${preProfile.role.toUpperCase()}, not a ${activeRole.label.toUpperCase()}. Please click the "${foundRoleName}" tab on top to log in.`
+        );
+      }
+
+      // 3. Real Authentication with Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: resolvedEmail,
         password: password,
@@ -163,16 +175,17 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         throw new Error(`No ${activeRole.label.toLowerCase()} account found with these credentials. Please select the correct portal tab.`);
       }
 
-      onLoginSuccess(profile);
+      // Automatically synchronize and cache the authenticated login password
+      saveUserPasswordToCloudAndLocal(profile.id || userId, resolvedEmail, password);
+      const profileWithPassword: UserProfile = {
+        ...profile,
+        temp_password: password,
+      };
+
+      onLoginSuccess(profileWithPassword);
     } catch (err: any) {
       const rawMsg = err?.message || '';
-      if (
-        rawMsg.includes('school administrator') ||
-        rawMsg.includes('Incorrect') ||
-        rawMsg.includes('Too many') ||
-        rawMsg.includes('Please') ||
-        rawMsg.includes('account found')
-      ) {
+      if (rawMsg) {
         setErrorMessage(rawMsg);
       } else {
         setErrorMessage('Unable to sign in. Please check your connection and credentials.');
