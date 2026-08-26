@@ -1071,8 +1071,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               onClick={() => { setActiveNavType('homeroom_circulars'); sidebar.handleNavClick(); }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                <Megaphone size={15} className="icon" style={{ color: activeNavType === 'homeroom_circulars' ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
-                <span className="sidebar-text" style={{ flex: 1 }}>Class Circulars</span>
+                <Megaphone size={15} className="icon" style={{ color: activeNavType === 'homeroom_circulars' ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text" style={{ flex: 1, color: activeNavType === 'homeroom_circulars' ? '#FFFFFF' : 'inherit' }}>Class Circulars</span>
                 {(myHomeroomBroadcasts.length + myHomeroomResources.length) > 0 && (
                   <span className="sidebar-text" style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10, background: activeNavType === 'homeroom_circulars' ? '#2C6E6A' : '#FEF7EC', color: activeNavType === 'homeroom_circulars' ? '#FFFFFF' : '#9E6C1B' }}>
                     {myHomeroomBroadcasts.length + myHomeroomResources.length}
@@ -1090,8 +1090,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               onClick={() => { setActiveNavType('awards'); sidebar.handleNavClick(); }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                <Award size={15} className="icon" style={{ color: activeNavType === 'awards' ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
-                <span className="sidebar-text" style={{ flex: 1 }}>My Achievements</span>
+                <Award size={15} className="icon" style={{ color: activeNavType === 'awards' ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text" style={{ flex: 1, color: activeNavType === 'awards' ? '#FFFFFF' : 'inherit' }}>My Achievements</span>
                 {myAchievements.length > 0 && (
                   <span className="sidebar-text" style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10, background: activeNavType === 'awards' ? '#2C6E6A' : '#EAF3EF', color: activeNavType === 'awards' ? '#FFFFFF' : '#2D6E5D' }}>
                     {myAchievements.length}
@@ -1109,8 +1109,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               onClick={() => { setActiveNavType('attendance'); sidebar.handleNavClick(); }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                <Calendar size={15} className="icon" style={{ color: activeNavType === 'attendance' ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
-                <span className="sidebar-text">Attendance Record</span>
+                <Calendar size={15} className="icon" style={{ color: activeNavType === 'attendance' ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text" style={{ color: activeNavType === 'attendance' ? '#FFFFFF' : 'inherit' }}>Attendance Record</span>
               </div>
             </button>
             {sidebar.isCollapsed && <div className="sidebar-tooltip">Attendance Record</div>}
@@ -1123,8 +1123,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               onClick={() => { setActiveNavType('hub'); sidebar.handleNavClick(); }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                <Award size={15} className="icon" style={{ color: activeNavType === 'hub' ? '#7C5CBF' : 'var(--text-secondary)', flexShrink: 0 }} />
-                <span className="sidebar-text">Holistic Hub</span>
+                <Award size={15} className="icon" style={{ color: activeNavType === 'hub' ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text" style={{ color: activeNavType === 'hub' ? '#FFFFFF' : 'inherit' }}>Holistic Hub</span>
               </div>
             </button>
             {sidebar.isCollapsed && <div className="sidebar-tooltip">Holistic Hub</div>}
@@ -1150,12 +1150,12 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                     onClick={() => { setSelectedClassId(cls.id); setActiveNavType('class'); sidebar.handleNavClick(); }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                      <BookOpen size={15} className="icon" style={{ color: isSelected ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
+                      <BookOpen size={15} className="icon" style={{ color: isSelected ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
                       <div className="sidebar-text" style={{ overflow: 'hidden', flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: isSelected ? 700 : 500, color: isSelected ? 'var(--neutral-dark)' : 'inherit', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 12.5 }}>
+                        <div style={{ fontWeight: isSelected ? 700 : 500, color: isSelected ? '#FFFFFF' : 'var(--neutral-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 12.5 }}>
                           {cls.name}
                         </div>
-                        <div className="sidebar-classroom-sub">
+                        <div className="sidebar-classroom-sub" style={{ color: isSelected ? 'rgba(255, 255, 255, 0.7)' : 'var(--text-secondary)' }}>
                           {cls.teacher_name}
                         </div>
                       </div>

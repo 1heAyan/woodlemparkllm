@@ -1151,12 +1151,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                      <BookOpen size={15} className="icon" style={{ color: isSelected ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
+                      <BookOpen size={15} className="icon" style={{ color: isSelected ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
                       <div className="sidebar-text" style={{ overflow: 'hidden', flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: isSelected ? 700 : 600, color: isSelected ? 'var(--neutral-dark)' : 'inherit', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 12.5 }}>
+                        <div style={{ fontWeight: isSelected ? 700 : 600, color: isSelected ? '#FFFFFF' : 'var(--neutral-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 12.5 }}>
                           {cls.name}
                         </div>
-                        <div className="sidebar-classroom-sub">
+                        <div className="sidebar-classroom-sub" style={{ color: isSelected ? 'rgba(255, 255, 255, 0.7)' : 'var(--text-secondary)' }}>
                           {cls.class_name} {cls.room ? `· ${cls.room}` : ''}
                         </div>
                       </div>
