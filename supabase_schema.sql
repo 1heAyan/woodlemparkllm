@@ -36,7 +36,6 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Ensure all columns exist on profiles
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS admission_number TEXT DEFAULT '';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS class_letter TEXT DEFAULT 'A';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subject TEXT DEFAULT NULL;
@@ -44,6 +43,12 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS assigned_class TEXT DEFAULT
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT NULL;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS temp_password TEXT DEFAULT 'woodlem123';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS linked_student_ids TEXT[] DEFAULT '{}'::TEXT[];
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS designation TEXT DEFAULT '';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS special_role TEXT DEFAULT 'none';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS department TEXT DEFAULT '';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS managed_grades TEXT[] DEFAULT '{}'::TEXT[];
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS special_permissions TEXT[] DEFAULT '{}'::TEXT[];
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_protected_executive BOOLEAN DEFAULT FALSE;
 
 -- Seed default Admin and Principal accounts
 INSERT INTO public.profiles (id, email, name, role, user_code, temp_password)

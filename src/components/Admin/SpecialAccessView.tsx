@@ -81,10 +81,10 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
   const [saveToast, setSaveToast] = useState<{ message: string; type: 'success' | 'warn' } | null>(null);
 
   useEffect(() => {
-    loadSpecialRoleAssignments().then((data) => {
+    loadSpecialRoleAssignments(profiles).then((data) => {
       setAssignments(data);
     });
-  }, []);
+  }, [profiles]);
 
   const showToast = (message: string, type: 'success' | 'warn' = 'success') => {
     setSaveToast({ message, type });
@@ -197,6 +197,17 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
         const targetTeacher = teachers.find((t) => t.id === selectedTeacherId);
         if (!targetTeacher) return;
 
+        const oldAssignment = assignments.find((a) => a.roleType === 'hod' && a.department === selectedDept);
+        if (oldAssignment && oldAssignment.userId !== targetTeacher.id) {
+          await supabase.from('profiles').update({ special_role: 'none', department: null }).eq('id', oldAssignment.userId);
+        }
+
+        await supabase.from('profiles').update({
+          special_role: 'hod',
+          department: selectedDept,
+          designation: customTitle || `Head of ${selectedDept}`,
+        }).eq('id', targetTeacher.id);
+
         const remaining = assignments.filter((a) => !(a.roleType === 'hod' && a.department === selectedDept));
         const newAssignment: SpecialRoleAssignment = {
           id: `hod-${Date.now()}`,
@@ -222,6 +233,16 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
         if (!targetTeacher) return;
 
         const stageDef = GRADE_STAGES.find((s) => s.name === selectedStage) || GRADE_STAGES[0];
+        const oldAssignment = assignments.find((a) => a.roleType === 'coordinator' && a.title?.includes(selectedStage));
+        if (oldAssignment && oldAssignment.userId !== targetTeacher.id) {
+          await supabase.from('profiles').update({ special_role: 'none' }).eq('id', oldAssignment.userId);
+        }
+
+        await supabase.from('profiles').update({
+          special_role: 'coordinator',
+          designation: customTitle || `${selectedStage} Coordinator`,
+        }).eq('id', targetTeacher.id);
+
         const remaining = assignments.filter((a) => !(a.roleType === 'coordinator' && a.title?.includes(selectedStage)));
         const newAssignment: SpecialRoleAssignment = {
           id: `coord-${Date.now()}`,
@@ -282,6 +303,12 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
     }
 
     if (!confirm('Are you sure you want to remove this role assignment?')) return;
+    
+    const target = assignments.find((a) => a.id === id);
+    if (target && target.userId) {
+      await supabase.from('profiles').update({ special_role: 'none', department: null }).eq('id', target.userId);
+    }
+
     const updated = assignments.filter((a) => a.id !== id);
     await saveSpecialRoleAssignments(updated);
     setAssignments(updated);

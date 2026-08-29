@@ -283,51 +283,137 @@ export const DEFAULT_PRINCIPAL_RECORD: UserProfile = {
   ],
 };
 
-// Cloud Storage Key for Special Roles stored in Supabase achievements table
+// Cloud Storage Key for Special Roles stored in Supabase
 export const SPECIAL_ROLES_CLOUD_TITLE = '__SPECIAL_ACCESS_ROLES_V1__';
 
 // Load stored special role assignments from cloud + local cache
-export async function loadSpecialRoleAssignments(): Promise<SpecialRoleAssignment[]> {
+export async function loadSpecialRoleAssignments(profiles?: UserProfile[]): Promise<SpecialRoleAssignment[]> {
   let list: SpecialRoleAssignment[] = [];
+  let loadedFromCloud = false;
 
   // 1. Try local cache first for zero-latency load
   if (typeof window !== 'undefined') {
     try {
       const cached = localStorage.getItem(LOCAL_STORAGE_SPECIAL_ROLES_KEY);
       if (cached) {
-        list = JSON.parse(cached);
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          list = parsed;
+        }
       }
     } catch {
       // ignore
     }
   }
 
-  // 2. Fetch from Supabase cloud
+  // 2. Load from Primary Cloud Store: public.hub_activities (Full JSON support, no foreign key constraint)
   try {
-    const { data, error } = await supabase
-      .from('achievements')
+    const { data: hubData, error: hubErr } = await supabase
+      .from('hub_activities')
       .select('*')
       .eq('title', SPECIAL_ROLES_CLOUD_TITLE)
       .limit(1);
 
-    if (!error && data && data.length > 0) {
-      const rawText = data[0].description || data[0].desc_text || '';
+    if (!hubErr && hubData && hubData.length > 0) {
+      const rawText = hubData[0].description || '';
       if (rawText) {
         const parsed = JSON.parse(rawText);
-        if (Array.isArray(parsed)) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
           list = parsed;
-          if (typeof window !== 'undefined') {
-            localStorage.setItem(LOCAL_STORAGE_SPECIAL_ROLES_KEY, JSON.stringify(list));
-          }
+          loadedFromCloud = true;
         }
       }
     }
   } catch (err) {
-    console.warn('Could not load special roles from cloud:', err);
+    console.warn('Could not load from hub_activities:', err);
+  }
+
+  // 3. Fallback: Load from Secondary Cloud Store: public.audit_logs
+  if (!loadedFromCloud) {
+    try {
+      const { data: auditData, error: auditErr } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .eq('target_title', SPECIAL_ROLES_CLOUD_TITLE)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (!auditErr && auditData && auditData.length > 0) {
+        const rawText = auditData[0].details || '';
+        if (rawText) {
+          const parsed = JSON.parse(rawText);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            list = parsed;
+            loadedFromCloud = true;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Could not load from audit_logs:', err);
+    }
+  }
+
+  // 4. Merge with user profiles (if profiles are provided or available)
+  if (profiles && profiles.length > 0) {
+    profiles.forEach((p) => {
+      if (p.special_role === 'hod' && p.department) {
+        const exists = list.some((a) => a.roleType === 'hod' && a.department === p.department);
+        if (!exists) {
+          list.push({
+            id: `hod_${p.id}`,
+            userId: p.id,
+            userName: p.name,
+            userEmail: p.email,
+            roleType: 'hod',
+            department: p.department,
+            title: p.designation || `Head of ${p.department}`,
+            permissions: {
+              canAuditMarks: true,
+              canVerifySyllabus: true,
+              canBroadcastDepartment: true,
+              canManageResources: true,
+              canViewAnalytics: true,
+              canApproveClearances: true,
+            },
+            assignedAt: new Date().toISOString(),
+            assignedBy: 'System Admin',
+          });
+        }
+      } else if (p.special_role === 'coordinator') {
+        const stageName = p.managed_grades?.includes('11') ? 'Senior Secondary Stage (Grades 11 - 12)' : 'Secondary Stage (Grades 9 - 10)';
+        const exists = list.some((a) => a.roleType === 'coordinator' && a.userId === p.id);
+        if (!exists) {
+          list.push({
+            id: `coord_${p.id}`,
+            userId: p.id,
+            userName: p.name,
+            userEmail: p.email,
+            roleType: 'coordinator',
+            managedGrades: p.managed_grades || ['9', '10'],
+            title: p.designation || `${stageName} Coordinator`,
+            permissions: {
+              canAuditMarks: true,
+              canVerifySyllabus: true,
+              canBroadcastDepartment: true,
+              canManageResources: true,
+              canViewAnalytics: true,
+              canApproveClearances: true,
+            },
+            assignedAt: new Date().toISOString(),
+            assignedBy: 'System Admin',
+          });
+        }
+      }
+    });
+  }
+
+  // Update local cache
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(LOCAL_STORAGE_SPECIAL_ROLES_KEY, JSON.stringify(list));
   }
 
   // Ensure default Principal is always in assignments
-  const hasPrincipal = list.some((a) => a.roleType === 'principal' || a.userEmail.toLowerCase() === 'principal@woodlempark.ae' || a.userEmail.toLowerCase() === 'principal@woodlem.com');
+  const hasPrincipal = list.some((a) => a.roleType === 'principal' || a.userEmail?.toLowerCase() === 'principal@woodlempark.ae' || a.userEmail?.toLowerCase() === 'principal@woodlem.com');
   if (!hasPrincipal) {
     list.unshift({
       id: 'assignment_principal_default',
@@ -361,28 +447,72 @@ export async function saveSpecialRoleAssignments(assignments: SpecialRoleAssignm
     localStorage.setItem(LOCAL_STORAGE_SPECIAL_ROLES_KEY, JSON.stringify(assignments));
   }
 
+  const jsonPayload = JSON.stringify(assignments);
+  let savedToCloud = false;
+
+  // 1. Primary Cloud Store: public.hub_activities (No Foreign Key Constraints, full JSON text support)
   try {
-    const payload = {
+    const hubPayload = {
       id: 'special_roles_master_v1',
-      student_id: 'system_admin',
       title: SPECIAL_ROLES_CLOUD_TITLE,
-      description: JSON.stringify(assignments),
-      desc_text: JSON.stringify(assignments),
-      file_name: 'special_roles.json',
+      type: 'system_config',
+      description: jsonPayload,
+      date: new Date().toISOString().split('T')[0],
+      created_by: 'system_admin',
       created_at: new Date().toISOString(),
     };
+    const { error: hubErr } = await supabase
+      .from('hub_activities')
+      .upsert([hubPayload], { onConflict: 'id' });
 
-    const { error } = await supabase
-      .from('achievements')
-      .upsert([payload], { onConflict: 'id' });
-
-    if (error) {
-      console.error('Error saving special role assignments to cloud:', error.message);
-      return false;
+    if (!hubErr) {
+      savedToCloud = true;
+    } else {
+      console.warn('Hub activities config save notice:', hubErr.message);
     }
-    return true;
-  } catch (e) {
-    console.error('Exception saving special role assignments:', e);
-    return false;
+  } catch (err) {
+    console.warn('Exception saving to hub_activities:', err);
   }
+
+  // 2. Secondary Cloud Store: public.audit_logs (Immutable activity log store)
+  try {
+    const auditPayload = {
+      action_type: 'SPECIAL_ROLES_SYNC',
+      user_id: 'system_admin',
+      user_name: 'System Admin',
+      user_role: 'admin',
+      target_title: SPECIAL_ROLES_CLOUD_TITLE,
+      details: jsonPayload,
+      created_at: new Date().toISOString(),
+    };
+    const { error: auditErr } = await supabase
+      .from('audit_logs')
+      .insert([auditPayload]);
+
+    if (!auditErr) {
+      savedToCloud = true;
+    }
+  } catch (err) {
+    console.warn('Exception saving to audit_logs:', err);
+  }
+
+  // 3. Direct updates to user rows in public.profiles table
+  try {
+    for (const a of assignments) {
+      if (a.userId && a.userId !== 'principal-1') {
+        const updatePayload: any = {
+          special_role: a.roleType,
+          designation: a.title,
+        };
+        if (a.department) updatePayload.department = a.department;
+        if (a.managedGrades) updatePayload.managed_grades = a.managedGrades;
+        
+        await supabase.from('profiles').update(updatePayload).eq('id', a.userId);
+      }
+    }
+  } catch (err) {
+    console.warn('Exception syncing special roles to profiles:', err);
+  }
+
+  return savedToCloud;
 }
