@@ -6,6 +6,8 @@ import { CustomSelect } from '@/components/UI/CustomSelect';
 import { openFileInNewTab, downloadFile } from '@/lib/fileHelper';
 import { resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
+import { isPrincipalUser } from '@/lib/specialRolesHelper';
+import { sanitizeUserCode } from '@/lib/userCodeHelper';
 import {
   ArrowLeft,
   Lock,
@@ -25,6 +27,7 @@ import {
   ExternalLink,
   Download,
   Search,
+  Crown,
 } from 'lucide-react';
 
 const GRADES = ['9', '10', '11', '12'] as const;
@@ -67,7 +70,7 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
 
   const [name, setName] = useState(user.name || '');
   const [email, setEmail] = useState(user.email || '');
-  const [role, setRole] = useState<'student' | 'teacher' | 'admin' | 'parent'>(user.role || 'student');
+  const [role, setRole] = useState<'student' | 'teacher' | 'admin' | 'parent' | 'principal'>(user.role || 'student');
   const [userCode, setUserCode] = useState(user.user_code || user.admission_number || '');
   const [password, setPassword] = useState(() => resolveUserPassword(user));
   const [showPassword, setShowPassword] = useState(false);
@@ -124,7 +127,7 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
     setName(user.name || '');
     setEmail(user.email || '');
     setRole(user.role || 'student');
-    setUserCode(user.user_code || user.admission_number || '');
+    setUserCode(sanitizeUserCode(user.user_code || user.admission_number, user.email));
     setShowPassword(false);
     setSelectedStudentIds(user.linked_student_ids || []);
     setIsLinkingMore(false);
@@ -141,10 +144,10 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
 
 
 
-  // Duplicate admission/employee code detection across all other users
+  // Duplicate admission/employee code detection ONLY within the same role
   const duplicateCodeUser = useMemo(() => {
     if (!user) return null;
-    const cleanCode = userCode.trim().toLowerCase();
+    const cleanCode = sanitizeUserCode(userCode, email).toLowerCase();
     if (!cleanCode || cleanCode === '—' || cleanCode === '-' || cleanCode === 'null' || cleanCode === 'undefined') {
       return null;
     }
@@ -153,10 +156,11 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
         p.id !== user.id &&
         p.email.toLowerCase() !== user.email.toLowerCase() &&
         p.email.toLowerCase() !== email.trim().toLowerCase() &&
-        ((p.admission_number && p.admission_number.trim().toLowerCase() === cleanCode) ||
-          (p.user_code && p.user_code.trim().toLowerCase() === cleanCode))
+        p.role === role &&
+        ((p.admission_number && sanitizeUserCode(p.admission_number, p.email).toLowerCase() === cleanCode) ||
+          (p.user_code && sanitizeUserCode(p.user_code, p.email).toLowerCase() === cleanCode))
     );
-  }, [profiles, userCode, user, email]);
+  }, [profiles, userCode, user, email, role]);
 
   useEffect(() => {
     const handlePwdEvent = (e: any) => {
@@ -211,7 +215,7 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
 
     if (duplicateCodeUser) {
       alert(
-        `Cannot save: Code "${userCode.trim()}" is already assigned to ${duplicateCodeUser.name} (${duplicateCodeUser.role.toUpperCase()}). Every user must have a unique admission/employee code.`
+        `Cannot save: Code "${userCode.trim()}" is already assigned to another ${role.toUpperCase()} account (${duplicateCodeUser.name}).`
       );
       return;
     }
@@ -235,8 +239,8 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
         name: name.trim(),
         email: cleanEmail,
         role,
-        user_code: userCode.trim(),
-        admission_number: userCode.trim(),
+        user_code: sanitizeUserCode(userCode.trim(), cleanEmail),
+        admission_number: sanitizeUserCode(userCode.trim(), cleanEmail),
         temp_password: finalPassword,
         grade: finalGrade,
         class_letter: finalSection,
@@ -394,7 +398,24 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
           </div>
         </div>
 
-        {onDelete && role !== 'admin' && (
+        {isPrincipalUser(user) ? (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 12px',
+              background: '#FEF3C7',
+              border: '1px solid #F59E0B',
+              borderRadius: 6,
+              color: '#92400E',
+              fontSize: 11.5,
+              fontWeight: 700,
+            }}
+          >
+            <Lock size={13} /> Protected Principal Account
+          </div>
+        ) : onDelete && role !== 'admin' && (
           <div>
             <button
               type="button"
@@ -458,16 +479,35 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
 
               <div className="form-group">
                 <label className="form-label">Account Role</label>
-                <CustomSelect
-                  value={role}
-                  onChange={(val) => setRole(val as any)}
-                  options={[
-                    { value: 'student', label: 'Student' },
-                    { value: 'teacher', label: 'Teacher / Faculty' },
-                    { value: 'parent', label: 'Parent / Guardian' },
-                    { value: 'admin', label: 'System Administrator' },
-                  ]}
-                />
+                {isPrincipalUser(user) ? (
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      background: '#FEF3C7',
+                      border: '1px solid #F59E0B',
+                      color: '#92400E',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <Crown size={14} /> Principal &amp; Executive Head (Immutable Institutional Authority)
+                  </div>
+                ) : (
+                  <CustomSelect
+                    value={role}
+                    onChange={(val) => setRole(val as any)}
+                    options={[
+                      { value: 'student', label: 'Student' },
+                      { value: 'teacher', label: 'Teacher / Faculty' },
+                      { value: 'parent', label: 'Parent / Guardian' },
+                      { value: 'admin', label: 'System Administrator' },
+                    ]}
+                  />
+                )}
               </div>
 
               <div className="form-group">
@@ -507,7 +547,7 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                   className="form-input"
                   value={userCode}
                   onChange={(e) => setUserCode(e.target.value)}
-                  placeholder={role === 'student' ? 'e.g. WPS-2026' : 'e.g. EMP-104'}
+                  placeholder={role === 'student' ? 'e.g. 2026' : 'e.g. 104'}
                   style={{
                     borderColor: duplicateCodeUser ? '#DC2626' : undefined,
                     background: duplicateCodeUser ? '#FEF2F2' : undefined,
@@ -1111,14 +1151,24 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                       </div>
 
                       <div style={{ position: 'relative', marginBottom: 8 }}>
-                        <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: '#9E9B95' }} />
+                        <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#9E9B95' }} />
                         <input
                           type="text"
-                          className="form-input"
                           placeholder="Search student by name, grade, or admission code..."
                           value={studentSearchTerm}
                           onChange={(e) => setStudentSearchTerm(e.target.value)}
-                          style={{ fontSize: 12, padding: '7px 10px 7px 32px', background: '#FFFFFF' }}
+                          style={{
+                            width: '100%',
+                            height: 32,
+                            padding: '0 12px 0 32px',
+                            fontSize: 12,
+                            borderRadius: 6,
+                            border: '1px solid #E5E3DF',
+                            background: '#FFFFFF',
+                            color: '#1A1A1A',
+                            outline: 'none',
+                            boxSizing: 'border-box',
+                          }}
                         />
                       </div>
 

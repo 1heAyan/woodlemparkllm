@@ -1292,13 +1292,17 @@ export function MarkEntryModal({
                 placeholder="Search student or roll no..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="form-input"
                 style={{
-                  padding: '8px 12px 8px 34px',
-                  fontSize: 13,
+                  padding: '0 12px 0 34px',
+                  fontSize: 12,
                   width: 240,
-                  height: 38,
-                  borderRadius: 8,
+                  height: 32,
+                  borderRadius: 6,
+                  border: '1px solid #E5E3DF',
+                  background: '#FFFFFF',
+                  color: '#1A1A1A',
+                  outline: 'none',
+                  boxSizing: 'border-box',
                 }}
               />
               {searchQuery && (

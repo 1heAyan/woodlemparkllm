@@ -344,7 +344,7 @@ export const ReviewTestResultsModal: React.FC<ReviewTestResultsModalProps> = ({
 
             {studentResultList.length === 0 ? (
               <div style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-                No students currently enrolled in this classroom roster.
+                No students currently enrolled in this class.
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>

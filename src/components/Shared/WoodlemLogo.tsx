@@ -13,53 +13,38 @@ interface WoodlemLogoProps {
  * Faithfully reproduces the 3 colored leaf droplets (Orange, Green, Teal)
  * and the iconic architectural gate base with twin minaret spires.
  */
-export const WoodlemEmblemSVG: React.FC<{ size?: number; className?: string }> = ({ size = 32, className = '' }) => {
+export const WoodlemEmblemSVG: React.FC<{ size?: number; className?: string }> = ({ size = 44, className = '' }) => {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="14 12 72 78"
+      viewBox="0 0 100 100"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       style={{ display: 'block', flexShrink: 0 }}
       aria-label="Woodlem Park School Emblem"
     >
-      <defs>
-        <linearGradient id="leaf-orange" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#F97316" />
-          <stop offset="100%" stopColor="#EA580C" />
-        </linearGradient>
-        <linearGradient id="leaf-green" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#84CC16" />
-          <stop offset="100%" stopColor="#65A30D" />
-        </linearGradient>
-        <linearGradient id="leaf-teal" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#06B6D4" />
-          <stop offset="100%" stopColor="#0D9488" />
-        </linearGradient>
-      </defs>
-
-      <g>
+      <g transform="translate(0, 2)">
         {/* 1. Left Leaf - Warm Coral/Orange */}
         <path
           d="M26 44 C26 31 37 18 37 18 C37 18 48 31 48 44 C48 53 38 58 37 58 C36 58 26 53 26 44 Z"
-          fill="url(#leaf-orange)"
+          fill="#F56522"
         />
 
         {/* 2. Right Leaf - Fresh Teal/Cyan */}
         <path
           d="M52 44 C52 31 63 18 63 18 C63 18 74 31 74 44 C74 53 64 58 63 58 C62 58 52 53 52 44 Z"
-          fill="url(#leaf-teal)"
+          fill="#00A896"
         />
 
         {/* 3. Center Leaf - Vibrant Green */}
         <path
           d="M39 40 C39 27 50 14 50 14 C50 14 61 27 61 40 C61 50 51 55 50 55 C49 55 39 50 39 40 Z"
-          fill="url(#leaf-green)"
+          fill="#70B020"
         />
 
-        {/* 4. Base Gate / Fortress in Dark Slate/Charcoal */}
+        {/* 4. Base Gate / Fortress in Dark Slate */}
         <path
           d="M18 56 
              C24 56 26 53 37 53 
@@ -71,7 +56,7 @@ export const WoodlemEmblemSVG: React.FC<{ size?: number; className?: string }> =
              L24 87 
              C21 87 18 85 18 82 
              Z"
-          fill="#1E293B"
+          fill="#1C2D42"
         />
 
         {/* 5. Left Minaret Arch Cutout */}
@@ -101,9 +86,8 @@ export const WoodlemLogo: React.FC<WoodlemLogoProps> = ({ collapsed = false, cla
         alignItems: 'center',
         justifyContent: 'center',
         width: '100%',
-        height: 52,
+        height: 58,
         position: 'relative',
-        overflow: 'hidden',
         ...style,
       }}
       title="Woodlem Park School"
@@ -121,7 +105,7 @@ export const WoodlemLogo: React.FC<WoodlemLogoProps> = ({ collapsed = false, cla
           pointerEvents: collapsed ? 'auto' : 'none',
         }}
       >
-        <WoodlemEmblemSVG size={34} />
+        <WoodlemEmblemSVG size={44} />
       </div>
 
       {/* Expanded Full Logo */}
@@ -145,7 +129,7 @@ export const WoodlemLogo: React.FC<WoodlemLogoProps> = ({ collapsed = false, cla
           alt="Woodlem Park School"
           style={{
             width: '100%',
-            maxHeight: 52,
+            maxHeight: 58,
             height: 'auto',
             objectFit: 'contain',
             objectPosition: 'left center',

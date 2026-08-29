@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { UserProfile, SubjectClass } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
+import { sanitizeUserCode } from '@/lib/userCodeHelper';
 import { AlertTriangle } from 'lucide-react';
 
 const GRADES = ['9', '10', '11', '12'] as const;
@@ -95,18 +96,19 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
     });
   }, [profiles, role, isClassTeacher, targetClassKey, subjectClasses]);
 
-  // Duplicate admission/user code detection across all users
+  // Duplicate admission/user code detection ONLY within the same role
   const duplicateCodeUser = useMemo(() => {
-    const clean = admissionNumber.trim().toLowerCase();
+    const clean = sanitizeUserCode(admissionNumber).toLowerCase();
     if (!clean || clean === '—' || clean === '-' || clean === 'null' || clean === 'undefined') {
       return null;
     }
     return profiles.find(
       (p) =>
-        ((p.admission_number && p.admission_number.trim().toLowerCase() === clean) ||
-          (p.user_code && p.user_code.trim().toLowerCase() === clean))
+        p.role === role &&
+        ((p.admission_number && sanitizeUserCode(p.admission_number, p.email).toLowerCase() === clean) ||
+          (p.user_code && sanitizeUserCode(p.user_code, p.email).toLowerCase() === clean))
     );
-  }, [profiles, admissionNumber]);
+  }, [profiles, admissionNumber, role]);
 
   if (!isOpen) return null;
 
@@ -124,7 +126,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
     }
 
     if (duplicateCodeUser) {
-      alert(`Cannot create account: Code "${admissionNumber.trim()}" is already assigned to ${duplicateCodeUser.name} (${duplicateCodeUser.role.toUpperCase()}). Every user must have a unique code.`);
+      alert(`Cannot create account: Code "${admissionNumber.trim()}" is already assigned to another ${role.toUpperCase()} account (${duplicateCodeUser.name}).`);
       return;
     }
 
@@ -133,8 +135,17 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
       cleanPrefix = cleanPrefix.replace('@woodlempark.ae', '');
     }
     const fullEmail = `${cleanPrefix}@woodlempark.ae`;
-    const finalAdmissionNo =
-      admissionNumber.trim() || (role === 'parent' ? `PAR-${Math.floor(100000 + Math.random() * 900000)}` : `WPS-${Math.floor(100000 + Math.random() * 900000)}`);
+
+    const existingEmailUser = profiles.find((p) => p.email.toLowerCase() === fullEmail.toLowerCase());
+    if (existingEmailUser) {
+      alert(`Cannot create account: An account with email "${fullEmail}" already exists (${existingEmailUser.name} - ${existingEmailUser.role.toUpperCase()}). Every user must have a unique email address.`);
+      return;
+    }
+
+    const rawUserTypedCode = admissionNumber.trim();
+    const cleanUserCode = rawUserTypedCode
+      ? rawUserTypedCode.replace(/^(WPS|PRN|ADM|PAR|EMP)[-_ ]*/i, '').trim()
+      : (cleanPrefix.match(/\d+/) ? cleanPrefix.match(/\d+/)![0] : cleanPrefix);
 
     const assignedClassStr = role === 'teacher' && isClassTeacher ? `${grade}-${section}` : null;
     const finalGrade = role === 'student' ? grade : (role === 'teacher' && isClassTeacher ? grade : undefined);
@@ -145,8 +156,8 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
       email: fullEmail,
       password,
       role,
-      userCode: finalAdmissionNo,
-      admissionNumber: finalAdmissionNo,
+      userCode: cleanUserCode,
+      admissionNumber: cleanUserCode,
       grade: finalGrade,
       classLetter: finalSection,
       subject: role === 'teacher' ? subject : null,
@@ -174,7 +185,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
-            <h2 className="modal-title">Provision New User Account</h2>
+            <h2 className="modal-title">Create New User Account</h2>
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
               Create an individual account with default password <strong>woodlem123</strong>.
             </p>
@@ -218,23 +229,27 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. sarah.j"
+                placeholder="e.g. s.jenkins"
                 value={emailPrefix}
                 onChange={(e) => setEmailPrefix(e.target.value)}
-                style={{ borderRadius: '6px 0 0 6px', flex: 1 }}
+                style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0, flex: 1 }}
                 required
               />
               <span
                 style={{
-                  background: 'var(--neutral-subtle, #F1F5F9)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '0 12px',
+                  height: '38px',
+                  background: '#EAE8E3',
                   border: '1px solid var(--border-color)',
                   borderLeft: 'none',
-                  padding: '10px 12px',
-                  borderRadius: '0 6px 6px 0',
-                  fontSize: 13,
-                  color: 'var(--text-secondary)',
+                  borderTopRightRadius: 6,
+                  borderBottomRightRadius: 6,
+                  fontSize: 12.5,
                   fontWeight: 600,
-                  whiteSpace: 'nowrap',
+                  color: 'var(--text-secondary)',
+                  userSelect: 'none',
                 }}
               >
                 @woodlempark.ae
@@ -265,7 +280,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
             <input
               type="text"
               className="form-input"
-              placeholder={role === 'student' ? 'e.g. WPS-104829' : 'e.g. EMP-204'}
+              placeholder={role === 'student' ? 'e.g. 104829' : 'e.g. 204'}
               value={admissionNumber}
               onChange={(e) => setAdmissionNumber(e.target.value)}
               style={{
@@ -376,6 +391,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
                   value={subject}
                   onChange={(val) => setSubject(val)}
                   options={SUBJECTS}
+                  searchable={true}
                 />
               </div>
 
@@ -428,6 +444,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
                           value: s,
                           label: `Section ${s}`,
                         }))}
+                        searchable={true}
                       />
                     </div>
 
@@ -492,11 +509,22 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
               {/* Student Search */}
               <input
                 type="text"
-                className="form-input"
                 placeholder="Search student by name, grade, or admission no..."
                 value={studentSearchTerm}
                 onChange={(e) => setStudentSearchTerm(e.target.value)}
-                style={{ fontSize: 12.5, padding: '8px 12px', background: '#FFFFFF', marginBottom: 10 }}
+                style={{
+                  width: '100%',
+                  height: 32,
+                  padding: '0 12px',
+                  fontSize: 12,
+                  borderRadius: 6,
+                  border: '1px solid #E5E3DF',
+                  background: '#FFFFFF',
+                  color: '#1A1A1A',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  marginBottom: 10,
+                }}
               />
 
               <div
@@ -582,7 +610,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
                 cursor: role === 'teacher' && isClassTeacher && !!existingClassTeacher ? 'not-allowed' : 'pointer',
               }}
             >
-              Provision Account
+              Create Account
             </button>
           </div>
         </form>

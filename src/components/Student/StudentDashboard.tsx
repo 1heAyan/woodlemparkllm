@@ -23,6 +23,7 @@ import { ExamPortalView } from './ExamPortalView';
 import { EditAchievementModal } from '../Modals/EditAchievementModal';
 import { triggerConfetti, showCelebrationToast } from '@/lib/confetti';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { TestResultRecord } from '../Modals/ReviewTestResultsModal';
 import { AssignmentSubmissionRecord } from '../Modals/GradeAssignmentModal';
 import { ViewFileModal } from '../Modals/ViewFileModal';
@@ -30,6 +31,7 @@ import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 import { openFileInNewTab, downloadFile, formatShortFileName } from '@/lib/fileHelper';
+import { sanitizeUserCode } from '@/lib/userCodeHelper';
 import { ApplyLeaveModal } from '../Modals/ApplyLeaveModal';
 
 interface StudentDashboardProps {
@@ -198,7 +200,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const cleanGrade = useMemo(() => (currentStudent.grade || '10').replace(/[^0-9]/g, '') || '10', [currentStudent.grade]);
   const cleanSection = useMemo(() => (currentStudent.class_letter || 'A').toUpperCase().trim() || 'A', [currentStudent.class_letter]);
   const studentClass = `${cleanGrade}-${cleanSection}`;
-  const studentAdmNo = useMemo(() => currentStudent.admission_number || currentStudent.user_code || `WPS-2024-${currentStudent.id.slice(0, 4).toUpperCase()}`, [currentStudent]);
+  const studentAdmNo = useMemo(() => sanitizeUserCode(currentStudent.admission_number || currentStudent.user_code, currentStudent.email) || currentStudent.id.slice(0, 4).toUpperCase(), [currentStudent]);
 
   // Dynamic Subject Classrooms this student is enrolled in
   const myClasses = useMemo(() => {
@@ -314,25 +316,62 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     const unsubscribe = subscribeToNavigation((target) => {
       if (target.view === 'awards' || target.view === 'achievements') {
         setActiveNavType('awards');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       } else if (target.view === 'attendance') {
         setActiveNavType('attendance');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       } else if (target.view === 'hub' || target.view === 'activities') {
         setActiveNavType('hub');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       } else if (target.view === 'settings' || target.view === 'password') {
         setActiveNavType('settings');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       } else if (target.view === 'support' || target.view === 'helpdesk') {
         setActiveNavType('support');
-      } else if (target.view === 'class' || target.view === 'tasks' || target.view === 'resources' || target.view === 'syllabus' || target.view === 'broadcasts') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else if (
+        target.view === 'class' ||
+        target.view === 'tasks' ||
+        target.view === 'assessments' ||
+        target.view === 'resources' ||
+        target.view === 'syllabus' ||
+        target.view === 'broadcasts' ||
+        target.subTab
+      ) {
         setActiveNavType('class');
         if (target.classId && myClasses.some((c) => c.id === target.classId)) {
           setSelectedClassId(target.classId);
+        } else if (target.className) {
+          const targetNameLower = target.className.toLowerCase();
+          const matched = myClasses.find(
+            (c) =>
+              c.name.toLowerCase().includes(targetNameLower) ||
+              (c.subject && targetNameLower.includes(c.subject.toLowerCase()))
+          );
+          if (matched) setSelectedClassId(matched.id);
+          else if (myClasses.length > 0 && !selectedClassId) setSelectedClassId(myClasses[0].id);
         } else if (myClasses.length > 0 && (!selectedClassId || !myClasses.some((c) => c.id === selectedClassId))) {
           setSelectedClassId(myClasses[0].id);
         }
-        const sub = target.subTab || (['tasks', 'resources', 'syllabus', 'broadcasts'].includes(target.view || '') ? target.view : 'tasks');
-        if (sub && ['broadcasts', 'resources', 'tasks', 'syllabus'].includes(sub)) {
+
+        const rawSub =
+          target.subTab ||
+          (target.view === 'tasks' || target.view === 'assessments'
+            ? 'tasks'
+            : target.view === 'resources'
+            ? 'resources'
+            : target.view === 'syllabus'
+            ? 'syllabus'
+            : target.view === 'broadcasts'
+            ? 'broadcasts'
+            : 'tasks');
+
+        const sub = rawSub === 'assessments' ? 'tasks' : rawSub;
+        if (sub && ['broadcasts', 'resources', 'tasks', 'syllabus', 'marks'].includes(sub)) {
           setClassSubTab(sub as any);
         }
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       } else if (target.modalAction === 'add_achievement') {
         onAddAchievementClick();
       }
@@ -1020,18 +1059,92 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         onMouseLeave={sidebar.handleMouseLeave}
         onDoubleClick={sidebar.togglePin}
       >
-        {/* HEADER SECTION */}
-        <div className="sidebar-header">
-          <div className="sidebar-brand-row">
-            <WoodlemLogo collapsed={sidebar.isCollapsed} />
-          </div>
+        {/* LOGO */}
+        <div style={{ padding: sidebar.isCollapsed ? '16px 0 0 0' : '16px 16px 0 16px', flexShrink: 0, overflow: 'hidden' }}>
+          <WoodlemLogo collapsed={sidebar.isCollapsed} />
+        </div>
 
-          {/* REDESIGNED STUDENT INFORMATION SECTION */}
-          <div
-            className="sidebar-profile-box"
-            title={`${currentStudent.name} • Class ${cleanGrade} - Section ${cleanSection} • Admission No. ${studentAdmNo}`}
-          >
-            <div className="sidebar-profile-avatar avatar-student-themed">
+        {/* CONSOLE LABEL */}
+        {!sidebar.isCollapsed && (
+          <div style={{
+            padding: '10px 16px 12px',
+            fontSize: 10.5,
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            color: '#8C8A84',
+            textTransform: 'uppercase',
+            borderBottom: '1px solid #E8E5DF',
+            flexShrink: 0,
+            textAlign: 'center',
+          }}>
+            Student Learning Portal
+          </div>
+        )}
+
+        {/* PROFILE CARD */}
+        {sidebar.isCollapsed ? (
+          <div style={{ padding: '12px 0 6px', display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
+            <div
+              title={`${currentStudent.name} • Class ${cleanGrade} - Section ${cleanSection} • Admission No. ${studentAdmNo}`}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                background: '#2C6E6A',
+                color: '#FFFFFF',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 13,
+                fontWeight: 700,
+                overflow: 'hidden',
+                flexShrink: 0,
+                border: '1.5px solid #E8E5DF',
+              }}
+            >
+              {sidebarAvatarUrl ? (
+                <img
+                  src={sidebarAvatarUrl}
+                  alt={currentStudent.name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={(e) => {
+                    (e.currentTarget as HTMLElement).style.display = 'none';
+                  }}
+                />
+              ) : (
+                (currentStudent.name || 'S').charAt(0).toUpperCase()
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={{
+            margin: '12px 12px 0',
+            border: '1px solid #E8E5DF',
+            borderRadius: 8,
+            padding: '10px 12px',
+            background: '#FAF9F6',
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+          }}>
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: '50%',
+                background: '#2C6E6A',
+                color: '#FFFFFF',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 13,
+                fontWeight: 700,
+                overflow: 'hidden',
+                flexShrink: 0,
+                border: '1.5px solid #E8E5DF',
+              }}
+            >
               {sidebarAvatarUrl ? (
                 <img
                   src={sidebarAvatarUrl}
@@ -1046,21 +1159,31 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               )}
             </div>
 
-            <div className="profile-details-expanded">
-              <div className="sidebar-profile-name">
+            <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.25 }}>
                 {currentStudent.name}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
-                <span className="sidebar-profile-badge">
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: '0.06em',
+                  background: '#1A1A1A',
+                  color: '#FFFFFF',
+                  padding: '2px 7px',
+                  borderRadius: 4,
+                  textTransform: 'uppercase',
+                  lineHeight: 1.25,
+                }}>
                   Class {cleanGrade} • Section {cleanSection}
                 </span>
               </div>
-              <div className="sidebar-profile-adm">
+              <div style={{ fontSize: 10.5, color: '#7A7873', fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 Admission No. {studentAdmNo}
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* NAVIGATION MENU */}
         <nav className="nav-menu">
@@ -1073,11 +1196,6 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
                 <Megaphone size={15} className="icon" style={{ color: activeNavType === 'homeroom_circulars' ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
                 <span className="sidebar-text" style={{ flex: 1, color: activeNavType === 'homeroom_circulars' ? '#FFFFFF' : 'inherit' }}>Class Circulars</span>
-                {(myHomeroomBroadcasts.length + myHomeroomResources.length) > 0 && (
-                  <span className="sidebar-text" style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10, background: activeNavType === 'homeroom_circulars' ? '#2C6E6A' : '#FEF7EC', color: activeNavType === 'homeroom_circulars' ? '#FFFFFF' : '#9E6C1B' }}>
-                    {myHomeroomBroadcasts.length + myHomeroomResources.length}
-                  </span>
-                )}
               </div>
             </button>
             {sidebar.isCollapsed && <div className="sidebar-tooltip">Class Circulars</div>}
@@ -1092,11 +1210,6 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
                 <Award size={15} className="icon" style={{ color: activeNavType === 'awards' ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
                 <span className="sidebar-text" style={{ flex: 1, color: activeNavType === 'awards' ? '#FFFFFF' : 'inherit' }}>My Achievements</span>
-                {myAchievements.length > 0 && (
-                  <span className="sidebar-text" style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10, background: activeNavType === 'awards' ? '#2C6E6A' : '#EAF3EF', color: activeNavType === 'awards' ? '#FFFFFF' : '#2D6E5D' }}>
-                    {myAchievements.length}
-                  </span>
-                )}
               </div>
             </button>
             {sidebar.isCollapsed && <div className="sidebar-tooltip">My Achievements</div>}
@@ -1171,11 +1284,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         </nav>
 
         {/* SIDEBAR FOOTER — Settings, Support, Sign Out */}
-        <div className="sidebar-footer">
+        <div className="sidebar-footer" style={{ background: 'transparent' }}>
           {/* SETTINGS */}
           <div className="sidebar-tooltip-wrapper">
             <button
-              className={`logout-btn-clean ${activeNavType === 'settings' ? 'active' : ''}`}
+              className={`nav-item ${activeNavType === 'settings' ? 'active' : ''}`}
               onClick={() => { setActiveNavType('settings'); sidebar.handleNavClick(); }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
@@ -1189,7 +1302,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           {/* HELP & SUPPORT */}
           <div className="sidebar-tooltip-wrapper">
             <button
-              className={`logout-btn-clean ${activeNavType === 'support' ? 'active' : ''}`}
+              className={`nav-item ${activeNavType === 'support' ? 'active' : ''}`}
               onClick={() => { setActiveNavType('support'); sidebar.handleNavClick(); }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
@@ -1517,41 +1630,39 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                     <div style={{ flex: '1 1 240px', minWidth: 220 }}>
                       <input
                         type="text"
-                        className="form-input"
                         placeholder="Search study notes, slides, formula sheets, or topics..."
                         value={resSearchQuery}
                         onChange={(e) => setResSearchQuery(e.target.value)}
-                        style={{ width: '100%', fontSize: 12, padding: '7px 12px' }}
+                        style={{
+                          width: '100%',
+                          height: 32,
+                          padding: '0 12px',
+                          fontSize: 12,
+                          borderRadius: 6,
+                          border: '1px solid #E5E3DF',
+                          background: '#FFFFFF',
+                          color: '#1A1A1A',
+                          outline: 'none',
+                          boxSizing: 'border-box',
+                        }}
                       />
                     </div>
 
                     {/* Type Filter Pills */}
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {[
-                        { id: 'all', label: `All (${thisClassResources.length})` },
-                        { id: 'pdf', label: `PDFs (${thisClassResources.filter((r) => r.resource_type === 'pdf').length})` },
-                        { id: 'slides', label: `Slides (${thisClassResources.filter((r) => r.resource_type === 'slides').length})` },
-                        { id: 'worksheet', label: `Worksheets (${thisClassResources.filter((r) => r.resource_type === 'worksheet').length})` },
-                        { id: 'link', label: `Links (${thisClassResources.filter((r) => r.resource_type === 'link').length})` },
-                      ].map((pill) => (
-                        <button
-                          key={pill.id}
-                          type="button"
-                          onClick={() => setResTypeFilter(pill.id as any)}
-                          style={{
-                            padding: '4px 10px',
-                            fontSize: 11,
-                            fontWeight: 600,
-                            borderRadius: 4,
-                            border: resTypeFilter === pill.id ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
-                            background: resTypeFilter === pill.id ? '#2D2C2A' : '#FFFFFF',
-                            color: resTypeFilter === pill.id ? '#FFFFFF' : 'var(--neutral-dark)',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {pill.label}
-                        </button>
-                      ))}
+                    <div style={{ display: 'flex' }}>
+                      <SegmentedControl
+                        value={resTypeFilter}
+                        onChange={(val) => setResTypeFilter(val as any)}
+                        options={[
+                          { value: 'all', label: `All (${thisClassResources.length})` },
+                          { value: 'pdf', label: `PDFs (${thisClassResources.filter((r) => r.resource_type === 'pdf').length})` },
+                          { value: 'slides', label: `Slides (${thisClassResources.filter((r) => r.resource_type === 'slides').length})` },
+                          { value: 'worksheet', label: `Worksheets (${thisClassResources.filter((r) => r.resource_type === 'worksheet').length})` },
+                          { value: 'link', label: `Links (${thisClassResources.filter((r) => r.resource_type === 'link').length})` },
+                        ]}
+                        height={32}
+                        textTransform="none"
+                      />
                     </div>
                   </div>
 
@@ -2421,8 +2532,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   </div>
                 </div>
                 <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 16px' }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Authorized Leaves</div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: '#D4A373', marginTop: 4 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Permit Leaves (PL)</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: '#D97706', marginTop: 4 }}>
                     {attendanceStats.authAbsentCount}
                   </div>
                 </div>
@@ -2435,41 +2546,25 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               </div>
 
               {/* Subtabs: Attendance Audit vs Uploaded Leaves */}
-              <div style={{ display: 'flex', gap: 8, marginBottom: 16, borderBottom: '1px solid var(--border-color)', paddingBottom: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => setAttendanceSubTab('audit')}
-                  style={{
-                    padding: '8px 16px',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    borderRadius: 6,
-                    border: 'none',
-                    cursor: 'pointer',
-                    background: attendanceSubTab === 'audit' ? '#2D2C2A' : '#F1F5F9',
-                    color: attendanceSubTab === 'audit' ? '#FFFFFF' : 'var(--text-secondary)',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  Daily Attendance Log ({attendanceStats.history.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAttendanceSubTab('leaves')}
-                  style={{
-                    padding: '8px 16px',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    borderRadius: 6,
-                    border: 'none',
-                    cursor: 'pointer',
-                    background: attendanceSubTab === 'leaves' ? '#2D2C2A' : '#F1F5F9',
-                    color: attendanceSubTab === 'leaves' ? '#FFFFFF' : 'var(--text-secondary)',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  My Uploaded Leaves &amp; Sick Notes ({myLeaves.length})
-                </button>
+              <div style={{ display: 'flex', marginBottom: 16, borderBottom: '1px solid var(--border-color)', paddingBottom: 8 }}>
+                <SegmentedControl
+                  value={attendanceSubTab}
+                  onChange={(tab) => setAttendanceSubTab(tab)}
+                  options={[
+                    {
+                      value: 'audit',
+                      label: 'Daily Attendance Log',
+                      count: attendanceStats.history.length,
+                    },
+                    {
+                      value: 'leaves',
+                      label: 'My Uploaded Leaves & Sick Notes',
+                      count: myLeaves.length,
+                    },
+                  ]}
+                  height={34}
+                  textTransform="none"
+                />
               </div>
 
               {/* SUBTAB 1: AUDIT LOG */}
@@ -2500,11 +2595,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                                   fontSize: 10.5,
                                   fontWeight: 700,
                                   textTransform: 'uppercase',
-                                  background: h.status === 'present' ? '#EAF3EF' : h.status === 'auth_absent' ? '#FEF7EC' : '#FDF1F0',
-                                  color: h.status === 'present' ? '#2D6E5D' : h.status === 'auth_absent' ? '#9E6C1B' : '#A83B38',
+                                  background: h.status === 'present' ? '#EAF3EF' : h.status === 'auth_absent' ? '#FEF3C7' : '#FDF1F0',
+                                  color: h.status === 'present' ? '#2D6E5D' : h.status === 'auth_absent' ? '#92400E' : '#DC2626',
                                 }}
                               >
-                                {h.status === 'present' ? 'Present' : h.status === 'auth_absent' ? 'Auth Absent' : 'Unauth Absent'}
+                                {h.status === 'present' ? 'Present' : h.status === 'auth_absent' ? 'Permit Leave (PL)' : 'Absent'}
                               </span>
                             </td>
                           </tr>
@@ -2564,19 +2659,49 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                               >
                                 {leave.leaveType}
                               </span>
-                              <span
-                                style={{
-                                  background: '#FEF7EC',
-                                  color: '#9E6C1B',
-                                  fontWeight: 700,
-                                  padding: '3px 8px',
-                                  borderRadius: 6,
-                                  fontSize: 10.5,
-                                  textTransform: 'uppercase',
-                                }}
-                              >
-                                Authorized Absence
-                              </span>
+                              {leave.status === 'approved' ? (
+                                <span
+                                  style={{
+                                    background: '#EAF3EF',
+                                    color: '#2D6E5D',
+                                    fontWeight: 700,
+                                    padding: '3px 8px',
+                                    borderRadius: 6,
+                                    fontSize: 10.5,
+                                    textTransform: 'uppercase',
+                                  }}
+                                >
+                                  ✓ Approved (Permit Leave)
+                                </span>
+                              ) : leave.status === 'rejected' ? (
+                                <span
+                                  style={{
+                                    background: '#FDF1F0',
+                                    color: '#DC2626',
+                                    fontWeight: 700,
+                                    padding: '3px 8px',
+                                    borderRadius: 6,
+                                    fontSize: 10.5,
+                                    textTransform: 'uppercase',
+                                  }}
+                                >
+                                  ✕ Rejected
+                                </span>
+                              ) : (
+                                <span
+                                  style={{
+                                    background: '#FEF3C7',
+                                    color: '#92400E',
+                                    fontWeight: 700,
+                                    padding: '3px 8px',
+                                    borderRadius: 6,
+                                    fontSize: 10.5,
+                                    textTransform: 'uppercase',
+                                  }}
+                                >
+                                  Pending Teacher Review
+                                </span>
+                              )}
                             </div>
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--neutral-dark)' }}>
@@ -2732,29 +2857,22 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   </p>
                 </div>
 
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {[
-                    { value: '', label: 'All' },
-                    { value: 'Club Registration', label: 'Clubs' },
-                    { value: 'Workshop', label: 'Workshops' },
-                    { value: 'Event', label: 'Events' },
-                    { value: 'Leadership Programme', label: 'Leadership' },
-                    { value: 'Volunteer Opportunity', label: 'Volunteer' },
-                    { value: 'Sports & Athletics', label: 'Sports' },
-                  ].map(opt => (
-                    <button
-                      key={opt.value}
-                      onClick={() => setHubFilter(opt.value)}
-                      style={{
-                        padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
-                        border: `1.5px solid ${hubFilter === opt.value ? '#2D2C2A' : 'var(--border-color)'}`,
-                        background: hubFilter === opt.value ? '#2D2C2A' : 'var(--surface)',
-                        color: hubFilter === opt.value ? '#FFFFFF' : 'var(--text-secondary)',
-                      }}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                <div style={{ display: 'flex' }}>
+                  <SegmentedControl
+                    value={hubFilter}
+                    onChange={(val) => setHubFilter(val)}
+                    options={[
+                      { value: '', label: 'All' },
+                      { value: 'Club Registration', label: 'Clubs' },
+                      { value: 'Workshop', label: 'Workshops' },
+                      { value: 'Event', label: 'Events' },
+                      { value: 'Leadership Programme', label: 'Leadership' },
+                      { value: 'Volunteer Opportunity', label: 'Volunteer' },
+                      { value: 'Sports & Athletics', label: 'Sports' },
+                    ]}
+                    height={32}
+                    textTransform="none"
+                  />
                 </div>
               </div>
             </header>
@@ -3070,28 +3188,19 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 }}
               >
                 {studentHrTab === 'circulars' ? (
-                  <div style={{ display: 'flex', gap: 6, overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 2 }}>
-                    {(['all', 'pinned', 'urgent', 'important'] as const).map((pri) => (
-                      <button
-                        key={pri}
-                        type="button"
-                        onClick={() => setHrPriorityFilter(pri)}
-                        style={{
-                          padding: '5px 12px',
-                          fontSize: 11.5,
-                          fontWeight: hrPriorityFilter === pri ? 700 : 500,
-                          borderRadius: 20,
-                          border: hrPriorityFilter === pri ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
-                          background: hrPriorityFilter === pri ? '#2D2C2A' : 'var(--surface)',
-                          color: hrPriorityFilter === pri ? '#FFFFFF' : 'var(--text-secondary)',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {pri === 'all' ? 'All Updates' : pri === 'pinned' ? 'Pinned' : pri === 'urgent' ? 'Urgent' : 'Important'}
-                      </button>
-                    ))}
+                  <div style={{ display: 'flex' }}>
+                    <SegmentedControl
+                      value={hrPriorityFilter}
+                      onChange={(pri) => setHrPriorityFilter(pri as any)}
+                      options={[
+                        { value: 'all', label: 'All Notices' },
+                        { value: 'pinned', label: 'Pinned' },
+                        { value: 'urgent', label: 'Urgent' },
+                        { value: 'important', label: 'Important' },
+                      ]}
+                      height={30}
+                      textTransform="none"
+                    />
                   </div>
                 ) : (
                   <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-secondary)' }}>

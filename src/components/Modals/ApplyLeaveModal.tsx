@@ -170,10 +170,10 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
               ATTENDANCE &amp; ABSENCE MANAGEMENT
             </span>
             <h2 className="modal-title" style={{ margin: '2px 0 0' }}>
-              {isEditing ? 'Edit Leave Request / Sick Note' : 'Apply for Authorized Leave / Sick Note'}
+              {isEditing ? 'Edit Permit Leave (PL) Request' : 'Apply for Permit Leave (PL) / Sick Note'}
             </h2>
             <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
-              Pre-declare your planned absence or medical sick leave. Your class teacher will automatically mark these dates as <strong>Authorized Absence (Auth Absent)</strong>.
+              Pre-declare planned absence or medical sick note. Once your homeroom class teacher reviews and approves your request, it will be officially recorded as <strong>Permit Leave (PL)</strong>.
             </p>
           </div>
           <button type="button" className="close-modal" onClick={onClose}>&times;</button>
@@ -304,15 +304,13 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <FileText size={20} style={{ color: '#0369A1', flexShrink: 0 }} />
                   <div>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0369A1' }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0C4A6E' }}>
                       {existingFileName}
                     </div>
-                    <div style={{ fontSize: 11, color: '#0284C7' }}>
-                      Current attached certificate
-                    </div>
+                    <div style={{ fontSize: 11, color: '#0369A1' }}>Attached File</div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 6 }}>
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
@@ -423,7 +421,7 @@ export const ApplyLeaveModal: React.FC<ApplyLeaveModalProps> = ({
                 boxShadow: '0 4px 12px rgba(28,77,70,0.25)',
               }}
             >
-              {isProcessing ? 'Saving...' : isEditing ? 'Save Changes' : 'Submit Authorized Leave ↗'}
+              {isProcessing ? 'Saving...' : isEditing ? 'Save Changes' : 'Submit Permit Leave Request ↗'}
             </button>
           </div>
         </form>

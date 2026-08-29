@@ -5,7 +5,9 @@ import { UserProfile, ParentDocument, SubjectClass } from '@/lib/supabaseClient'
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
-import { Eye, EyeOff, Lock, FileText, CheckCircle2, Clock, AlertCircle, AlertTriangle } from 'lucide-react';
+import { isPrincipalUser } from '@/lib/specialRolesHelper';
+import { sanitizeUserCode } from '@/lib/userCodeHelper';
+import { Eye, EyeOff, Lock, FileText, CheckCircle2, Clock, AlertCircle, AlertTriangle, Crown } from 'lucide-react';
 
 const GRADES = ['9', '10', '11', '12'] as const;
 const SECTIONS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)); // A through Z
@@ -45,7 +47,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<'student' | 'teacher' | 'admin' | 'parent'>('student');
+  const [role, setRole] = useState<'student' | 'teacher' | 'admin' | 'parent' | 'principal'>('student');
   const [userCode, setUserCode] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -91,7 +93,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       setName(user.name || '');
       setEmail(user.email || '');
       setRole(user.role || 'student');
-      setUserCode(user.user_code || user.admission_number || '');
+      setUserCode(sanitizeUserCode(user.user_code || user.admission_number, user.email));
       setPassword(resolveUserPassword(user));
       setShowPassword(false);
       setSelectedStudentIds(user.linked_student_ids || []);
@@ -142,10 +144,10 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
     });
   }, [profiles, role, isClassTeacher, targetClassKey, user, email, subjectClasses]);
 
-  // Duplicate admission/user code detection across all other users
+  // Duplicate admission/user code detection ONLY within the same role
   const duplicateCodeUser = useMemo(() => {
     if (!user) return null;
-    const clean = userCode.trim().toLowerCase();
+    const clean = sanitizeUserCode(userCode, email).toLowerCase();
     if (!clean || clean === '—' || clean === '-' || clean === 'null' || clean === 'undefined') {
       return null;
     }
@@ -154,10 +156,11 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
         p.id !== user.id &&
         p.email.toLowerCase() !== user.email.toLowerCase() &&
         p.email.toLowerCase() !== email.trim().toLowerCase() &&
-        ((p.admission_number && p.admission_number.trim().toLowerCase() === clean) ||
-          (p.user_code && p.user_code.trim().toLowerCase() === clean))
+        p.role === role &&
+        ((p.admission_number && sanitizeUserCode(p.admission_number, p.email).toLowerCase() === clean) ||
+          (p.user_code && sanitizeUserCode(p.user_code, p.email).toLowerCase() === clean))
     );
-  }, [profiles, userCode, user, email]);
+  }, [profiles, userCode, user, email, role]);
 
   if (!isOpen || !user) return null;
 
@@ -176,13 +179,23 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
     }
 
     if (duplicateCodeUser) {
-      alert(`Cannot save: Code "${userCode.trim()}" is already assigned to ${duplicateCodeUser.name} (${duplicateCodeUser.role.toUpperCase()}). Every user must have a unique code.`);
+      alert(`Cannot save: Code "${userCode.trim()}" is already assigned to another ${role.toUpperCase()} account (${duplicateCodeUser.name}).`);
       return;
     }
 
     let cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail.includes('@')) {
       cleanEmail = `${cleanEmail}@woodlempark.ae`;
+    }
+
+    const duplicateEmailUser = profiles.find(
+      (p) =>
+        p.id !== user.id &&
+        p.email.toLowerCase().trim() === cleanEmail
+    );
+    if (duplicateEmailUser) {
+      alert(`Cannot save: Email "${cleanEmail}" is already in use by ${duplicateEmailUser.name} (${duplicateEmailUser.role.toUpperCase()}). Every user must have a unique email.`);
+      return;
     }
 
     const assignedClassStr = role === 'teacher' && isClassTeacher ? `${grade}-${section}` : null;
@@ -199,8 +212,8 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
         name: name.trim(),
         email: cleanEmail,
         role,
-        user_code: userCode.trim(),
-        admission_number: userCode.trim(),
+        user_code: sanitizeUserCode(userCode.trim(), cleanEmail),
+        admission_number: sanitizeUserCode(userCode.trim(), cleanEmail),
         temp_password: finalPassword,
         grade: finalGrade,
         class_letter: finalSection,
@@ -235,16 +248,35 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
           {/* Role */}
           <div className="form-group">
             <label className="form-label">Account Role</label>
-            <CustomSelect
-              value={role}
-              onChange={(val) => setRole(val as any)}
-              options={[
-                { value: 'student', label: 'Student' },
-                { value: 'teacher', label: 'Teacher' },
-                { value: 'parent', label: 'Parent' },
-                { value: 'admin', label: 'Admin' },
-              ]}
-            />
+            {user && isPrincipalUser(user) ? (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  background: '#FEF3C7',
+                  border: '1px solid #F59E0B',
+                  color: '#92400E',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <Crown size={14} /> Principal &amp; Executive Head (Immutable Institutional Authority)
+              </div>
+            ) : (
+              <CustomSelect
+                value={role}
+                onChange={(val) => setRole(val as any)}
+                options={[
+                  { value: 'student', label: 'Student' },
+                  { value: 'teacher', label: 'Teacher' },
+                  { value: 'parent', label: 'Parent' },
+                  { value: 'admin', label: 'Admin' },
+                ]}
+              />
+            )}
           </div>
 
           {/* Full Name */}
@@ -462,6 +494,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                     value: s,
                     label: `Section ${s}`,
                   }))}
+                  searchable={true}
                 />
               </div>
 
@@ -512,6 +545,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                   value={subject}
                   onChange={(val) => setSubject(val)}
                   options={SUBJECTS.map((s) => ({ value: s, label: s }))}
+                  searchable={true}
                 />
               </div>
 
@@ -595,6 +629,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                           value: s,
                           label: `Section ${s}`,
                         }))}
+                        searchable={true}
                       />
                     </div>
 
@@ -690,11 +725,22 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                 {/* Student Search */}
                 <input
                   type="text"
-                  className="form-input"
                   placeholder="Search student by name, grade, or admission no..."
                   value={studentSearchTerm}
                   onChange={(e) => setStudentSearchTerm(e.target.value)}
-                  style={{ fontSize: 12.5, padding: '8px 12px', background: '#FFFFFF', marginBottom: 10 }}
+                  style={{
+                    width: '100%',
+                    height: 32,
+                    padding: '0 12px',
+                    fontSize: 12,
+                    borderRadius: 6,
+                    border: '1px solid #E5E3DF',
+                    background: '#FFFFFF',
+                    color: '#1A1A1A',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                    marginBottom: 10,
+                  }}
                 />
 
                 <div

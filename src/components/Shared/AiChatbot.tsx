@@ -17,6 +17,7 @@ import {
 import { TestResultRecord } from '@/components/Modals/ReviewTestResultsModal';
 import { AssignmentSubmissionRecord } from '@/components/Modals/GradeAssignmentModal';
 import { usePortalNavigation, PortalNavigationTarget, ChatMessage } from '@/lib/PortalNavigationContext';
+import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import {
   ArrowUpRight,
   X,
@@ -136,6 +137,8 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
   leaveRequests = [],
   hubActivities = [],
   parentDocuments = [],
+  testResults = {},
+  assignmentSubmissions = {},
 }) => {
   const {
     isAiPanelOpen,
@@ -150,16 +153,14 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
   } = usePortalNavigation();
 
   const user = propUser || contextUser;
-  const role = user?.role || 'student';
-  const userName = user?.name || 'Student';
+  const isGuest = !user;
+  const role = user ? (user.role || 'student') : 'guest';
+  const userName = user ? (user.name || 'Student') : 'Visitor';
 
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedThoughtIds, setExpandedThoughtIds] = useState<Record<string, boolean>>({});
-  const [reactions, setReactions] = useState<Record<string, 'up' | 'down' | null>>({});
-  const [selectedModel, setSelectedModel] = useState<'gemini' | 'opus' | 'neural'>('gemini');
-  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
@@ -184,7 +185,6 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const modelDropdownRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setIsMounted(true);
@@ -325,64 +325,40 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
     }
   }, [isAiPanelOpen, messages, isLoading]);
 
-  // Close model dropdown on outside click
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
-        setIsModelDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, []);
+
 
   // Compile live Ground Truth Portal Context to pass to Gemini AI
   const portalContext = React.useMemo(() => {
-    if (!user) return null;
-
-    const uGrade = (user.grade || '').replace(/[^0-9]/g, '');
-    const uSection = (user.class_letter || '').toUpperCase().trim();
-    const homeroomLabel = uGrade ? `Grade ${uGrade}-${uSection || 'All'}` : '';
-
-    // 1. Homeroom Students (for teachers and admins)
-    let homeroomStudentsList: Array<{ name: string; admission: string; grade: string; email: string }> = [];
-    if (role === 'teacher' || role === 'admin') {
-      const hr = profiles.filter((p) => {
-        if (p.role !== 'student') return false;
-        const g = (p.grade || '').replace(/[^0-9]/g, '');
-        const s = (p.class_letter || '').toUpperCase().trim();
-        return (!uGrade || g === uGrade) && (!uSection || s === uSection);
-      });
-      homeroomStudentsList = hr.map((s) => ({
-        name: s.name,
-        admission: s.admission_number || s.user_code || '—',
-        grade: `Grade ${s.grade || ''}-${s.class_letter || ''}`,
-        email: s.email,
-      }));
+    if (!user) {
+      return {
+        isLoginScreen: true,
+        currentUser: null,
+      };
     }
 
-    // 2. Today's Attendance snapshot
-    const todayStr = new Date().toISOString().split('T')[0];
-    const todayAtt = attendance[todayStr] || {};
-    let presentCount = 0;
-    let authAbsentNames: string[] = [];
-    let unauthAbsentNames: string[] = [];
+    // Extract exact homeroom info using classTeacherHelper for teachers, or profile for students/admins
+    const teacherInfo = role === 'teacher' ? extractClassTeacherInfo(user, subjectClasses) : null;
+    const uGrade = teacherInfo ? teacherInfo.grade : (user.grade || '').replace(/[^0-9]/g, '');
+    const uSection = teacherInfo ? teacherInfo.section : (user.class_letter || '').toUpperCase().trim();
+    const homeroomLabel = uGrade ? `Grade ${uGrade}-${uSection || 'All'}` : '';
 
-    homeroomStudentsList.forEach((st) => {
-      const studentProfile = profiles.find((p) => p.email === st.email || p.admission_number === st.admission);
-      if (studentProfile) {
-        const status = todayAtt[studentProfile.id];
-        if (status === 'present') presentCount++;
-        else if (status === 'auth_absent') authAbsentNames.push(st.name);
-        else if (status === 'unauth_absent') unauthAbsentNames.push(st.name);
-      }
-    });
-
-    // 3. Subject Classrooms
+    // 1. Subject Classrooms (Role-isolated)
     const userClasses = subjectClasses
       .filter((c) => {
+        if (c.id.startsWith('class-seed-') || c.name === 'Physics 12-C' || c.name === 'Chemistry 12-C') return false;
         if (role === 'teacher') return c.teacher_id === user.id || c.teacher_name === user.name;
-        if (role === 'student') return c.enrolled_student_ids?.includes(user.id);
+        if (role === 'student') {
+          const enrolled = c.enrolled_student_ids || [];
+          if (enrolled.includes(user.id) || (user.email && enrolled.includes(user.email))) return true;
+          if (enrolled.length === 0 && c.class_name) {
+            const cn = c.class_name.toLowerCase().replace(/grade\s*/gi, '').trim();
+            const cnParts = cn.split(/[-\s]+/);
+            const cnGrade = cnParts.find((p) => /^\d+$/.test(p)) || '';
+            const cnLetter = cnParts.find((p) => /^[a-z]$/.test(p))?.toUpperCase() || '';
+            return cnGrade === uGrade && (!cnLetter || cnLetter === uSection);
+          }
+          return false;
+        }
         return true;
       })
       .map((c) => ({
@@ -394,24 +370,178 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
         enrolledCount: c.enrolled_student_ids?.length || 0,
       }));
 
-    // 4. Active Tests
-    const activeTestsList = tests.slice(0, 10).map((t) => ({
-      title: t.title,
-      className: t.class_name || 'General',
-      durationMinutes: t.duration_minutes || 30,
-      questionsCount: t.questions?.length || 0,
-      totalMarks: t.total_marks || (t.questions?.length ? t.questions.length * 5 : 25),
-    }));
+    const userClassIds = new Set(userClasses.map((c) => c.id));
+    const userClassNames = userClasses.map((c) => c.name.toLowerCase().trim());
+    const userClassSubjects = userClasses.map((c) => (c.subject || '').toLowerCase().trim());
 
-    // 5. Active Assignments
-    const activeAssignmentsList = assignments.slice(0, 10).map((a) => ({
-      title: a.title,
-      className: a.class_name || 'General',
-      createdAt: a.created_at,
-    }));
+    // 2. Homeroom Students & Attendance (Restricted to teacher's exact assigned grade & section)
+    let homeroomStudentsList: Array<{ name: string; admission: string; grade: string; email: string }> = [];
+    let presentCount = 0;
+    let authAbsentNames: string[] = [];
+    let unauthAbsentNames: string[] = [];
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayAtt = attendance[todayStr] || {};
 
-    // 6. Syllabus Progress
-    const syllabusTermsList = syllabus.slice(0, 6).map((term) => {
+    if (role === 'teacher') {
+      const hr = profiles.filter((p) => {
+        if (p.role !== 'student') return false;
+        const g = (p.grade || '').replace(/[^0-9]/g, '');
+        const s = (p.class_letter || '').toUpperCase().trim();
+        return g === uGrade && s === uSection;
+      });
+      homeroomStudentsList = hr.map((s) => ({
+        name: s.name,
+        admission: s.admission_number || s.user_code || '—',
+        grade: `Grade ${s.grade || uGrade}-${s.class_letter || uSection}`,
+        email: s.email,
+      }));
+
+      homeroomStudentsList.forEach((st) => {
+        const studentProfile = profiles.find((p) => p.email === st.email || p.admission_number === st.admission);
+        if (studentProfile) {
+          const status = todayAtt[studentProfile.id];
+          if (status === 'present') presentCount++;
+          else if (status === 'auth_absent') authAbsentNames.push(st.name);
+          else if (status === 'unauth_absent') unauthAbsentNames.push(st.name);
+        }
+      });
+    } else if (role === 'admin') {
+      const hr = profiles.filter((p) => p.role === 'student');
+      homeroomStudentsList = hr.slice(0, 50).map((s) => ({
+        name: s.name,
+        admission: s.admission_number || s.user_code || '—',
+        grade: `Grade ${s.grade || ''}-${s.class_letter || ''}`,
+        email: s.email,
+      }));
+
+      homeroomStudentsList.forEach((st) => {
+        const studentProfile = profiles.find((p) => p.email === st.email || p.admission_number === st.admission);
+        if (studentProfile) {
+          const status = todayAtt[studentProfile.id];
+          if (status === 'present') presentCount++;
+          else if (status === 'auth_absent') authAbsentNames.push(st.name);
+          else if (status === 'unauth_absent') unauthAbsentNames.push(st.name);
+        }
+      });
+    }
+
+    // Student Personal Attendance Rate calculation
+    let studentPresentDays = 0;
+    let studentTotalDays = 0;
+    if (role === 'student') {
+      Object.keys(attendance).forEach((dateKey) => {
+        const dayRecord = attendance[dateKey];
+        if (dayRecord && dayRecord[user.id]) {
+          studentTotalDays++;
+          if (dayRecord[user.id] === 'present') studentPresentDays++;
+        }
+      });
+    }
+    const studentAttendanceRate = studentTotalDays > 0 ? Math.round((studentPresentDays / studentTotalDays) * 100) : 100;
+
+    // Helper: Check if an item belongs to the student's enrolled classes and matches grade & section
+    const isItemMatchingEnrolledClasses = (itemClassName?: string, itemTitle?: string, itemClassId?: string, itemTeacherId?: string) => {
+      if (itemClassId && userClassIds.has(itemClassId)) return true;
+
+      const rawCn = (itemClassName || '').toLowerCase().trim();
+      if (!rawCn && !itemTitle) return false;
+
+      // Extract section letter (e.g. "12-B", "(12-B)", "12B", "Section B", "12-C")
+      const sectionMatch = rawCn.match(/(?:\b\d+[-\s]*([a-z])\b|\bsection\s*([a-z])\b|\(([0-9]*[-\s]*[a-z])\))/i);
+      let itemSection = '';
+      if (sectionMatch) {
+        const rawFound = (sectionMatch[1] || sectionMatch[2] || sectionMatch[3] || '').toUpperCase();
+        itemSection = rawFound.replace(/[^A-Z]/g, '');
+      }
+
+      // Extract grade number (e.g. "Grade 10", "12-B", "10-A", "Class 11")
+      const gradeMatch = rawCn.match(/(?:grade\s*|class\s*)?(\d+)/i);
+      const itemGradeNum = gradeMatch ? gradeMatch[1] : '';
+
+      // If grade is specified in the item, it MUST match student's grade
+      if (itemGradeNum && uGrade && itemGradeNum !== uGrade) {
+        return false;
+      }
+
+      // If section is specified in the item (e.g. "B"), it MUST match student's section (e.g. "C")!
+      if (itemSection && uSection && itemSection !== uSection) {
+        return false;
+      }
+
+      // Check if class matches any enrolled classroom
+      for (const cls of userClasses) {
+        const clsName = cls.name.toLowerCase().trim();
+        const clsSub = (cls.subject || '').toLowerCase().trim();
+        const clsGradeSection = (cls.gradeClass || '').toLowerCase().replace(/grade\s*/gi, '').trim();
+
+        if (rawCn === clsName || rawCn === `${clsName} (${clsGradeSection})` || rawCn === `${clsName} ${clsGradeSection}`) {
+          return true;
+        }
+
+        if (clsSub && (rawCn.includes(clsSub) || (itemTitle && itemTitle.toLowerCase().includes(clsSub)))) {
+          return true;
+        }
+
+        if (clsName && (rawCn.includes(clsName) || clsName.includes(rawCn))) {
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    // 3. Active Tests (Filtered to user's enrolled classes)
+    const filteredTests = tests.filter((t) => {
+      if (role === 'teacher') return t.teacher_id === user.id || (t.class_name && userClassNames.some((cn) => cn && t.class_name?.toLowerCase().includes(cn)));
+      if (role === 'student') {
+        return isItemMatchingEnrolledClasses(t.class_name, t.title);
+      }
+      return true;
+    });
+
+    const activeTestsList = filteredTests.slice(0, 10).map((t) => {
+      const result = role === 'student' ? testResults[`${t.id}_${user.id}`] : null;
+      return {
+        id: t.id,
+        title: t.title,
+        className: t.class_name || 'General',
+        durationMinutes: t.duration_minutes || 30,
+        questionsCount: t.questions?.length || 0,
+        totalMarks: t.total_marks || (t.questions?.length ? t.questions.length * 5 : 25),
+        status: result ? `Completed (Score: ${result.score}%)` : 'Pending Assessment',
+      };
+    });
+
+    // 4. Active Homework Assignments (Filtered to user's enrolled classes)
+    const filteredAssignments = assignments.filter((a) => {
+      if (role === 'teacher') return a.class_name && userClassNames.some((cn) => cn && a.class_name?.toLowerCase().includes(cn));
+      if (role === 'student') {
+        return isItemMatchingEnrolledClasses(a.class_name, a.title);
+      }
+      return true;
+    });
+
+    const activeAssignmentsList = filteredAssignments.slice(0, 10).map((a) => {
+      const submission = role === 'student' ? assignmentSubmissions[`${a.id}_${user.id}`] : null;
+      return {
+        id: a.id,
+        title: a.title,
+        className: a.class_name || 'General',
+        createdAt: a.created_at,
+        status: submission ? `Submitted (${submission.grade || 'Graded'})` : 'Pending Submission',
+      };
+    });
+
+    // 5. Syllabus Progress (Filtered to enrolled classes)
+    const filteredSyllabus = syllabus.filter((term) => {
+      if (role === 'teacher') return (term.class_id && userClassIds.has(term.class_id)) || (term.subject && user.subject && term.subject.toLowerCase() === user.subject.toLowerCase());
+      if (role === 'student') {
+        return isItemMatchingEnrolledClasses(term.class_name, term.name, term.class_id);
+      }
+      return true;
+    });
+
+    const syllabusTermsList = filteredSyllabus.slice(0, 6).map((term) => {
       const topics = term.topics || [];
       const doneCount = topics.filter((tp) => tp.teacher_checked || tp.student_checked).length;
       const pct = topics.length > 0 ? Math.round((doneCount / topics.length) * 100) : 0;
@@ -426,16 +556,35 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
       };
     });
 
-    // 7. Recent Learning Resources
-    const recentResources = classResources.slice(0, 12).map((r) => ({
+    // 6. Recent Learning Resources (Filtered to user's classes & homeroom)
+    const hrClassId = `homeroom-${uGrade}-${uSection}`;
+    const filteredResources = classResources.filter((r) => {
+      if (role === 'teacher') return r.teacher_id === user.id || (r.class_id && userClassIds.has(r.class_id)) || r.class_id === hrClassId;
+      if (role === 'student') {
+        if (r.class_id && (userClassIds.has(r.class_id) || r.class_id === hrClassId)) return true;
+        return isItemMatchingEnrolledClasses('', r.title, r.class_id);
+      }
+      return true;
+    });
+
+    const recentResources = filteredResources.slice(0, 12).map((r) => ({
       title: r.title,
       type: r.resource_type,
       fileName: r.file_name,
       uploadedBy: r.teacher_name,
     }));
 
-    // 8. Recent Broadcasts & Notices
-    const recentBroadcasts = classBroadcasts.slice(0, 8).map((b) => ({
+    // 7. Recent Broadcasts & Notices (Filtered to user's classes & homeroom)
+    const filteredBroadcasts = classBroadcasts.filter((b) => {
+      if (role === 'teacher') return b.teacher_id === user.id || (b.class_id && userClassIds.has(b.class_id)) || b.class_id === hrClassId;
+      if (role === 'student') {
+        if (b.class_id && (userClassIds.has(b.class_id) || b.class_id === hrClassId)) return true;
+        return !b.class_id; // global school circulars
+      }
+      return true;
+    });
+
+    const recentBroadcasts = filteredBroadcasts.slice(0, 8).map((b) => ({
       title: b.title,
       content: b.content ? b.content.slice(0, 140) : '',
       priority: b.priority,
@@ -443,39 +592,64 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
       author: b.teacher_name,
     }));
 
-    // 9. Student Achievements & Distinctions (filtered to user's homeroom / scope)
-    const recentAwards = achievements
-      .filter(
-        (a) =>
-          a.title !== '__USER_AVATAR__' &&
-          a.title !== '__PARENT_DOC__' &&
-          a.title !== '__LEAVE_REQUEST__' &&
-          a.title !== '__GRADE_ASSESSMENT_TERM__' &&
-          !String(a.title || '').startsWith('__')
-      )
-      .slice(0, 10)
-      .map((a) => {
-        const st = profiles.find((p) => p.id === a.student_id);
-        return {
-          title: a.title,
-          studentName: st ? st.name : 'Student',
-          studentGrade: st ? `Grade ${st.grade || ''}-${st.class_letter || ''}` : '',
-          description: a.description,
-        };
-      });
+    // 8. Student Achievements & Distinctions (Role-isolated)
+    const rawAwards = achievements.filter(
+      (a) =>
+        a.title !== '__USER_AVATAR__' &&
+        a.title !== '__PARENT_DOC__' &&
+        a.title !== '__LEAVE_REQUEST__' &&
+        a.title !== '__GRADE_ASSESSMENT_TERM__' &&
+        !String(a.title || '').startsWith('__')
+    );
 
-    // 10. Homeroom Student Leave Requests
-    const recentLeaves = leaveRequests.slice(0, 8).map((l) => {
-      const st = profiles.find((p) => p.id === l.student_id);
+    const filteredAwards = role === 'student'
+      ? rawAwards.filter((a) => a.student_id === user.id)
+      : role === 'teacher'
+      ? rawAwards.filter((a) => {
+          const st = profiles.find((p) => p.id === a.student_id);
+          if (!st) return false;
+          const g = (st.grade || '').replace(/[^0-9]/g, '');
+          const s = (st.class_letter || '').toUpperCase().trim();
+          return g === uGrade && s === uSection;
+        })
+      : rawAwards;
+
+    const recentAwards = filteredAwards.slice(0, 10).map((a) => {
+      const st = profiles.find((p) => p.id === a.student_id);
       return {
-        studentName: st ? st.name : 'Student',
-        studentGrade: st ? `Grade ${st.grade || ''}-${st.class_letter || ''}` : '',
-        dates: `${l.startDate} → ${l.endDate}`,
-        type: l.leaveType,
-        reason: l.reason,
-        status: l.status,
+        title: a.title,
+        studentName: st ? st.name : user.name,
+        studentGrade: st ? `Grade ${st.grade || ''}-${st.class_letter || ''}` : homeroomLabel,
+        description: a.description,
       };
     });
+
+    // 9. Leave Requests (Filtered to role & homeroom)
+    const filteredLeaves = role === 'teacher'
+      ? leaveRequests.filter((l) => {
+          const st = profiles.find((p) => p.id === l.student_id);
+          if (!st) return false;
+          const g = (st.grade || '').replace(/[^0-9]/g, '');
+          const s = (st.class_letter || '').toUpperCase().trim();
+          return g === uGrade && s === uSection;
+        })
+      : role === 'admin'
+      ? leaveRequests
+      : leaveRequests.filter((l) => l.student_id === user.id);
+
+    const recentLeaves = filteredLeaves
+      .slice(0, 8)
+      .map((l) => {
+        const st = profiles.find((p) => p.id === l.student_id);
+        return {
+          studentName: st ? st.name : 'Student',
+          studentGrade: st ? `Grade ${st.grade || ''}-${st.class_letter || ''}` : '',
+          dates: `${l.startDate} → ${l.endDate}`,
+          type: l.leaveType,
+          reason: l.reason,
+          status: l.status,
+        };
+      });
 
     return {
       currentUser: {
@@ -492,6 +666,11 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
         label: homeroomLabel,
         totalEnrolled: homeroomStudentsList.length,
         students: homeroomStudentsList,
+        myAttendance: role === 'student' ? {
+          totalDays: studentTotalDays,
+          presentDays: studentPresentDays,
+          attendanceRate: `${studentAttendanceRate}%`,
+        } : null,
         todayAttendance: {
           date: todayStr,
           presentCount,
@@ -521,6 +700,8 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
     classBroadcasts,
     achievements,
     leaveRequests,
+    testResults,
+    assignmentSubmissions,
   ]);
 
   const parseNavToken = (rawToken: string): { target: PortalNavigationTarget; label: string } | null => {
@@ -547,6 +728,26 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
     if (type === 'class') {
       const sub = parts[1] || 'tasks';
       target = { view: 'class', subTab: sub };
+    } else if (type === 'tasks' || type === 'assessments') {
+      target = { view: 'class', subTab: 'tasks' };
+    } else if (type === 'resources') {
+      target = { view: 'class', subTab: 'resources' };
+    } else if (type === 'syllabus') {
+      target = { view: 'class', subTab: 'syllabus' };
+    } else if (type === 'broadcasts') {
+      target = { view: 'class', subTab: 'broadcasts' };
+    } else if (type === 'marks') {
+      target = { view: 'class', subTab: 'marks' };
+    } else if (type === 'attendance') {
+      target = { view: 'attendance' };
+    } else if (type === 'awards' || type === 'achievements') {
+      target = { view: 'awards' };
+    } else if (type === 'hub' || type === 'activities') {
+      target = { view: 'hub' };
+    } else if (type === 'settings' || type === 'password') {
+      target = { view: 'settings' };
+    } else if (type === 'support' || type === 'helpdesk') {
+      target = { view: 'support' };
     } else if (type === 'view') {
       const v = parts[1]?.toLowerCase();
       const sub = parts[2]?.toLowerCase();
@@ -623,7 +824,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
           history: historyPayload,
           userRole: role,
           userName,
-          model: selectedModel,
+          model: 'gemini',
           portalContext,
         }),
       });
@@ -638,7 +839,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
           thoughtTime: data.thoughtTime || '3.4s',
           thoughtProcess: data.thoughtProcess || 'Analyzed live LMS ground truth, verified permissions, and linked portal destinations.',
           sourcesCount: data.sourcesCount || 6,
-          model: data.model || (selectedModel === 'opus' ? 'Claude 3.5 Sonnet' : 'Gemini 2.5 Flash'),
+          model: data.model || 'Gemini 2.5 Flash',
         };
         setMessages((prev) => [...prev, aiMsg]);
       } else {
@@ -646,7 +847,9 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
       }
     } catch {
       // Local intelligent response with portal grounding
-      const fallbackReply = `I can guide you across your subject classes, homeroom attendance, assignments, and account settings.\n\n[[nav:class:tasks|Tasks & Assessments ↗]] [[nav:class:resources|Learning Resources ↗]] [[nav:view:settings|Settings & Passwords ↗]]`;
+      const fallbackReply = isGuest
+        ? `I can help you sign in or tell you about Woodlem Park School.\n\n- **To Log In**: Select your role tab (Student, Teacher, Admin, or Parent) at the top of the login card and enter your registered email/admission number and password.\n- **Default Password**: Newly provisioned accounts use **\`woodlem123\`**.\n- **IT Helpdesk**: For login support, email \`it-helpdesk@woodlempark.ae\`.`
+        : `I can guide you across your subject classes, homeroom attendance, assignments, and account settings.\n\n[[nav:class:tasks|Tasks & Assessments ↗]] [[nav:class:resources|Learning Resources ↗]] [[nav:view:settings|Settings & Passwords ↗]]`;
       setMessages((prev) => [
         ...prev,
         {
@@ -679,21 +882,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
     }));
   };
 
-  const handleReaction = (id: string, type: 'up' | 'down') => {
-    setReactions((prev) => ({
-      ...prev,
-      [id]: prev[id] === type ? null : type,
-    }));
-  };
 
-  const handleRemix = (text: string) => {
-    handleSendMessage(`Can you explain this simpler in 3 quick bullet points?\n"${text.slice(0, 100)}..."`);
-  };
-
-  const handlePersonalize = () => {
-    setInputMessage(`Please personalize guidance for my role as ${role} (${userName}). `);
-    inputRef.current?.focus();
-  };
 
   const renderBrandWord = (text: string) => {
     return text;
@@ -723,6 +912,9 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                   e.preventDefault();
                   e.stopPropagation();
                   navigateTo(navParsed.target);
+                  if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
+                    setIsAiPanelOpen(false);
+                  }
                 }}
                 className="woodlem-ai-nav-pill"
                 title={`Jump to ${navParsed.label}`}
@@ -854,17 +1046,152 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                 <div className="woodlem-ai-welcome-orb-container">
                   <AnimatedOrb size={84} />
                 </div>
-                <h3 className="woodlem-ai-welcome-title">How can I help you today?</h3>
+                <h3 className="woodlem-ai-welcome-title">
+                  {isGuest ? 'Welcome to Woodlem Park School' : 'How can I help you today?'}
+                </h3>
                 <p className="woodlem-ai-welcome-desc">
-                  Ask me anything about your Woodlem portal. I am Woodpecker, your AI assistant.
+                  {isGuest
+                    ? "I can help you sign in, troubleshoot credentials, or introduce you to Woodlem's CBSE programs and digital LMS."
+                    : 'Ask me anything about your Woodlem portal. I am Woodpecker, your AI assistant.'}
                 </p>
+
+                {/* INTERACTIVE STARTER SUGGESTIONS */}
+                <div className="woodlem-ai-suggestions-grid">
+                  {isGuest ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage('What is Woodlem Park School and what does it offer?')}
+                        className="woodlem-ai-suggestion-btn"
+                      >
+                        <span className="woodlem-ai-sugg-icon">🎓</span>
+                        <span>What is Woodlem Park School?</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage('How do I log in to my school account?')}
+                        className="woodlem-ai-suggestion-btn"
+                      >
+                        <span className="woodlem-ai-sugg-icon">🔑</span>
+                        <span>How do I log in to my account?</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage('I forgot my password or need help signing in')}
+                        className="woodlem-ai-suggestion-btn"
+                      >
+                        <span className="woodlem-ai-sugg-icon">❓</span>
+                        <span>Forgot password or login help</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage('What features does this LMS portal offer?')}
+                        className="woodlem-ai-suggestion-btn"
+                      >
+                        <span className="woodlem-ai-sugg-icon">🌟</span>
+                        <span>What features does this portal offer?</span>
+                      </button>
+                    </>
+                  ) : role === 'student' ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage('What homework assignments or tasks are due?')}
+                        className="woodlem-ai-suggestion-btn"
+                      >
+                        <span className="woodlem-ai-sugg-icon">📚</span>
+                        <span>Show my pending assignments</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage('Do I have any upcoming tests scheduled?')}
+                        className="woodlem-ai-suggestion-btn"
+                      >
+                        <span className="woodlem-ai-sugg-icon">📝</span>
+                        <span>Check upcoming tests</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage('Show my syllabus coverage checklist')}
+                        className="woodlem-ai-suggestion-btn"
+                      >
+                        <span className="woodlem-ai-sugg-icon">📊</span>
+                        <span>View syllabus coverage</span>
+                      </button>
+                    </>
+                  ) : role === 'teacher' ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage('Who is absent today in my homeroom?')}
+                        className="woodlem-ai-suggestion-btn"
+                      >
+                        <span className="woodlem-ai-sugg-icon">📋</span>
+                        <span>Check homeroom attendance</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage('How do I publish a new assessment for my class?')}
+                        className="woodlem-ai-suggestion-btn"
+                      >
+                        <span className="woodlem-ai-sugg-icon">📝</span>
+                        <span>Publish a test or assessment</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage('Who is enrolled in my homeroom?')}
+                        className="woodlem-ai-suggestion-btn"
+                      >
+                        <span className="woodlem-ai-sugg-icon">👥</span>
+                        <span>View homeroom students list</span>
+                      </button>
+                    </>
+                  ) : role === 'admin' ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage('How do I provision a new student or teacher?')}
+                        className="woodlem-ai-suggestion-btn"
+                      >
+                        <span className="woodlem-ai-sugg-icon">👥</span>
+                        <span>How to provision a new user</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage('How can I reset student passwords?')}
+                        className="woodlem-ai-suggestion-btn"
+                      >
+                        <span className="woodlem-ai-sugg-icon">🔑</span>
+                        <span>Password management & resets</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage("How can I check my child's academic progress and attendance?")}
+                        className="woodlem-ai-suggestion-btn"
+                      >
+                        <span className="woodlem-ai-sugg-icon">📈</span>
+                        <span>Check child academic progress</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage('How do I submit clearance documents?')}
+                        className="woodlem-ai-suggestion-btn"
+                      >
+                        <span className="woodlem-ai-sugg-icon">📄</span>
+                        <span>Submit clearance documents</span>
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             )}
 
             {messages.map((m) => {
               const isAssistant = m.sender === 'assistant';
               const isThoughtOpen = !!expandedThoughtIds[m.id];
-              const reaction = reactions[m.id];
 
               if (!isAssistant) {
                 // USER MESSAGE BUBBLE (Image 1 sleek dark capsule)
@@ -880,49 +1207,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
               // ASSISTANT MESSAGE (Image 1 aesthetic with Thought Accordion, Sources, Clean Typography & Actions)
               return (
                 <div key={m.id} className="woodlem-ai-assistant-card">
-                  {/* COLLAPSIBLE THOUGHT ACCORDION (Image 1) */}
-                  <div className="woodlem-ai-thought-container">
-                    <button
-                      type="button"
-                      onClick={() => handleToggleThought(m.id)}
-                      className="woodlem-ai-thought-pill"
-                    >
-                      <Lightbulb size={12} className="woodlem-ai-thought-bulb" />
-                      <span className="woodlem-ai-thought-label">
-                        Thought for {m.thoughtTime || '3.4 seconds'}
-                      </span>
-                      <ChevronRight
-                        size={12}
-                        className={`woodlem-ai-thought-chevron ${isThoughtOpen ? 'woodlem-ai-thought-chevron-open' : ''}`}
-                      />
-                    </button>
 
-                    {/* SOURCE BADGES */}
-                    <div className="woodlem-ai-source-badges">
-                      <div className="woodlem-ai-source-orbs">
-                        <span className="woodlem-ai-src-dot woodlem-ai-src-1" />
-                        <span className="woodlem-ai-src-dot woodlem-ai-src-2" />
-                        <span className="woodlem-ai-src-dot woodlem-ai-src-3" />
-                      </div>
-                      <span className="woodlem-ai-source-count">
-                        {m.sourcesCount || 6} sources
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* EXPANDED THOUGHT DETAILS */}
-                  {isThoughtOpen && (
-                    <div className="woodlem-ai-thought-expanded">
-                      <div className="woodlem-ai-thought-step">
-                        <span className="woodlem-ai-thought-step-num">1</span>
-                        <span>{m.thoughtProcess || `Retrieved knowledge base for ${role} permissions and context.`}</span>
-                      </div>
-                      <div className="woodlem-ai-thought-step">
-                        <span className="woodlem-ai-thought-step-num">2</span>
-                        <span>Matched query against Woodlem LMS syllabus, resources, and live navigation targets.</span>
-                      </div>
-                    </div>
-                  )}
 
                   {/* ASSISTANT RESPONSE BODY */}
                   <div className="woodlem-ai-assistant-body">
@@ -952,43 +1237,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                       )}
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => handleRemix(m.text)}
-                      className="woodlem-ai-action-btn"
-                      title="Explain simpler"
-                    >
-                      <Wand2 size={12} />
-                    </button>
 
-                    <button
-                      type="button"
-                      onClick={() => handleReaction(m.id, 'down')}
-                      className={`woodlem-ai-action-btn ${reaction === 'down' ? 'woodlem-ai-reacted' : ''}`}
-                      title="Poor response"
-                    >
-                      <ThumbsDown size={12} />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSendMessage(messages[messages.length - 2]?.text || 'Tell me more')}
-                      className="woodlem-ai-action-btn"
-                      title="Regenerate answer"
-                    >
-                      <RefreshCw size={12} />
-                    </button>
-
-                    <span className="woodlem-ai-toolbar-divider" />
-
-                    <button
-                      type="button"
-                      onClick={handlePersonalize}
-                      className="woodlem-ai-personalize-pill"
-                    >
-                      <MessageSquare size={11} />
-                      <span>Personalize message</span>
-                    </button>
                   </div>
                 </div>
               );
@@ -997,12 +1246,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
             {/* LOADING STATE INDICATOR */}
             {isLoading && (
               <div className="woodlem-ai-loading-card">
-                <div className="woodlem-ai-thought-container">
-                  <div className="woodlem-ai-thought-pill woodlem-ai-thought-pulsing">
-                    <Sparkles size={12} className="woodlem-ai-thought-bulb" />
-                    <span className="woodlem-ai-thought-label">Thinking...</span>
-                  </div>
-                </div>
+
                 <div className="woodlem-ai-assistant-body">
                   <div className="woodlem-ai-star-col">
                     <Sparkles size={16} className="woodlem-ai-star-icon" />
@@ -1039,7 +1283,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                   <input
                     ref={inputRef}
                     type="text"
-                    placeholder="Ask anything..."
+                    placeholder={isGuest ? "Ask about logging in or Woodlem..." : "Ask anything..."}
                     value={inputMessage}
                     onChange={(e) => setInputMessage(e.target.value)}
                     onFocus={() => setIsInputFocused(true)}
@@ -1052,69 +1296,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                   <div className="woodlem-ai-composer-bottom-bar">
                     <div className="woodlem-ai-bottom-left-controls">
                       {/* MODEL SELECTOR PILL (Image 1 style) */}
-                      <div className="woodlem-ai-model-selector-wrap" ref={modelDropdownRef}>
-                        <button
-                          type="button"
-                          onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                          className="woodlem-ai-model-pill"
-                        >
-                          <Sparkles size={11} style={{ color: '#8B5CF6' }} />
-                          <span>
-                            {selectedModel === 'gemini' ? 'Gemini 2.5 Flash' : selectedModel === 'opus' ? 'Claude 3.5' : 'Neural Core'}
-                          </span>
-                          <ChevronDown size={11} style={{ color: '#94A3B8' }} />
-                        </button>
 
-                        {isModelDropdownOpen && (
-                          <div className="woodlem-ai-model-dropdown">
-                            <div className="woodlem-ai-dropdown-title">Select Intelligence Engine</div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedModel('gemini');
-                                setIsModelDropdownOpen(false);
-                              }}
-                              className={`woodlem-ai-dropdown-item ${selectedModel === 'gemini' ? 'woodlem-ai-dropdown-item-active' : ''}`}
-                            >
-                              <Sparkles size={13} style={{ color: '#8B5CF6' }} />
-                              <div>
-                                <div className="woodlem-ai-item-title">Gemini 2.5 Flash</div>
-                                <div className="woodlem-ai-item-sub">Ultra-fast guidance & links</div>
-                              </div>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedModel('opus');
-                                setIsModelDropdownOpen(false);
-                              }}
-                              className={`woodlem-ai-dropdown-item ${selectedModel === 'opus' ? 'woodlem-ai-dropdown-item-active' : ''}`}
-                            >
-                              <Bot size={13} style={{ color: '#3B82F6' }} />
-                              <div>
-                                <div className="woodlem-ai-item-title">Claude 3.5 Sonnet</div>
-                                <div className="woodlem-ai-item-sub">Advanced academic reasoning</div>
-                              </div>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedModel('neural');
-                                setIsModelDropdownOpen(false);
-                              }}
-                              className={`woodlem-ai-dropdown-item ${selectedModel === 'neural' ? 'woodlem-ai-dropdown-item-active' : ''}`}
-                            >
-                              <Compass size={13} style={{ color: '#10B981' }} />
-                              <div>
-                                <div className="woodlem-ai-item-title">Woodlem Neural Core</div>
-                                <div className="woodlem-ai-item-sub">Direct portal system knowledge</div>
-                              </div>
-                            </button>
-                          </div>
-                        )}
-                      </div>
 
                       {/* ATTACHMENT / CONTEXT BUTTONS (Image 3) */}
                       <button
@@ -1334,17 +1516,17 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
           flex-direction: column;
           align-items: center;
           text-align: center;
-          padding: 36px 16px 20px;
+          padding: 28px 14px 16px;
           animation: aiFadeIn 0.4s ease-out;
         }
 
         .woodlem-ai-welcome-orb-container {
           position: relative;
-          margin-bottom: 18px;
+          margin-bottom: 14px;
         }
 
         .woodlem-ai-welcome-title {
-          font-size: 16.5px;
+          font-size: 16px;
           font-weight: 700;
           color: #0F172A;
           margin: 0 0 6px;
@@ -1356,7 +1538,48 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
           color: #64748B;
           line-height: 1.55;
           margin: 0;
-          max-width: 300px;
+          max-width: 320px;
+        }
+
+        /* Suggestion Chips Grid */
+        .woodlem-ai-suggestions-grid {
+          display: flex;
+          flex-direction: column;
+          gap: 7px;
+          width: 100%;
+          max-width: 340px;
+          margin-top: 18px;
+        }
+
+        .woodlem-ai-suggestion-btn {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 9px 12px;
+          background: #FFFFFF;
+          border: 1px solid rgba(226, 232, 240, 0.9);
+          border-radius: 12px;
+          color: #1E293B;
+          font-size: 12px;
+          font-weight: 500;
+          text-align: left;
+          cursor: pointer;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+          transition: all 0.16s ease;
+          user-select: none;
+        }
+
+        .woodlem-ai-suggestion-btn:hover {
+          background: #F8FAFC;
+          border-color: #CBD5E1;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+          color: #0F172A;
+        }
+
+        .woodlem-ai-sugg-icon {
+          font-size: 14px;
+          flex-shrink: 0;
         }
 
         /* User Message Bubble (Image 1 sleek dark capsule) */

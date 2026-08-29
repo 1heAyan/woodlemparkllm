@@ -16,11 +16,19 @@ export function createIsolatedSupabaseClient() {
 }
 
 
+export type SpecialRoleType = 'principal' | 'hod' | 'coordinator' | 'dean' | 'custom' | 'none';
+
 export interface UserProfile {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'teacher' | 'student' | 'parent';
+  role: 'admin' | 'teacher' | 'student' | 'parent' | 'principal';
+  designation?: string;          // e.g. "Principal", "HOD - Science", "Grade 11-12 Coordinator"
+  special_role?: SpecialRoleType; // 'principal' | 'hod' | 'coordinator' | 'dean' | 'custom' | 'none'
+  department?: string;           // e.g. "Science", "Mathematics", "English", "Social Science", "Computer Science", "Commerce", "Arts"
+  managed_grades?: string[];     // e.g. ['9', '10'] or ['11', '12'] or ['9', '10', '11', '12']
+  special_permissions?: string[]; // Granular permission keys
+  is_protected_executive?: boolean; // Cannot be modified or deleted by standard admin
   user_code?: string;
   admission_number?: string;
   grade?: string;
@@ -31,6 +39,28 @@ export interface UserProfile {
   temp_password?: string;        // Admin preset / assigned credential
   avatar_url?: string;           // Custom profile picture
   created_at?: string;
+}
+
+export interface SpecialRoleAssignment {
+  id: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+  roleType: SpecialRoleType;
+  title: string;
+  department?: string;
+  managedGrades?: string[];
+  permissions: {
+    canAuditMarks: boolean;
+    canVerifySyllabus: boolean;
+    canBroadcastDepartment: boolean;
+    canManageResources: boolean;
+    canViewAnalytics: boolean;
+    canApproveClearances: boolean;
+  };
+  assignedBy: string;
+  assignedAt: string;
+  isProtected?: boolean;
 }
 
 export interface Student {
@@ -127,7 +157,7 @@ export interface LeaveRequest {
   fileName?: string;
   fileUrl?: string;
   created_at?: string;
-  status?: 'approved' | 'pending' | 'submitted';
+  status?: 'approved' | 'pending' | 'submitted' | 'rejected';
 }
 
 export interface AttendanceRecord {

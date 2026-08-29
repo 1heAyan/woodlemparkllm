@@ -1,19 +1,33 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, SlidersHorizontal, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, SlidersHorizontal, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
-import { UserProfile, ParentDocument, HubActivity, ParentStudentLinkRequest, SubjectClass } from '@/lib/supabaseClient';
+import { UserProfile, ParentDocument, HubActivity, ParentStudentLinkRequest, SubjectClass, TestItem, SyllabusTerm } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
+import { SpecialAccessView } from '@/components/Admin/SpecialAccessView';
 import { UserDetailView } from '@/components/Admin/UserDetailView';
 import { AdminAssessmentTermsView } from '@/components/Admin/AdminAssessmentTermsView';
 import { formatShortFileName, openFileInNewTab, downloadFile } from '@/lib/fileHelper';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
+import { isPrincipalUser } from '@/lib/specialRolesHelper';
+import { sanitizeUserCode } from '@/lib/userCodeHelper';
+import { computeExecutiveAnalytics } from '@/lib/analyticsHelper';
+import {
+  ScoreDistributionChart,
+  SubjectComparisonChart,
+  AttendanceTrendChart,
+  SyllabusVelocityCard,
+  MarkComplianceDonut,
+  AtRiskHonorRollGrid,
+} from '@/components/UI/AnalyticsCharts';
 import { MarkEntryModal } from '../Modals/MarkEntryModal';
+import { TestResultRecord } from '../Modals/ReviewTestResultsModal';
 
 interface AdminDashboardProps {
   currentUser: UserProfile;
@@ -22,6 +36,10 @@ interface AdminDashboardProps {
   hubActivities: HubActivity[];
   subjectClasses: SubjectClass[];
   linkRequests?: ParentStudentLinkRequest[];
+  tests?: TestItem[];
+  syllabus?: SyllabusTerm[];
+  attendance?: Record<string, Record<string, string>>;
+  testResults?: Record<string, TestResultRecord>;
   onOpenProvisionModal: () => void;
   onOpenBulkModal: () => void;
   onEditUser: (user: UserProfile) => void;
@@ -29,12 +47,11 @@ interface AdminDashboardProps {
   onDeleteUser: (userId: string) => void;
   onApproveLinkRequest?: (requestId: string) => Promise<void>;
   onRejectLinkRequest?: (requestId: string) => Promise<void>;
-  onBackfillEnrollments?: () => Promise<void>;
   onSignOut: () => void;
   onRefreshData?: () => void;
 }
 
-type AdminTab = 'overview' | 'directory' | 'link_requests' | 'classes' | 'assessments' | 'hub' | 'settings' | 'support' | 'system';
+type AdminTab = 'overview' | 'delegation' | 'directory' | 'link_requests' | 'classes' | 'assessments' | 'hub' | 'settings' | 'support';
 
 const VALID_GRADES = ['9', '10', '11', '12'] as const;
 const BASE_SECTIONS = ['A', 'B', 'C', 'D'] as const;
@@ -46,6 +63,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   hubActivities,
   subjectClasses = [],
   linkRequests = [],
+  tests = [],
+  syllabus = [],
+  attendance = {},
+  testResults = {},
   onOpenProvisionModal,
   onOpenBulkModal,
   onEditUser,
@@ -53,7 +74,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onDeleteUser,
   onApproveLinkRequest,
   onRejectLinkRequest,
-  onBackfillEnrollments,
   onSignOut,
   onRefreshData,
 }) => {
@@ -72,6 +92,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleInitiateEditUser = (u: UserProfile) => {
     setSelectedUserForEdit(u);
   };
+
+  const [overviewGradeFilter, setOverviewGradeFilter] = useState<string>('all');
+
+  const overviewAnalytics = useMemo(() => {
+    return computeExecutiveAnalytics({
+      profiles,
+      subjectClasses,
+      tests: tests || [],
+      syllabus: syllabus || [],
+      attendance: attendance || {},
+      testResults: testResults || {},
+      selectedGradeFilter: overviewGradeFilter,
+    });
+  }, [profiles, subjectClasses, tests, syllabus, attendance, testResults, overviewGradeFilter]);
 
   const pendingLinkRequests = useMemo(() => linkRequests.filter((r) => r.status === 'pending'), [linkRequests]);
 
@@ -96,8 +130,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setActiveTab('settings');
       } else if (target.view === 'support' || target.view === 'helpdesk') {
         setActiveTab('support');
-      } else if (target.view === 'system') {
-        setActiveTab('system');
+
       } else if (target.modalAction === 'provision_user') {
         onOpenProvisionModal();
       } else if (target.modalAction === 'bulk_import') {
@@ -113,27 +146,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const parents = useMemo(() => profiles.filter((p) => p.role === 'parent'), [profiles]);
   const admins = useMemo(() => profiles.filter((p) => p.role === 'admin'), [profiles]);
 
-  // Duplicate admission/employee codes map across all active profiles
-  const duplicateCodesMap = useMemo(() => {
-    const codeCounts = new Map<string, number>();
-    profiles.forEach((p) => {
-      const code = (p.admission_number || p.user_code || '').trim().toLowerCase();
-      if (code && code !== '—' && code !== '-' && code !== 'null' && code !== 'undefined') {
-        codeCounts.set(code, (codeCounts.get(code) || 0) + 1);
-      }
-    });
-    return codeCounts;
-  }, [profiles]);
-
-  // Dynamic list of all active or standard classes (Grades 9-12, Sections A-Z)
+  // Dynamic list of active classes (cohorts with enrolled students, assigned class teachers, or subject classes)
   const activeClassList = useMemo(() => {
     const classSet = new Set<string>();
-    // Add base 9-A..D, 10-A..D, 11-A..D, 12-A..D
-    VALID_GRADES.forEach((g) => {
-      BASE_SECTIONS.forEach((s) => classSet.add(`${g}-${s}`));
-    });
 
-    // Add any student cohorts that exist in database
+    // Add any student cohorts that exist in database (with at least 1 student)
     students.forEach((st) => {
       const g = (st.grade || '').replace(/[^0-9]/g, '');
       const s = (st.class_letter || '').toUpperCase().trim();
@@ -145,8 +162,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     // Add any teacher assigned class cohorts
     teachers.forEach((t) => {
       const info = extractClassTeacherInfo(t, subjectClasses);
-      if (info.isClassTeacher) {
+      if (info.isClassTeacher && info.classKey) {
         classSet.add(info.classKey);
+      }
+    });
+
+    // Add any active subject classes
+    (subjectClasses || []).forEach((sc) => {
+      if (sc.class_name) {
+        const clean = sc.class_name.replace(/^Grade\s*/i, '').replace(/[\(\)]/g, '').trim();
+        const m = clean.match(/^(\d+)\s*[-:]?\s*([A-Z])/i) || clean.match(/^(\d+)\s+([A-Z])/i);
+        if (m && VALID_GRADES.includes(m[1] as any)) {
+          classSet.add(`${m[1]}-${m[2].toUpperCase()}`);
+        }
       }
     });
 
@@ -156,7 +184,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (parseInt(ga) !== parseInt(gb)) return parseInt(ga) - parseInt(gb);
       return sa.localeCompare(sb);
     });
-  }, [students, teachers]);
+  }, [students, teachers, subjectClasses]);
 
   // Filtered profiles for User Directory
   const filteredProfiles = useMemo(() => {
@@ -240,7 +268,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       `"${p.name || ''}"`,
       `"${p.email || ''}"`,
       `"${p.role || ''}"`,
-      `"${p.admission_number || p.user_code || ''}"`,
+      `"${sanitizeUserCode(p.admission_number || p.user_code, p.email)}"`,
       `"${p.grade || ''}"`,
       `"${p.class_letter || ''}"`,
       `"${p.subject || ''}"`,
@@ -277,12 +305,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     color: 'var(--neutral-dark)',
   };
 
-  const rolePill = (role: string) => {
+  const rolePill = (role: string, userObj?: UserProfile) => {
+    if (userObj && isPrincipalUser(userObj)) {
+      return (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '1px 7px',
+            fontSize: 9.5,
+            fontWeight: 800,
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+            borderRadius: 4,
+            background: '#FEF3C7',
+            color: '#92400E',
+            border: '1px solid #F59E0B',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <Crown size={10} /> Principal
+        </span>
+      );
+    }
     const styleMap: Record<string, { bg: string; text: string; border: string }> = {
       student: { bg: '#EBF3F2', text: '#2C6E6A', border: '#CBE2DF' },
       teacher: { bg: '#F9F1E6', text: '#9B6634', border: '#EBD4B8' },
       parent: { bg: '#EAF3EF', text: '#2D6E5D', border: '#C7E4D8' },
       admin: { bg: '#EFECE6', text: '#2D2C2A', border: '#DCD8CE' },
+      principal: { bg: '#FEF3C7', text: '#92400E', border: '#F59E0B' },
     };
     const s = styleMap[role] || { bg: '#F0EFEA', text: '#55534E', border: '#DDD' };
     return (
@@ -308,7 +360,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // ─── TAB 1: OVERVIEW ────────────────────────────────────────────────────────
   const renderOverview = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Top compact executive banner */}
       <div
         style={{
@@ -325,48 +377,51 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)', fontFamily: 'var(--font-display)' }}>
+            <h1 className="page-title" style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)', fontFamily: 'var(--font-display)' }}>
               Executive Control Console
-            </span>
-            <span
-              style={{
-                fontSize: 9.5,
-                fontWeight: 700,
-                padding: '2px 6px',
-                borderRadius: 4,
-                background: '#EAF3EF',
-                color: '#2D6E5D',
-                border: '1px solid #C7E4D8',
-                letterSpacing: '0.05em',
-              }}
-            >
-              ACTIVE INSTANCE
-            </span>
+            </h1>
           </div>
           <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
             Logged in as {currentUser.name || 'System Admin'} ({currentUser.email}) | Total {profiles.length} Accounts in System
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {onRefreshData && (
-            <button
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              style={{
-                padding: '6px 12px',
-                fontSize: 11.5,
-                fontWeight: 600,
-                color: 'var(--neutral-dark)',
-                background: '#FFFFFF',
-                border: '1px solid var(--border-color)',
-                borderRadius: 6,
-                cursor: 'pointer',
-              }}
-            >
-              {isRefreshing ? 'Syncing...' : 'Sync Data'}
-            </button>
-          )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Grade Quick Filter Chips */}
+          <SegmentedControl
+            value={overviewGradeFilter}
+            onChange={(g) => setOverviewGradeFilter(g)}
+            options={[
+              { value: 'all', label: 'All Grades' },
+              { value: '9', label: 'Grade 9' },
+              { value: '10', label: 'Grade 10' },
+              { value: '11', label: 'Grade 11' },
+              { value: '12', label: 'Grade 12' },
+            ]}
+            height={32}
+            textTransform="uppercase"
+          />
+
+          <button
+            onClick={() => setActiveTab('delegation')}
+            style={{
+              padding: '6px 12px',
+              fontSize: 11.5,
+              fontWeight: 700,
+              color: '#2C6E6A',
+              background: '#EAF3EF',
+              border: '1px solid #C7E4D8',
+              borderRadius: 6,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <ShieldCheck size={14} /> Roles &amp; HODs
+          </button>
+
+
           <button
             onClick={onOpenProvisionModal}
             style={{
@@ -380,7 +435,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               cursor: 'pointer',
             }}
           >
-            + Provision User
+            + Create Account
           </button>
           <button
             onClick={onOpenBulkModal}
@@ -395,7 +450,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               cursor: 'pointer',
             }}
           >
-            Bulk Import
+            Import Accounts
           </button>
           <button
             onClick={exportUsersCSV}
@@ -410,7 +465,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               cursor: 'pointer',
             }}
           >
-            Export Directory
+            Export Accounts
           </button>
         </div>
       </div>
@@ -463,8 +518,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
         {[
           { label: 'TOTAL ACCOUNTS', val: profiles.length, sub: 'Registered users', tab: 'directory' as const, role: 'all' as const, isAlert: false },
-          { label: 'STUDENTS', val: students.length, sub: 'Enrolled students', tab: 'directory' as const, role: 'student' as const, isAlert: false },
-          { label: 'FACULTY', val: teachers.length, sub: 'Teaching staff', tab: 'directory' as const, role: 'teacher' as const, isAlert: false },
+          { label: 'STUDENTS', val: students.length, sub: `Active cohort (${overviewAnalytics.overallAverageScore}% mean)`, tab: 'directory' as const, role: 'student' as const, isAlert: false },
+          { label: 'FACULTY', val: teachers.length, sub: 'Teaching staff & HODs', tab: 'directory' as const, role: 'teacher' as const, isAlert: false },
           { label: 'PARENTS', val: parents.length, sub: 'Linked guardians', tab: 'directory' as const, role: 'parent' as const, isAlert: false },
           {
             label: 'LINK REQUESTS',
@@ -503,126 +558,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         ))}
       </div>
 
-      {/* Two column layout: Class Matrix & Recent Directory Activity */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 12 }}>
-        {/* Class Section Capacity Matrix */}
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-          <div style={{ padding: '9px 14px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--neutral-dark)' }}>
-              Section Roster Matrix
-            </span>
-            <button
-              onClick={() => setActiveTab('classes')}
-              style={{ background: 'none', border: 'none', color: 'var(--neutral-dark)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
-            >
-              Inspect Matrix
-            </button>
-          </div>
-
-          <div style={{ padding: '10px 12px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-            {activeClassList.map((cls) => {
-              const [g, s] = cls.split('-');
-              const count = students.filter((st) => {
-                const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
-                const cleanS = (st.class_letter || '').toUpperCase().trim();
-                return cleanG === g && cleanS === s;
-              }).length;
-              const ct = teachers.find((t) => {
-                const info = extractClassTeacherInfo(t, subjectClasses);
-                return info.isClassTeacher && info.classKey === cls;
-              });
-              return (
-                <div
-                  key={cls}
-                  onClick={() => {
-                    setClassFilter(cls);
-                    setRoleFilter('student');
-                    setActiveTab('directory');
-                  }}
-                  style={{
-                    border: '1px solid var(--border-color)',
-                    borderRadius: 6,
-                    padding: '8px 10px',
-                    background: '#FAF9F6',
-                    cursor: 'pointer',
-                    transition: 'all 0.12s',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = '#2C6E6A';
-                    e.currentTarget.style.background = '#F2F7F6';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--border-color)';
-                    e.currentTarget.style.background = '#FAF9F6';
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--neutral-dark)' }}>G{g}-{s}</span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#2C6E6A' }}>{count}</span>
-                  </div>
-                  <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    CT: {ct ? ct.name.split(' ')[0] : 'None'}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Quick Navigation / Quick Ops Panel */}
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-          <div style={{ padding: '9px 14px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--neutral-dark)' }}>
-              Operational Quick Links
-            </span>
-          </div>
-          <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {[
-              { title: 'User Directory Management', desc: `${profiles.length} total profiles registered`, tab: 'directory' as const },
-              { title: 'Section Roster & Class Teachers', desc: `${activeClassList.length} active cohorts`, tab: 'classes' as const },
-              { title: 'Parent-Student Link Requests', desc: `${pendingLinkRequests.length} pending review`, tab: 'link_requests' as const },
-              { title: 'Holistic Development Hub', desc: `${hubActivities.length} published programs`, tab: 'hub' as const },
-              { title: 'System Environment & Diagnostics', desc: 'Secure Cloud Platform', tab: 'system' as const },
-            ].map((item) => (
-              <div
-                key={item.title}
-                onClick={() => setActiveTab(item.tab)}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '7px 10px',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 6,
-                  background: '#FFFFFF',
-                  cursor: 'pointer',
-                  transition: 'background 0.1s',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = '#F6F5F2')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = '#FFFFFF')}
-              >
-                <div>
-                  <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>{item.title}</div>
-                  <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>{item.desc}</div>
-                </div>
-                <span style={{ fontSize: 11, fontWeight: 600, color: '#2C6E6A' }}>Open</span>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* ── RICH ANALYTICS CHARTS SECTION ─────────────────────────────────── */}
+      <div style={{ marginBottom: 12 }}>
+        <ScoreDistributionChart
+          data={overviewAnalytics.scoreDistribution}
+          overallAverage={overviewAnalytics.overallAverageScore}
+          totalStudents={overviewAnalytics.totalEnrollment}
+        />
       </div>
+
+      <AtRiskHonorRollGrid
+        distinctions={overviewAnalytics.distinctionStudents}
+        atRisk={overviewAnalytics.atRiskStudents}
+        onSelectStudent={(id) => {
+          const target = profiles.find((p) => p.id === id);
+          if (target) setSelectedUserForEdit(target);
+        }}
+      />
+
+
 
       {/* Recent User Registrations (Dense Table) */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
         <div style={{ padding: '9px 14px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--neutral-dark)' }}>
-            Recent Account Audit Log
+            Recent Accounts
           </span>
           <button
             onClick={() => setActiveTab('directory')}
             style={{ background: 'none', border: 'none', color: 'var(--neutral-dark)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
           >
-            View Full Directory ({profiles.length})
+            View All Accounts ({profiles.length})
           </button>
         </div>
 
@@ -650,7 +616,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11.5 }}>{p.email}</td>
                   <td style={tdStyle}>{rolePill(p.role)}</td>
                   <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>
-                    {p.admission_number || p.user_code || '—'}
+                    {sanitizeUserCode(p.admission_number || p.user_code, p.email) || '—'}
                   </td>
                   <td style={{ ...tdStyle, fontSize: 11.5, color: '#55534E' }}>{formatUserAssignment(p)}</td>
                   <td style={{ ...tdStyle, textAlign: 'right' }}>
@@ -702,48 +668,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
-              height: 28,
-              width: 210,
-              padding: '0 8px',
-              fontSize: 11.5,
-              borderRadius: 5,
-              border: '1px solid var(--border-color)',
+              height: 32,
+              width: 240,
+              padding: '0 12px',
+              fontSize: 12,
+              borderRadius: 6,
+              border: '1px solid #E5E3DF',
               background: '#FFFFFF',
-              color: 'var(--neutral-dark)',
+              color: '#1A1A1A',
               outline: 'none',
             }}
           />
 
           {/* Role selector pills */}
-          <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: 5, overflow: 'hidden' }}>
-            {(['all', 'student', 'teacher', 'parent', 'admin'] as const).map((r) => (
-              <button
-                key={r}
-                onClick={() => setRoleFilter(r)}
-                style={{
-                  height: 26,
-                  padding: '0 8px',
-                  fontSize: 10.5,
-                  fontWeight: roleFilter === r ? 700 : 500,
-                  textTransform: 'uppercase',
-                  border: 'none',
-                  borderRight: '1px solid var(--border-color)',
-                  background: roleFilter === r ? '#2D2C2A' : '#FFFFFF',
-                  color: roleFilter === r ? '#FFFFFF' : 'var(--text-secondary)',
-                  cursor: 'pointer',
-                }}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            value={roleFilter}
+            onChange={(r) => setRoleFilter(r)}
+            options={[
+              { value: 'all', label: 'All' },
+              { value: 'student', label: 'Student' },
+              { value: 'teacher', label: 'Teacher' },
+              { value: 'parent', label: 'Parent' },
+              { value: 'admin', label: 'Admin' },
+            ]}
+            height={32}
+            textTransform="uppercase"
+          />
 
           {/* Class Filter */}
           <div style={{ width: 140 }}>
             <CustomSelect
               value={classFilter}
               onChange={(val) => setClassFilter(val)}
-              buttonStyle={{ padding: '4px 8px', fontSize: 11.5 }}
+              buttonStyle={{ height: 32, padding: '0 12px', fontSize: 12, borderRadius: 6, borderColor: '#E5E3DF' }}
               options={[
                 { value: 'all', label: 'All Sections' },
                 ...activeClassList.map((c) => ({ value: c, label: `Section ${c}` })),
@@ -781,44 +738,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         {/* Action Buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {onRefreshData && (
-            <button
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              style={{
-                height: 28,
-                padding: '0 10px',
-                fontSize: 11.5,
-                fontWeight: 600,
-                color: 'var(--neutral-dark)',
-                background: '#FFFFFF',
-                border: '1px solid var(--border-color)',
-                borderRadius: 5,
-                cursor: 'pointer',
-              }}
-            >
-              {isRefreshing ? 'Syncing...' : 'Sync Data'}
-            </button>
-          )}
-          {onBackfillEnrollments && (
-            <button
-              onClick={onBackfillEnrollments}
-              title="Auto-enroll students into existing classrooms based on their grade & class. Run once to fix current data."
-              style={{
-                height: 28,
-                padding: '0 10px',
-                fontSize: 11.5,
-                fontWeight: 600,
-                color: '#FFFFFF',
-                background: '#2D2C2A',
-                border: 'none',
-                borderRadius: 5,
-                cursor: 'pointer',
-              }}
-            >
-              Fix Class Enrollments
-            </button>
-          )}
           <button
             onClick={exportUsersCSV}
             style={{
@@ -833,41 +752,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               cursor: 'pointer',
             }}
           >
-            Export CSV
-          </button>
-          <button
-            onClick={onOpenBulkModal}
-            style={{
-              height: 28,
-              padding: '0 10px',
-              fontSize: 11.5,
-              fontWeight: 600,
-              color: 'var(--neutral-dark)',
-              background: '#FFFFFF',
-              border: '1px solid var(--border-color)',
-              borderRadius: 5,
-              cursor: 'pointer',
-            }}
-          >
-            Bulk Import
-          </button>
-          <button
-            onClick={onOpenProvisionModal}
-            style={{
-              height: 28,
-              padding: '0 12px',
-              fontSize: 11.5,
-              fontWeight: 600,
-              color: '#FFFFFF',
-              background: '#2D2C2A',
-              border: '1px solid #2D2C2A',
-              borderRadius: 5,
-              cursor: 'pointer',
-            }}
-          >
-            + Provision User
-          </button>
-        </div>
+              Export Accounts
+            </button>
+            <button
+              onClick={onOpenBulkModal}
+              style={{
+                height: 28,
+                padding: '0 10px',
+                fontSize: 11.5,
+                fontWeight: 600,
+                color: 'var(--neutral-dark)',
+                background: '#FFFFFF',
+                border: '1px solid var(--border-color)',
+                borderRadius: 5,
+                cursor: 'pointer',
+              }}
+            >
+              Import Accounts
+            </button>
+            <button
+              onClick={onOpenProvisionModal}
+              style={{
+                height: 28,
+                padding: '0 12px',
+                fontSize: 11.5,
+                fontWeight: 600,
+                color: '#FFFFFF',
+                background: '#2D2C2A',
+                border: '1px solid #2D2C2A',
+                borderRadius: 5,
+                cursor: 'pointer',
+              }}
+            >
+              + Create Account
+            </button>
+          </div>
       </div>
 
       {/* Directory Table */}
@@ -875,7 +794,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {filteredProfiles.length === 0 ? (
           <div style={{ padding: '40px 20px', textAlign: 'center' }}>
             <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>No user records matched your criteria</div>
-            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 4 }}>Try clearing active search or filters, or click &quot;Sync Data&quot; to fetch latest records.</div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 4 }}>Try clearing active search or filters.</div>
           </div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -903,37 +822,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 >
                   <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
                   <td style={{ ...tdStyle, fontWeight: 600, whiteSpace: 'nowrap' }}>{p.name}</td>
-                  <td style={tdStyle}>{rolePill(p.role)}</td>
+                  <td style={tdStyle}>{rolePill(p.role, p)}</td>
                   <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11.5 }}>{p.email}</td>
                   <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11, color: '#44423E' }}>
-                    {(() => {
-                      const code = (p.admission_number || p.user_code || '').trim();
-                      const isDup = code && (duplicateCodesMap.get(code.toLowerCase()) || 0) > 1;
-                      return (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span>{code || '—'}</span>
-                          {isDup && (
-                            <span
-                              title="Duplicate admission code shared by multiple accounts. Click Edit to assign a unique code."
-                              style={{
-                                fontSize: 9.5,
-                                fontWeight: 700,
-                                color: '#DC2626',
-                                background: '#FEF2F2',
-                                border: '1px solid #FECACA',
-                                padding: '1px 5px',
-                                borderRadius: 4,
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.04em',
-                                cursor: 'help',
-                              }}
-                            >
-                              Duplicate
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })()}
+                    {sanitizeUserCode(p.admission_number || p.user_code, p.email) || '—'}
                   </td>
                   <td style={{ ...tdStyle, fontSize: 11.5, color: '#4A4843' }}>
                     {formatUserAssignment(p)}
@@ -955,27 +847,54 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     >
                       Edit
                     </button>
-                    {p.role !== 'admin' && (
-                      <button
-                        onClick={() => {
-                          if (confirm(`Are you sure you want to delete profile for "${p.name}"?`)) {
-                            onDeleteUser(p.id);
-                          }
-                        }}
-                        style={{
-                          padding: '3px 8px',
-                          fontSize: 11,
-                          fontWeight: 600,
-                          border: '1px solid #F5C6CB',
-                          borderRadius: 4,
-                          background: '#FDF1F0',
-                          color: '#A83B38',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Delete
-                      </button>
-                    )}
+                    {(() => {
+                      const isPrincipal = isPrincipalUser(p);
+                      if (isPrincipal) {
+                        return (
+                          <span
+                            title="The Principal account holds permanent root executive privileges and cannot be deleted."
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '2px 8px',
+                              fontSize: 10,
+                              fontWeight: 700,
+                              color: '#92400E',
+                              background: '#FEF3C7',
+                              border: '1px solid #F59E0B',
+                              borderRadius: 4,
+                            }}
+                          >
+                            <Lock size={10} /> Protected
+                          </span>
+                        );
+                      }
+                      if (p.role !== 'admin') {
+                        return (
+                          <button
+                            onClick={() => {
+                              if (confirm(`Are you sure you want to delete profile for "${p.name}"?`)) {
+                                onDeleteUser(p.id);
+                              }
+                            }}
+                            style={{
+                              padding: '3px 8px',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              border: '1px solid #F5C6CB',
+                              borderRadius: 4,
+                              background: '#FDF1F0',
+                              color: '#A83B38',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Delete
+                          </button>
+                        );
+                      }
+                      return null;
+                    })()}
                   </td>
                 </tr>
               ))}
@@ -999,63 +918,72 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-          {activeClassList.map((cls) => {
-            const [g, s] = cls.split('-');
-            const classStudents = students.filter((st) => {
-              const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
-              const cleanS = (st.class_letter || '').toUpperCase().trim();
-              return cleanG === g && cleanS === s;
-            });
-            const ct = teachers.find((t) => {
-              const info = extractClassTeacherInfo(t, subjectClasses);
-              return info.isClassTeacher && info.classKey === cls;
-            });
-            const isSelected = selectedClassInspect === cls;
+        {activeClassList.length === 0 ? (
+          <div style={{ padding: '36px 20px', textAlign: 'center' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--neutral-dark)' }}>No active class sections found</div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 4 }}>
+              Active class sections will appear automatically when students are enrolled or teachers are assigned.
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+            {activeClassList.map((cls) => {
+              const [g, s] = cls.split('-');
+              const classStudents = students.filter((st) => {
+                const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
+                const cleanS = (st.class_letter || '').toUpperCase().trim();
+                return cleanG === g && cleanS === s;
+              });
+              const ct = teachers.find((t) => {
+                const info = extractClassTeacherInfo(t, subjectClasses);
+                return info.isClassTeacher && info.classKey === cls;
+              });
+              const isSelected = selectedClassInspect === cls;
 
-            return (
-              <div
-                key={cls}
-                onClick={() => setSelectedClassInspect(isSelected ? null : cls)}
-                style={{
-                  border: isSelected ? '1.5px solid #2D2C2A' : '1px solid var(--border-color)',
-                  borderRadius: 6,
-                  padding: '10px 12px',
-                  background: isSelected ? '#FAF9F6' : '#FFFFFF',
-                  boxShadow: isSelected ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
-                  cursor: 'pointer',
-                  transition: 'all 0.1s',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>Grade {g} - Section {s}</span>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      padding: '1px 6px',
-                      borderRadius: 4,
-                      background: '#EBF3F2',
-                      color: '#2C6E6A',
-                    }}
-                  >
-                    {classStudents.length} Students
-                  </span>
-                </div>
+              return (
+                <div
+                  key={cls}
+                  onClick={() => setSelectedClassInspect(isSelected ? null : cls)}
+                  style={{
+                    border: isSelected ? '1.5px solid #2D2C2A' : '1px solid var(--border-color)',
+                    borderRadius: 6,
+                    padding: '10px 12px',
+                    background: isSelected ? '#FAF9F6' : '#FFFFFF',
+                    boxShadow: isSelected ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
+                    cursor: 'pointer',
+                    transition: 'all 0.1s',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>Grade {g} - Section {s}</span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '1px 6px',
+                        borderRadius: 4,
+                        background: '#EBF3F2',
+                        color: '#2C6E6A',
+                      }}
+                    >
+                      {classStudents.length} Students
+                    </span>
+                  </div>
 
-                <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #ECEAE5', fontSize: 11 }}>
-                  <div style={{ color: 'var(--text-secondary)' }}>Class Teacher:</div>
-                  <div style={{ fontWeight: 600, color: ct ? '#2C6E6A' : '#9E9B95', marginTop: 1 }}>
-                    {ct ? `${ct.name} (${ct.subject || 'Faculty'})` : 'Unassigned'}
+                  <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #ECEAE5', fontSize: 11 }}>
+                    <div style={{ color: 'var(--text-secondary)' }}>Class Teacher:</div>
+                    <div style={{ fontWeight: 600, color: ct ? '#2C6E6A' : '#9E9B95', marginTop: 1 }}>
+                      {ct ? `${ct.name} (${ct.subject || 'Faculty'})` : 'Unassigned'}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* Selected Class Roster & Subject Classes */}
+      {/* Selected Class Roster & Subject Classes Modal Popup */}
       {selectedClassInspect && (() => {
         const [g, s] = selectedClassInspect.split('-');
         const roster = students.filter((st) => {
@@ -1068,133 +996,193 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         );
 
         return (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            {/* Student Roster */}
-            <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.45)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000,
+              padding: 20,
+            }}
+            onClick={() => setSelectedClassInspect(null)}
+          >
+            <div
+              style={{
+                background: '#FFFFFF',
+                borderRadius: 12,
+                width: '100%',
+                maxWidth: 960,
+                maxHeight: '90vh',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
               <div
                 style={{
-                  padding: '9px 14px',
+                  padding: '16px 20px',
                   borderBottom: '1px solid var(--border-color)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   background: '#FAF9F6',
+                  borderTopLeftRadius: 12,
+                  borderTopRightRadius: 12,
                 }}
               >
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                  Enrolled Students: Section {selectedClassInspect}
-                </span>
+                <div>
+                  <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0, color: 'var(--neutral-dark)' }}>
+                    Class Profile &amp; Roster — Grade {g} - Section {s}
+                  </h3>
+                  <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
+                    Student enrollment list and subject classroom assessment channels for this cohort.
+                  </p>
+                </div>
                 <button
                   onClick={() => setSelectedClassInspect(null)}
-                  style={{ background: 'none', border: 'none', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', cursor: 'pointer' }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    fontSize: 24,
+                    fontWeight: 300,
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    lineHeight: 1,
+                  }}
                 >
-                  Close Roster
+                  &times;
                 </button>
               </div>
 
-              <div style={{ maxHeight: 350, overflowY: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>
-                      <th style={{ ...thStyle, width: 32 }}>#</th>
-                      <th style={thStyle}>Student Name</th>
-                      <th style={thStyle}>Admission #</th>
-                      <th style={{ ...thStyle, textAlign: 'right' }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {roster.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} style={{ ...tdStyle, textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
-                          No students currently enrolled in section {selectedClassInspect}.
-                        </td>
-                      </tr>
+              {/* Modal Body */}
+              <div style={{ padding: 20, overflowY: 'auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                {/* Student Roster */}
+                <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  <div
+                    style={{
+                      padding: '9px 14px',
+                      borderBottom: '1px solid var(--border-color)',
+                      background: '#FAF9F6',
+                    }}
+                  >
+                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                      Enrolled Students ({roster.length})
+                    </span>
+                  </div>
+
+                  <div style={{ maxHeight: 400, overflowY: 'auto', flex: 1 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ ...thStyle, width: 32 }}>#</th>
+                          <th style={thStyle}>Student Name</th>
+                          <th style={thStyle}>Admission #</th>
+                          <th style={{ ...thStyle, textAlign: 'right' }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {roster.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} style={{ ...tdStyle, textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
+                              No students currently enrolled in section {selectedClassInspect}.
+                            </td>
+                          </tr>
+                        ) : (
+                          roster.map((st, idx) => (
+                            <tr key={st.id} style={{ background: '#FFFFFF' }}>
+                              <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
+                              <td style={{ ...tdStyle, fontWeight: 600 }}>{st.name}</td>
+                              <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>{sanitizeUserCode(st.admission_number || st.user_code, st.email) || '—'}</td>
+                              <td style={{ ...tdStyle, textAlign: 'right' }}>
+                                <button
+                                  onClick={() => {
+                                    setSelectedClassInspect(null);
+                                    handleInitiateEditUser(st);
+                                  }}
+                                  style={{
+                                    padding: '2px 8px',
+                                    fontSize: 10.5,
+                                    fontWeight: 600,
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: 4,
+                                    background: '#FFFFFF',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Subject Classes / Terms */}
+                <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  <div
+                    style={{
+                      padding: '9px 14px',
+                      borderBottom: '1px solid var(--border-color)',
+                      background: '#FAF9F6',
+                    }}
+                  >
+                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                      Subject Classes &amp; Assessment Registers
+                    </span>
+                  </div>
+
+                  <div style={{ padding: 14, overflowY: 'auto', flex: 1, maxHeight: 400, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {sectionSubjectClasses.length === 0 ? (
+                      <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 12 }}>
+                        No subject classes registered for {selectedClassInspect}.
+                      </div>
                     ) : (
-                      roster.map((st, idx) => (
-                        <tr key={st.id} style={{ background: '#FFFFFF' }}>
-                          <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
-                          <td style={{ ...tdStyle, fontWeight: 600 }}>{st.name}</td>
-                          <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>{st.admission_number || st.user_code || '—'}</td>
-                          <td style={{ ...tdStyle, textAlign: 'right' }}>
+                      sectionSubjectClasses.map(sc => {
+                        const classTeacher = profiles.find(p => p.id === sc.teacher_id);
+                        return (
+                          <div key={sc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: 6, background: '#FAF9F6' }}>
+                            <div style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sc.name || `${sc.subject} (${sc.class_name})`}</div>
+                              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                                Teacher: <span style={{ fontWeight: 600, color: '#2C6E6A' }}>{classTeacher?.name || sc.teacher_name || 'Unassigned'}</span>
+                              </div>
+                            </div>
                             <button
-                              onClick={() => handleInitiateEditUser(st)}
+                              onClick={() => {
+                                setSelectedClassInspect(null);
+                                setActiveMarkEntryClass(sc);
+                              }}
+                              className="btn-primary"
                               style={{
-                                padding: '2px 8px',
-                                fontSize: 10.5,
-                                fontWeight: 600,
-                                border: '1px solid var(--border-color)',
+                                padding: '6px 12px',
+                                fontSize: 11.5,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                background: '#2D2C2A',
+                                border: 'none',
                                 borderRadius: 4,
-                                background: '#FFFFFF',
+                                color: '#fff',
+                                fontWeight: 700,
                                 cursor: 'pointer',
                               }}
                             >
-                              Edit
+                              Manage Terms
                             </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Subject Classes / Terms */}
-            <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              <div
-                style={{
-                  padding: '9px 14px',
-                  borderBottom: '1px solid var(--border-color)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  background: '#FAF9F6',
-                }}
-              >
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                  Subject Classes & Assessment Registers
-                </span>
-              </div>
-
-              <div style={{ padding: 14, overflowY: 'auto', flex: 1, maxHeight: 350, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {sectionSubjectClasses.length === 0 ? (
-                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 12 }}>
-                    No subject classes registered for {selectedClassInspect}.
-                  </div>
-                ) : (
-                  sectionSubjectClasses.map(sc => {
-                    const classTeacher = profiles.find(p => p.id === sc.teacher_id);
-                    return (
-                      <div key={sc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: 6, background: '#FAF9F6' }}>
-                        <div style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
-                          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sc.name || `${sc.subject} (${sc.class_name})`}</div>
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                            Teacher: <span style={{ fontWeight: 600, color: '#2C6E6A' }}>{classTeacher?.name || sc.teacher_name || 'Unassigned'}</span>
                           </div>
-                        </div>
-                        <button
-                          onClick={() => setActiveMarkEntryClass(sc)}
-                          className="btn-primary"
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: 11.5,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            background: '#2D2C2A',
-                            border: 'none',
-                            borderRadius: 4,
-                            color: '#fff',
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Manage Terms
-                        </button>
-                      </div>
-                    );
-                  })
-                )}
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1210,83 +1198,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Subtab Segmented Control */}
-        <div style={{ display: 'flex', gap: 8, borderBottom: '1px solid var(--border-color)', paddingBottom: 10 }}>
-          <button
-            onClick={() => setDocSubTab('clearances')}
-            style={{
-              padding: '6px 14px',
-              fontSize: 12,
-              fontWeight: docSubTab === 'clearances' ? 700 : 500,
-              borderRadius: 6,
-              border: docSubTab === 'clearances' ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
-              background: docSubTab === 'clearances' ? '#2D2C2A' : '#FFFFFF',
-              color: docSubTab === 'clearances' ? '#FFFFFF' : 'var(--text-secondary)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <span>Clearance Documents</span>
-            <span
-              style={{
-                fontSize: 10.5,
-                background: docSubTab === 'clearances' ? 'rgba(255,255,255,0.2)' : '#E2E8F0',
-                color: docSubTab === 'clearances' ? '#FFFFFF' : '#475569',
-                padding: '1px 6px',
-                borderRadius: 10,
-                fontWeight: 700,
-              }}
-            >
-              {parentDocuments.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setDocSubTab('link_requests')}
-            style={{
-              padding: '6px 14px',
-              fontSize: 12,
-              fontWeight: docSubTab === 'link_requests' ? 700 : 500,
-              borderRadius: 6,
-              border: docSubTab === 'link_requests' ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
-              background: docSubTab === 'link_requests' ? '#2D2C2A' : '#FFFFFF',
-              color: docSubTab === 'link_requests' ? '#FFFFFF' : 'var(--text-secondary)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <span>Parent-Student Link Requests</span>
-            {pendingRequests.length > 0 ? (
-              <span
-                style={{
-                  fontSize: 10.5,
-                  background: '#EF4444',
-                  color: '#FFFFFF',
-                  padding: '1px 6px',
-                  borderRadius: 10,
-                  fontWeight: 700,
-                }}
-              >
-                {pendingRequests.length} PENDING
-              </span>
-            ) : (
-              <span
-                style={{
-                  fontSize: 10.5,
-                  background: '#E2E8F0',
-                  color: '#475569',
-                  padding: '1px 6px',
-                  borderRadius: 10,
-                  fontWeight: 700,
-                }}
-              >
-                {linkRequests.length}
-              </span>
-            )}
-          </button>
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', paddingBottom: 10 }}>
+          <SegmentedControl
+            value={docSubTab}
+            onChange={(tab) => setDocSubTab(tab)}
+            options={[
+              {
+                value: 'clearances',
+                label: 'Clearance Documents',
+                count: parentDocuments.length,
+              },
+              {
+                value: 'link_requests',
+                label: 'Parent-Student Link Requests',
+                count: pendingRequests.length > 0 ? pendingRequests.length : undefined,
+              },
+            ]}
+            height={34}
+            textTransform="none"
+          />
         </div>
 
         {docSubTab === 'clearances' ? (
@@ -1315,7 +1245,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   value={docStudentFilter}
                   onChange={(val) => setDocStudentFilter(val)}
                   placeholder="All Students"
-                  buttonStyle={{ padding: '4px 8px', fontSize: 11.5 }}
+                  buttonStyle={{ height: 32, padding: '0 12px', fontSize: 12, borderRadius: 6, borderColor: '#E5E3DF' }}
                   options={[
                     { value: '', label: 'All Students' },
                     ...students.map((s) => ({
@@ -1652,7 +1582,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 cursor: 'pointer',
               }}
             >
-              + Provision Parent Manually
+              + Create Parent Account
             </button>
           </div>
         </div>
@@ -1875,36 +1805,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     </div>
   );
 
-  // ─── TAB 6: SYSTEM ──────────────────────────────────────────────────────────
-  const renderSystem = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 16px' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 8 }}>
-          System &amp; Cloud Network Status
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-          <div style={{ border: '1px solid var(--border-color)', borderRadius: 6, padding: '10px 12px', background: '#FAF9F6' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Cloud Sync Status</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#2C6E6A', marginTop: 3 }}>Active &amp; Connected</div>
-            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>Realtime School Network</div>
-          </div>
-          <div style={{ border: '1px solid var(--border-color)', borderRadius: 6, padding: '10px 12px', background: '#FAF9F6' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Current Operator</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)', marginTop: 3 }}>{currentUser.name || 'System Admin'}</div>
-            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>{currentUser.email}</div>
-          </div>
-          <div style={{ border: '1px solid var(--border-color)', borderRadius: 6, padding: '10px 12px', background: '#FAF9F6' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Institution</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)', marginTop: 3 }}>Woodlem Park School</div>
-            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>Curriculum: Grades 9-12</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+
 
   const tabs: { id: AdminTab; label: string; count?: number; isAlert?: boolean }[] = [
     { id: 'overview', label: 'OVERVIEW' },
+    { id: 'delegation', label: 'SPECIAL ACCESS & ROLES' },
     { id: 'directory', label: 'USER DIRECTORY', count: profiles.length },
     {
       id: 'link_requests',
@@ -1917,7 +1822,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     { id: 'hub', label: 'HOLISTIC HUB', count: hubActivities.length },
     { id: 'settings', label: 'SETTINGS & PASSWORDS' },
     { id: 'support', label: 'HELP & SUPPORT' },
-    { id: 'system', label: 'SYSTEM DIAGNOSTICS' },
   ];
 
   return (
@@ -1997,7 +1901,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {currentUser.name || 'Admin'}
             </div>
             <div style={{ fontSize: 11, color: '#6B6963', marginBottom: 8 }}>
-              {currentUser.email || 'admin@woodlem.com'}
+              {currentUser.email || 'admin@woodlempark.ae'}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{
@@ -2012,7 +1916,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               }}>
                 Administrator
               </span>
-              <span style={{ fontSize: 11.5, fontWeight: 600, color: '#2D8C5E' }}>Online</span>
             </div>
           </div>
         )}
@@ -2048,6 +1951,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             const getIcon = () => {
               switch (tab.id) {
                 case 'overview': return <LayoutDashboard size={16} />;
+                case 'delegation': return <ShieldCheck size={16} />;
                 case 'directory': return <Users size={16} />;
                 case 'link_requests': return <UserCheck size={16} />;
                 case 'classes': return <BookOpen size={16} />;
@@ -2055,7 +1959,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 case 'hub': return <Award size={16} />;
                 case 'settings': return <Settings size={16} />;
                 case 'support': return <LifeBuoy size={16} />;
-                case 'system': return <Server size={16} />;
+
               }
             };
 
@@ -2092,27 +1996,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       }}>
                         {getIcon()}
                       </span>
-                      {tab.count !== undefined && tab.count > 0 && (
-                        <span style={{
-                          position: 'absolute',
-                          top: -6,
-                          right: -8,
-                          fontSize: 8.5,
-                          fontWeight: 800,
-                          color: tab.isAlert ? '#92400E' : isActive ? '#1A1A1A' : '#FFFFFF',
-                          background: tab.isAlert ? '#FDE68A' : isActive ? '#FFFFFF' : '#1A1A1A',
-                          border: tab.isAlert ? '1px solid #F59E0B' : '1px solid #FFFFFF',
-                          borderRadius: 8,
-                          padding: '0 3px',
-                          minWidth: 13,
-                          height: 13,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}>
-                          {tab.count}
-                        </span>
-                      )}
                     </div>
                   ) : (
                     <>
@@ -2139,26 +2022,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           {tab.label}
                         </span>
                       </div>
-                      {tab.count !== undefined && (
-                        <span style={{
-                          fontSize: 10.5,
-                          fontWeight: 700,
-                          color: tab.isAlert ? '#92400E' : isActive ? '#1A1A1A' : '#6B6963',
-                          background: tab.isAlert ? '#FDE68A' : isActive ? '#FFFFFF' : '#EDEAE4',
-                          border: tab.isAlert ? '1px solid #F59E0B' : 'none',
-                          borderRadius: 5,
-                          padding: '1px 6px',
-                          flexShrink: 0,
-                        }}>
-                          {tab.count}
-                        </span>
-                      )}
                     </>
                   )}
                 </button>
                 {sidebar.isCollapsed && (
                   <div className="sidebar-tooltip">
-                    {tab.label} {tab.count !== undefined ? `(${tab.count})` : ''}
+                    {tab.label}
                   </div>
                 )}
               </div>
@@ -2238,14 +2107,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
-              Total Records: <strong style={{ color: 'var(--neutral-dark)' }}>{profiles.length}</strong>
-            </span>
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#2C6E6A', letterSpacing: '0.04em' }}>
-              ONLINE
-            </span>
-          </div>
+
         </header>
 
         {/* Scrollable Viewport Content */}
@@ -2281,6 +2143,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           })() : (
             <>
               {activeTab === 'overview' && renderOverview()}
+              {activeTab === 'delegation' && (
+                <SpecialAccessView
+                  currentUser={currentUser}
+                  profiles={profiles}
+                  subjectClasses={subjectClasses}
+                  onRefreshData={onRefreshData}
+                />
+              )}
               {activeTab === 'directory' && renderUserDirectory()}
               {activeTab === 'link_requests' && renderLinkRequests()}
               {activeTab === 'classes' && renderClasses()}
@@ -2299,7 +2169,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {activeTab === 'support' && (
                 <SupportView currentUser={currentUser} />
               )}
-              {activeTab === 'system' && renderSystem()}
+
             </>
           )}
         </div>

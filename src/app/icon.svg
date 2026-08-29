@@ -1,0 +1,50 @@
+<svg width="100" height="100" viewBox="16 13 68 77" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(0, 2)">
+    <!-- 1. Left Leaf - Warm Coral/Orange -->
+    <path
+      d="M26 44 C26 31 37 18 37 18 C37 18 48 31 48 44 C48 53 38 58 37 58 C36 58 26 53 26 44 Z"
+      fill="#F56522"
+    />
+
+    <!-- 2. Right Leaf - Fresh Teal/Cyan -->
+    <path
+      d="M52 44 C52 31 63 18 63 18 C63 18 74 31 74 44 C74 53 64 58 63 58 C62 58 52 53 52 44 Z"
+      fill="#00A896"
+    />
+
+    <!-- 3. Center Leaf - Vibrant Green -->
+    <path
+      d="M39 40 C39 27 50 14 50 14 C50 14 61 27 61 40 C61 50 51 55 50 55 C49 55 39 50 39 40 Z"
+      fill="#70B020"
+    />
+
+    <!-- 4. Base Gate / Fortress in Dark Slate -->
+    <path
+      d="M18 56 
+         C24 56 26 53 37 53 
+         C44 53 46 55 50 55 
+         C54 55 56 53 63 53 
+         C74 53 76 56 82 56 
+         L82 82 
+         C82 85 79 87 76 87 
+         L24 87 
+         C21 87 18 85 18 82 
+         Z"
+      fill="#1C2D42"
+    />
+
+    <!-- 5. Left Minaret Arch Cutout -->
+    <rect x="33" y="66" width="6" height="21" rx="1.5" fill="#FFFFFF" />
+    <path
+      d="M36 59 C36 59 39 63 39 65 C39 66 38 67 36 67 C34 67 33 66 33 65 C33 63 36 59 36 59 Z"
+      fill="#FFFFFF"
+    />
+
+    <!-- 6. Right Minaret Arch Cutout -->
+    <rect x="61" y="66" width="6" height="21" rx="1.5" fill="#FFFFFF" />
+    <path
+      d="M64 59 C64 59 67 63 67 65 C67 66 66 67 64 67 C62 67 61 66 61 65 C61 63 64 59 64 59 Z"
+      fill="#FFFFFF"
+    />
+  </g>
+</svg>

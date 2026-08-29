@@ -2,14 +2,20 @@
 -- Allows both Teachers and Admins to manage assessments and marks.
 -- Run this in the Supabase Dashboard SQL Editor.
 
--- 1. Drop old policies
-DROP POLICY IF EXISTS "Teachers manage their assessment registers" ON public.offline_assessments;
-DROP POLICY IF EXISTS "Authenticated users can select assessment metadata" ON public.offline_assessments;
-DROP POLICY IF EXISTS "Teachers manage marks in their registers" ON public.offline_assessment_marks;
-DROP POLICY IF EXISTS "Students view released individual marks" ON public.offline_assessment_marks;
-DROP POLICY IF EXISTS "Parents view released marks of linked students" ON public.offline_assessment_marks;
-DROP POLICY IF EXISTS "Teachers and admins manage assessment registers" ON public.offline_assessments;
-DROP POLICY IF EXISTS "Teachers and admins manage marks in registers" ON public.offline_assessment_marks;
+-- 1. Drop ALL existing policies dynamically before altering any column types
+DO $$
+DECLARE
+    pol RECORD;
+BEGIN
+    FOR pol IN 
+        SELECT policyname, tablename 
+        FROM pg_policies 
+        WHERE tablename IN ('offline_assessments', 'offline_assessment_marks')
+          AND schemaname = 'public'
+    LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', pol.policyname, pol.tablename);
+    END LOOP;
+END $$;
 
 -- 2. Clean table type constraints: convert UUID columns to TEXT to work with Woodlem profile identifiers
 ALTER TABLE public.offline_assessment_marks DROP CONSTRAINT IF EXISTS offline_assessment_marks_student_id_fkey;

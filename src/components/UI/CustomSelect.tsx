@@ -39,11 +39,18 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [menuPos, setMenuPos] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+    openUpward?: boolean;
+  } | null>(null);
   const [mounted, setMounted] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -62,10 +69,26 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   const calculatePosition = useCallback(() => {
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const spaceBelow = viewportHeight - rect.bottom - 12;
+      const spaceAbove = rect.top - 12;
+      const preferredMaxHeight = 260;
+
+      // Determine if menu should open upwards
+      const shouldOpenUpward = spaceBelow < 180 && spaceAbove > spaceBelow;
+      const availableSpace = shouldOpenUpward ? spaceAbove : spaceBelow;
+      const maxHeight = Math.min(preferredMaxHeight, Math.max(140, availableSpace));
+
+      const top = shouldOpenUpward
+        ? Math.max(8, rect.top - maxHeight - 4)
+        : rect.bottom + 4;
+
       setMenuPos({
-        top: rect.bottom + 4,
+        top,
         left: rect.left,
         width: Math.max(rect.width, 180),
+        maxHeight,
+        openUpward: shouldOpenUpward,
       });
     }
   }, []);
@@ -79,12 +102,12 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     setSearchTerm('');
   };
 
-  // Close on outside click or scroll
+  // Close on outside click or reposition on external scroll
   useEffect(() => {
     if (!isOpen) return;
 
     const handleOutsideClick = (e: MouseEvent) => {
-      const menuEl = document.getElementById('__custom_select_portal__');
+      const menuEl = menuRef.current || document.getElementById('__custom_select_portal__');
       if (
         containerRef.current &&
         !containerRef.current.contains(e.target as Node) &&
@@ -95,20 +118,37 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       }
     };
 
-    const handleClose = () => {
-      setIsOpen(false);
+    const handleScroll = (e: Event) => {
+      const menuEl = menuRef.current || document.getElementById('__custom_select_portal__');
+      // If the scroll event happened inside the dropdown menu itself, DO NOT close or reposition!
+      if (menuEl && (menuEl === e.target || menuEl.contains(e.target as Node))) {
+        return;
+      }
+      // If trigger button is still visible in viewport, recalculate position
+      if (buttonRef.current) {
+        const rect = buttonRef.current.getBoundingClientRect();
+        if (rect.bottom < 0 || rect.top > window.innerHeight) {
+          setIsOpen(false);
+        } else {
+          calculatePosition();
+        }
+      }
+    };
+
+    const handleResize = () => {
+      calculatePosition();
     };
 
     document.addEventListener('mousedown', handleOutsideClick);
-    window.addEventListener('scroll', handleClose, { passive: true, capture: true });
-    window.addEventListener('resize', handleClose, { passive: true });
+    window.addEventListener('scroll', handleScroll, { passive: true, capture: true });
+    window.addEventListener('resize', handleResize, { passive: true });
 
     return () => {
       document.removeEventListener('mousedown', handleOutsideClick);
-      window.removeEventListener('scroll', handleClose, { capture: true });
-      window.removeEventListener('resize', handleClose);
+      window.removeEventListener('scroll', handleScroll, { capture: true });
+      window.removeEventListener('resize', handleResize);
     };
-  }, [isOpen]);
+  }, [isOpen, calculatePosition]);
 
   // Focus search when opened
   useEffect(() => {
@@ -148,7 +188,10 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   const menuNode = isOpen && menuPos ? (
     <div
       id="__custom_select_portal__"
+      ref={menuRef}
       role="listbox"
+      tabIndex={-1}
+      onWheel={(e) => e.stopPropagation()}
       style={{
         position: 'fixed',
         top: menuPos.top,
@@ -156,29 +199,31 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
         width: menuPos.width,
         background: '#FFFFFF',
         border: '1px solid var(--border-color, #E5E3DF)',
-        borderRadius: 6,
-        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.13), 0 2px 6px rgba(0, 0, 0, 0.06)',
-        zIndex: 99999,
-        maxHeight: 260,
+        borderRadius: 8,
+        boxShadow: '0 12px 32px rgba(0, 0, 0, 0.16), 0 2px 8px rgba(0, 0, 0, 0.08)',
+        zIndex: 999999,
+        maxHeight: menuPos.maxHeight || 260,
         overflowY: 'auto',
-        padding: '4px',
+        overscrollBehavior: 'contain',
+        padding: '6px',
+        scrollbarWidth: 'thin',
         ...menuStyle,
       }}
     >
       {searchable && (
-        <div style={{ padding: '4px', borderBottom: '1px solid #ECEAE5', marginBottom: 4 }}>
+        <div style={{ padding: '4px', borderBottom: '1px solid #ECEAE5', marginBottom: 6 }}>
           <input
             ref={searchInputRef}
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search..."
+            placeholder="Search options..."
             style={{
               width: '100%',
-              padding: '6px 8px',
-              fontSize: 11.5,
+              padding: '7px 9px',
+              fontSize: 12,
               border: '1px solid var(--border-color, #E5E3DF)',
-              borderRadius: 4,
+              borderRadius: 6,
               outline: 'none',
               background: '#FAF9F6',
             }}
@@ -188,7 +233,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       )}
 
       {filteredOptions.length === 0 ? (
-        <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-secondary, #7A7874)', textAlign: 'center' }}>
+        <div style={{ padding: '12px 14px', fontSize: 12, color: 'var(--text-secondary, #7A7874)', textAlign: 'center' }}>
           No options available
         </div>
       ) : (
@@ -201,17 +246,18 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
               aria-selected={isSelected}
               onClick={() => handleSelect(opt.value, opt.disabled)}
               style={{
-                padding: '8px 10px',
-                borderRadius: 4,
-                fontSize: 12,
+                padding: '9px 12px',
+                borderRadius: 6,
+                fontSize: 12.5,
                 fontWeight: isSelected ? 700 : 500,
-                color: opt.disabled ? '#A09E9A' : isSelected ? '#2D2C2A' : 'var(--neutral-dark, #2D2C2A)',
+                color: opt.disabled ? '#A09E9A' : isSelected ? '#1A1A1A' : 'var(--neutral-dark, #2D2C2A)',
                 background: isSelected ? '#F2F1EE' : 'transparent',
                 cursor: opt.disabled ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 transition: 'background 0.12s ease',
+                marginBottom: 2,
               }}
               onMouseEnter={(e) => {
                 if (!isSelected && !opt.disabled) e.currentTarget.style.background = '#FAF9F6';
@@ -225,13 +271,13 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
                   {opt.label}
                 </div>
                 {opt.sublabel && (
-                  <div style={{ fontSize: 10.5, color: 'var(--text-secondary, #7A7874)', marginTop: 1 }}>
+                  <div style={{ fontSize: 10.5, color: 'var(--text-secondary, #7A7874)', marginTop: 2 }}>
                     {opt.sublabel}
                   </div>
                 )}
               </div>
               {isSelected && (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2D2C2A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               )}
@@ -273,7 +319,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
           justifyContent: 'space-between',
           padding: '8px 12px',
           background: '#FFFFFF',
-          border: isOpen ? '1px solid #2D2C2A' : '1px solid var(--border-color, #E5E3DF)',
+          border: isOpen ? '1px solid #1A1A1A' : '1px solid var(--border-color, #E5E3DF)',
           borderRadius: 6,
           color: selectedOption ? 'var(--neutral-dark, #2D2C2A)' : 'var(--text-secondary, #7A7874)',
           fontSize: 12.5,
@@ -281,7 +327,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
           textAlign: 'left',
           cursor: disabled ? 'not-allowed' : 'pointer',
           outline: 'none',
-          boxShadow: isOpen ? '0 0 0 2px rgba(45, 44, 42, 0.12)' : 'none',
+          boxShadow: isOpen ? '0 0 0 2px rgba(26, 26, 26, 0.1)' : 'none',
           transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
           ...buttonStyle,
         }}

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Users, Award, BookOpen, UserCheck, MessageSquare, LayoutDashboard, Calendar, Settings, LifeBuoy, LogOut, Megaphone, FileText, Pin, PinOff, SlidersHorizontal, Check, Video, Link2, X, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Users, Award, BookOpen, UserCheck, MessageSquare, LayoutDashboard, Calendar, Settings, LifeBuoy, LogOut, Megaphone, FileText, Pin, PinOff, SlidersHorizontal, Check, Video, Link2, X, Plus, Edit3 } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import {
@@ -15,9 +15,11 @@ import {
   ClassResource,
   ClassBroadcast,
   ResourceType,
+  SpecialRoleAssignment,
+  LeaveRequest,
 } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
-import { ManageClassStudentsModal } from '../Modals/ManageClassStudentsModal';
+import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { ReviewTestResultsModal, TestResultRecord } from '../Modals/ReviewTestResultsModal';
 import { GradeAssignmentModal, AssignmentSubmissionRecord } from '../Modals/GradeAssignmentModal';
 import { ViewFileModal } from '../Modals/ViewFileModal';
@@ -28,6 +30,17 @@ import { SupportView } from '@/components/Shared/SupportView';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 import { openFileInNewTab, downloadFile, formatShortFileName } from '@/lib/fileHelper';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
+import { isHodUser, isCoordinatorUser, loadSpecialRoleAssignments, ACADEMIC_DEPARTMENTS } from '@/lib/specialRolesHelper';
+import { computeExecutiveAnalytics } from '@/lib/analyticsHelper';
+import {
+  KpiSparklineCard,
+  MatrixTrendChart,
+  PinBarBreakdownChart,
+  RecentRegistersTable,
+  ScoreDistributionChart,
+  SubjectComparisonChart,
+} from '@/components/UI/AnalyticsCharts';
+import { ShieldCheck, Layers, Crown } from 'lucide-react';
 
 interface TeacherDashboardProps {
   currentUser: UserProfile;
@@ -91,6 +104,9 @@ interface TeacherDashboardProps {
   onDeleteTopic: (termId: string, topicId: string) => void;
   onToggleTopicCheck: (termId: string, topicId: string, role: 'teacher' | 'student', isChecked: boolean) => void;
   onSaveAttendance: (date: string, records: Record<string, string>) => void;
+  leaveRequests?: LeaveRequest[];
+  onApproveLeave?: (leaveId: string, studentId?: string) => Promise<void> | void;
+  onRejectLeave?: (leaveId: string, studentId?: string) => Promise<void> | void;
   onOpenCreateHubActivityModal: () => void;
   onDeleteHubActivity: (id: string) => void;
   onEditHubActivity?: (activity: HubActivity) => void;
@@ -134,6 +150,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   onDeleteTopic,
   onToggleTopicCheck,
   onSaveAttendance,
+  leaveRequests = [],
+  onApproveLeave,
+  onRejectLeave,
   onOpenCreateHubActivityModal,
   onDeleteHubActivity,
   onEditHubActivity,
@@ -141,14 +160,67 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   onRefreshData,
   onSignOut,
 }) => {
-  const [isManageStudentsOpen, setIsManageStudentsOpen] = useState(false);
   const [isEditClassModalOpen, setIsEditClassModalOpen] = useState(false);
   const sidebar = useSidebarState('auto-hide');
   const [selectedReviewTest, setSelectedReviewTest] = useState<TestItem | null>(null);
   const [selectedGradeAssignment, setSelectedGradeAssignment] = useState<AssignmentItem | null>(null);
   const [isMarkEntryOpen, setIsMarkEntryOpen] = useState(false);
-  // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'hub' | 'settings' | 'support'
-  const [activeNavMode, setActiveNavMode] = useState<'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'hub' | 'settings' | 'support'>('class');
+  // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub'
+  const [activeNavMode, setActiveNavMode] = useState<'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub'>('class');
+
+  const [specialAssignments, setSpecialAssignments] = useState<SpecialRoleAssignment[]>([]);
+  useEffect(() => {
+    loadSpecialRoleAssignments().then(setSpecialAssignments);
+  }, []);
+
+  const userHodAssignment = useMemo(() => {
+    return specialAssignments.find(
+      (a) =>
+        (a.userId === currentUser.id || (a.userEmail && currentUser.email && a.userEmail.toLowerCase() === currentUser.email.toLowerCase())) &&
+        a.roleType === 'hod'
+    );
+  }, [specialAssignments, currentUser]);
+
+  const userCoordAssignment = useMemo(() => {
+    return specialAssignments.find(
+      (a) =>
+        (a.userId === currentUser.id || (a.userEmail && currentUser.email && a.userEmail.toLowerCase() === currentUser.email.toLowerCase())) &&
+        a.roleType === 'coordinator'
+    );
+  }, [specialAssignments, currentUser]);
+
+  const userDepartmentDef = useMemo(() => {
+    if (userHodAssignment?.department) {
+      return ACADEMIC_DEPARTMENTS.find((d) => d.name === userHodAssignment.department);
+    }
+    if (currentUser.department) {
+      return ACADEMIC_DEPARTMENTS.find((d) => d.name === currentUser.department);
+    }
+    if (currentUser.subject) {
+      return ACADEMIC_DEPARTMENTS.find((d) => d.subjects.some((s) => s.toLowerCase() === (currentUser.subject || '').toLowerCase()));
+    }
+    return null;
+  }, [userHodAssignment, currentUser]);
+
+  // Classes under this teacher's HOD department across all teachers in school
+  const departmentClassrooms = useMemo(() => {
+    if (!userDepartmentDef) return [];
+    return subjectClasses.filter((c) =>
+      userDepartmentDef.subjects.some((s) => (c.subject || '').toLowerCase().includes(s.toLowerCase()))
+    );
+  }, [userDepartmentDef, subjectClasses]);
+
+  const departmentAnalytics = useMemo(() => {
+    return computeExecutiveAnalytics({
+      profiles,
+      subjectClasses: departmentClassrooms.length > 0 ? departmentClassrooms : subjectClasses,
+      tests,
+      syllabus,
+      attendance,
+      testResults,
+      selectedGradeFilter: 'all',
+    });
+  }, [profiles, departmentClassrooms, subjectClasses, tests, syllabus, attendance, testResults]);
 
   // Sidebar profile photo (synced with Supabase cloud & local cache)
   const [sidebarAvatarUrl, setSidebarAvatarUrl] = useState<string | null>(() => {
@@ -188,8 +260,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     }
   }, [currentUser.id, currentUser.email]);
 
-  // Sub-tabs inside a subject classroom: 'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'roster'
-  const [classSubTab, setClassSubTab] = useState<'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'roster'>('broadcasts');
+  // Sub-tabs inside a subject classroom: 'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'students'
+  const [classSubTab, setClassSubTab] = useState<'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'students'>('broadcasts');
 
   // Broadcasts Composer State (Full-Page Inline)
   const [broadcastTitle, setBroadcastTitle] = useState('');
@@ -216,11 +288,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // General Resource preview modal
   const [previewingResource, setPreviewingResource] = useState<ClassResource | null>(null);
 
-  // Sub-tabs inside Homeroom Attendance: 'mark' (Take Daily Roll Call) vs 'history' (Full Attendance Register & History)
-  const [attendanceViewMode, setAttendanceViewMode] = useState<'mark' | 'history'>('history');
+  // Sub-tabs inside Homeroom Attendance: 'mark' (Daily Roll Call), 'history' (Monthly Matrix & History), 'leaves' (Permit Leave Requests)
+  const [attendanceViewMode, setAttendanceViewMode] = useState<'mark' | 'history' | 'leaves'>('mark');
+  const [leaveStatusFilter, setLeaveStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
 
-  // Inside Full Attendance Register: 'by_date' | 'by_student' | 'matrix'
-  const [historyTab, setHistoryTab] = useState<'by_date' | 'by_student' | 'matrix'>('by_date');
+  // Inside Full Attendance Register: 'matrix' | 'by_student' | 'by_date'
+  const [historyTab, setHistoryTab] = useState<'matrix' | 'by_student' | 'by_date'>('matrix');
 
   // Selected date for viewing historical session details (controlled by dropdown)
   const [viewingHistoryDate, setViewingHistoryDate] = useState<string>('');
@@ -308,7 +381,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             setSelectedClassId(teacherClasses[0].id);
           }
           const sub = target.subTab || (['resources', 'tasks', 'syllabus', 'broadcasts'].includes(target.view || '') ? target.view : 'tasks');
-          if (sub && ['broadcasts', 'resources', 'tasks', 'syllabus', 'roster'].includes(sub)) {
+          if (sub && ['broadcasts', 'resources', 'tasks', 'syllabus', 'students'].includes(sub)) {
             setClassSubTab(sub as any);
           }
         } else {
@@ -502,6 +575,49 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [saveFeedback, setSaveFeedback] = useState('');
   const [historyStudentSearch, setHistoryStudentSearch] = useState('');
 
+  // Homeroom students' permit leave requests
+  const homeroomLeaveRequests = useMemo(() => {
+    const studentIdSet = new Set(homeroomStudents.map((s) => s.id));
+    const studentEmailSet = new Set(homeroomStudents.map((s) => (s.email || '').toLowerCase()).filter(Boolean));
+    return (leaveRequests || []).filter(
+      (l) => studentIdSet.has(l.student_id) || studentEmailSet.has(l.student_id.toLowerCase())
+    );
+  }, [leaveRequests, homeroomStudents]);
+
+  const pendingLeaves = useMemo(() => {
+    return homeroomLeaveRequests.filter((l) => l.status === 'submitted' || !l.status);
+  }, [homeroomLeaveRequests]);
+
+  const leavesCounts = useMemo(() => {
+    const pending = homeroomLeaveRequests.filter((l) => l.status === 'submitted' || !l.status).length;
+    const approved = homeroomLeaveRequests.filter((l) => l.status === 'approved').length;
+    const rejected = homeroomLeaveRequests.filter((l) => l.status === 'rejected').length;
+    return { all: homeroomLeaveRequests.length, pending, approved, rejected };
+  }, [homeroomLeaveRequests]);
+
+  const filteredLeavesForTeacher = useMemo(() => {
+    return homeroomLeaveRequests.filter((leave) => {
+      const student = profiles.find((p) => p.id === leave.student_id || p.email === leave.student_id);
+      const isPending = leave.status === 'submitted' || !leave.status;
+      const isApproved = leave.status === 'approved';
+      const isRejected = leave.status === 'rejected';
+
+      if (leaveStatusFilter === 'pending' && !isPending) return false;
+      if (leaveStatusFilter === 'approved' && !isApproved) return false;
+      if (leaveStatusFilter === 'rejected' && !isRejected) return false;
+
+      if (historyStudentSearch.trim()) {
+        const q = historyStudentSearch.trim().toLowerCase();
+        const stName = (student?.name || '').toLowerCase();
+        const adm = (student?.admission_number || student?.user_code || '').toLowerCase();
+        const reason = (leave.reason || '').toLowerCase();
+        const lType = (leave.leaveType || '').toLowerCase();
+        return stName.includes(q) || adm.includes(q) || reason.includes(q) || lType.includes(q);
+      }
+      return true;
+    });
+  }, [homeroomLeaveRequests, profiles, leaveStatusFilter, historyStudentSearch]);
+
   // Sync daily attendance records when date changes
   useEffect(() => {
     const existing = attendance[selectedDate] || {};
@@ -512,8 +628,49 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     setDailyRecords(populated);
   }, [selectedDate, attendance, homeroomStudents]);
 
-  const handleAttendanceRadio = (studentId: string, value: string) => {
-    setDailyRecords((prev) => ({ ...prev, [studentId]: value }));
+  const focusNextStudent = (currIdx: number) => {
+    if (currIdx < homeroomStudents.length - 1) {
+      const nextInput = document.getElementById(`roll_key_${currIdx + 1}`);
+      if (nextInput) {
+        (nextInput as HTMLInputElement).focus();
+        (nextInput as HTMLInputElement).select();
+      }
+    }
+  };
+
+  const focusPrevStudent = (currIdx: number) => {
+    if (currIdx > 0) {
+      const prevInput = document.getElementById(`roll_key_${currIdx - 1}`);
+      if (prevInput) {
+        (prevInput as HTMLInputElement).focus();
+        (prevInput as HTMLInputElement).select();
+      }
+    }
+  };
+
+  const handleSetStudentStatus = (studentId: string, idx: number, status: 'present' | 'unauth_absent' | 'auth_absent') => {
+    setDailyRecords((prev) => ({ ...prev, [studentId]: status }));
+    focusNextStudent(idx);
+  };
+
+  const handleRapidKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, idx: number, studentId: string) => {
+    const key = e.key.toUpperCase();
+    if (key === 'P') {
+      e.preventDefault();
+      handleSetStudentStatus(studentId, idx, 'present');
+    } else if (key === 'A') {
+      e.preventDefault();
+      handleSetStudentStatus(studentId, idx, 'unauth_absent');
+    } else if (key === 'L') {
+      e.preventDefault();
+      handleSetStudentStatus(studentId, idx, 'auth_absent');
+    } else if (e.key === 'ArrowDown' || e.key === 'Enter') {
+      e.preventDefault();
+      focusNextStudent(idx);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      focusPrevStudent(idx);
+    }
   };
 
   const handleMarkAllPresent = () => {
@@ -522,6 +679,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       updated[st.id] = 'present';
     });
     setDailyRecords(updated);
+  };
+
+  const handleClearAllAttendance = () => {
+    const cleared: Record<string, string> = {};
+    homeroomStudents.forEach((st) => {
+      cleared[st.id] = '';
+    });
+    setDailyRecords(cleared);
   };
 
   const handleSaveAttendanceClick = async () => {
@@ -718,12 +883,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const attendanceRate = markedCount > 0 ? Math.round((presentCount / markedCount) * 100) : 0;
 
   let reportText = `Daily Homeroom Attendance Report — Woodlem Park School\nDate: ${selectedDate}\nHomeroom: ${homeroomLabel}\nClass Teacher: ${currentUser.name}\n\n`;
-  reportText += `Total Enrolled: ${homeroomStudents.length}\nMarked Present: ${presentCount} (${attendanceRate}%)\nAuthorized Absences: ${authCount}\nUnauthorized Absences: ${unauthCount}\n`;
+  reportText += `Total Enrolled: ${homeroomStudents.length}\nMarked Present: ${presentCount} (${attendanceRate}%)\nPermit Leave (PL): ${authCount}\nAbsences (A): ${unauthCount}\n`;
   if (authNames.length > 0) {
-    reportText += `\nAuthorized Absences:\n` + authNames.map((n) => `- ${n}`).join('\n') + '\n';
+    reportText += `\nPermit Leaves (PL):\n` + authNames.map((n) => `- ${n}`).join('\n') + '\n';
   }
   if (unauthNames.length > 0) {
-    reportText += `\nUnauthorized Absences (Action Required):\n` + unauthNames.map((n) => `- ${n}`).join('\n') + '\n';
+    reportText += `\nAbsences (A):\n` + unauthNames.map((n) => `- ${n}`).join('\n') + '\n';
   }
 
   const copyReport = () => {
@@ -983,49 +1148,178 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         onMouseLeave={sidebar.handleMouseLeave}
         onDoubleClick={sidebar.togglePin}
       >
-        {/* HEADER SECTION */}
-        <div className="sidebar-header">
-          <div className="sidebar-brand-row">
-            <WoodlemLogo collapsed={sidebar.isCollapsed} />
-          </div>          {/* REDESIGNED TEACHER INFORMATION SECTION */}
-          <div
-            className="sidebar-profile-box"
-            title={`${currentUser.name} • ${currentUser.subject || 'Faculty'} • ${homeroomLabel}`}
-          >
-            <div className="sidebar-profile-avatar-slot">
-              <div className="sidebar-profile-avatar avatar-teacher-themed">
-                {sidebarAvatarUrl ? (
-                  <img
-                    src={sidebarAvatarUrl}
-                    alt={currentUser.name}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    onError={(e) => {
-                      (e.currentTarget as HTMLElement).style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  (currentUser.name || 'T').charAt(0).toUpperCase()
-                )}
-              </div>
+        {/* LOGO */}
+        <div style={{ padding: sidebar.isCollapsed ? '16px 0 0 0' : '16px 16px 0 16px', flexShrink: 0, overflow: 'hidden' }}>
+          <WoodlemLogo collapsed={sidebar.isCollapsed} />
+        </div>
+
+        {/* CONSOLE LABEL */}
+        {!sidebar.isCollapsed && (
+          <div style={{
+            padding: '10px 16px 12px',
+            fontSize: 10.5,
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            color: '#8C8A84',
+            textTransform: 'uppercase',
+            borderBottom: '1px solid #E8E5DF',
+            flexShrink: 0,
+            textAlign: 'center',
+          }}>
+            Faculty Workspace Console
+          </div>
+        )}
+
+        {/* PROFILE CARD */}
+        {sidebar.isCollapsed ? (
+          <div style={{ padding: '12px 0 6px', display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
+            <div
+              title={`${currentUser.name} • ${currentUser.subject || 'Faculty'} • ${homeroomLabel}`}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                background: '#8A532B',
+                color: '#FFFFFF',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 13,
+                fontWeight: 700,
+                overflow: 'hidden',
+                flexShrink: 0,
+                border: '1.5px solid #E8E5DF',
+              }}
+            >
+              {sidebarAvatarUrl ? (
+                <img
+                  src={sidebarAvatarUrl}
+                  alt={currentUser.name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={(e) => {
+                    (e.currentTarget as HTMLElement).style.display = 'none';
+                  }}
+                />
+              ) : (
+                (currentUser.name || 'T').charAt(0).toUpperCase()
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={{
+            margin: '12px 12px 0',
+            border: '1px solid #E8E5DF',
+            borderRadius: 8,
+            padding: '10px 12px',
+            background: '#FAF9F6',
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+          }}>
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: '50%',
+                background: '#8A532B',
+                color: '#FFFFFF',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 13,
+                fontWeight: 700,
+                overflow: 'hidden',
+                flexShrink: 0,
+                border: '1.5px solid #E8E5DF',
+              }}
+            >
+              {sidebarAvatarUrl ? (
+                <img
+                  src={sidebarAvatarUrl}
+                  alt={currentUser.name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={(e) => {
+                    (e.currentTarget as HTMLElement).style.display = 'none';
+                  }}
+                />
+              ) : (
+                (currentUser.name || 'T').charAt(0).toUpperCase()
+              )}
             </div>
 
-            <div className="profile-details-expanded">
-              <div className="sidebar-profile-name">
+            <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.25 }}>
                 {currentUser.name}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                <span className="sidebar-profile-badge" style={{ background: '#FDF6EE', color: '#8A532B', borderColor: '#EBD4C1' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: '0.06em',
+                  background: '#1A1A1A',
+                  color: '#FFFFFF',
+                  padding: '2px 7px',
+                  borderRadius: 4,
+                  textTransform: 'uppercase',
+                  lineHeight: 1.25,
+                }}>
                   {currentUser.subject || 'Faculty'}
                 </span>
               </div>
-              <div className="sidebar-profile-adm">
+              <div style={{ fontSize: 10.5, color: '#7A7873', fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {homeroomLabel} [Class Teacher]
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         <nav className="nav-menu">
+          {/* SPECIAL HOD HUB IF APPOINTED */}
+          {(userHodAssignment || isHodUser(currentUser)) && (
+            <div className="sidebar-tooltip-wrapper">
+              <button
+                className={`nav-item ${activeNavMode === 'hod_hub' && !isMarkEntryOpen ? 'active' : ''}`}
+                onClick={() => {
+                  setIsMarkEntryOpen(false);
+                  setActiveNavMode('hod_hub');
+                  sidebar.handleNavClick();
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                  <ShieldCheck
+                    size={15}
+                    className="icon"
+                    style={{
+                      color: activeNavMode === 'hod_hub' && !isMarkEntryOpen ? '#FFFFFF' : '#7C5CBF',
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span className="sidebar-text" style={{ flex: 1, fontWeight: 600 }}>
+                    {userDepartmentDef ? `HOD ${userDepartmentDef.code}` : 'HOD Hub'}
+                  </span>
+                  <span
+                    className="sidebar-text"
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 800,
+                      padding: '1px 5px',
+                      borderRadius: 3,
+                      background: activeNavMode === 'hod_hub' && !isMarkEntryOpen ? '#454340' : '#F3EFFA',
+                      color: activeNavMode === 'hod_hub' && !isMarkEntryOpen ? '#FFFFFF' : '#6D28D9',
+                      border: activeNavMode === 'hod_hub' && !isMarkEntryOpen ? '1px solid #5A5854' : '1px solid #DDD6FE',
+                    }}
+                  >
+                    HOD
+                  </span>
+                </div>
+              </button>
+              {sidebar.isCollapsed && (
+                <div className="sidebar-tooltip">HOD Department Hub ({userDepartmentDef?.name || 'Department'})</div>
+              )}
+            </div>
+          )}
+
           {/* 1. HOMEROOM / CLASS TEACHER SECTION */}
           <div className="sidebar-tooltip-wrapper">
             <button
@@ -1038,14 +1332,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
                 <UserCheck size={15} className="icon" style={{ color: activeNavMode === 'homeroom_attendance' && !isMarkEntryOpen ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
-                <span className="sidebar-text" style={{ flex: 1 }}>Attendance &amp; Records</span>
-                <span className="sidebar-text" style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D' }}>
-                  {homeroomLabel}
-                </span>
+                <span className="sidebar-text" style={{ flex: 1 }}>Attendance &amp; Roll Call</span>
               </div>
             </button>
             {sidebar.isCollapsed && (
-              <div className="sidebar-tooltip">Attendance &amp; Records ({homeroomLabel})</div>
+              <div className="sidebar-tooltip">Attendance &amp; Roll Call</div>
             )}
           </div>
 
@@ -1059,13 +1350,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                <Award size={15} className="icon" style={{ color: activeNavMode === 'homeroom_awards' && !isMarkEntryOpen ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <Award size={15} className="icon" style={{ color: activeNavMode === 'homeroom_awards' && !isMarkEntryOpen ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
                 <span className="sidebar-text" style={{ flex: 1 }}>Student Achievements</span>
-                {achievements.length > 0 && (
-                  <span className="sidebar-text" style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 10, background: '#FAF9F6', color: 'var(--text-secondary)' }}>
-                    {achievements.length}
-                  </span>
-                )}
               </div>
             </button>
             {sidebar.isCollapsed && (
@@ -1083,13 +1369,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                <FileText size={15} className="icon" style={{ color: activeNavMode === 'homeroom_resources' && !isMarkEntryOpen ? '#2C6E6A' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <FileText size={15} className="icon" style={{ color: activeNavMode === 'homeroom_resources' && !isMarkEntryOpen ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
                 <span className="sidebar-text" style={{ flex: 1 }}>Class Resources</span>
-                {(homeroomResources.length + homeroomBroadcasts.length) > 0 && (
-                  <span className="sidebar-text" style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 10, background: '#FAF9F6', color: 'var(--text-secondary)' }}>
-                    {homeroomResources.length + homeroomBroadcasts.length}
-                  </span>
-                )}
               </div>
             </button>
             {sidebar.isCollapsed && (
@@ -1182,13 +1463,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                <LayoutDashboard size={15} className="icon" style={{ color: activeNavMode === 'hub' && !isMarkEntryOpen ? '#7C5CBF' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <LayoutDashboard size={15} className="icon" style={{ color: activeNavMode === 'hub' && !isMarkEntryOpen ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
                 <span className="sidebar-text" style={{ flex: 1 }}>My Activities</span>
-                {myHubActivities.length > 0 && (
-                  <span className="sidebar-text" style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 10, background: '#FAF9F6', color: 'var(--text-secondary)' }}>
-                    {myHubActivities.length}
-                  </span>
-                )}
               </div>
             </button>
             {sidebar.isCollapsed && (
@@ -1295,35 +1571,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   {activeClassObj && (
-                    <>
-                      <button
-                        onClick={() => setIsEditClassModalOpen(true)}
-                        className="btn-secondary"
-                        style={{ padding: '7px 12px', fontSize: 12 }}
-                        title="Edit class details"
-                      >
-                        Edit Class
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Delete subject class "${activeClassObj.name}"?`)) {
-                            onDeleteSubjectClass(activeClassObj.id);
-                          }
-                        }}
-                        style={{
-                          padding: '7px 12px',
-                          fontSize: 12,
-                          fontWeight: 600,
-                          background: '#FDF1F0',
-                          border: '1px solid #F5C6CB',
-                          color: '#A83B38',
-                          borderRadius: 6,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Delete
-                      </button>
-                    </>
+                    <button
+                      onClick={() => setIsEditClassModalOpen(true)}
+                      className="btn-secondary"
+                      style={{ padding: '7px 12px', fontSize: 12 }}
+                      title="Edit class details"
+                    >
+                      Edit Class
+                    </button>
                   )}
                   {activeClassObj && (
                     <>
@@ -1384,8 +1639,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   <span className="tab-count">{overallPct}%</span>
                 </button>
                 <button
-                  className={`tab-btn ${classSubTab === 'roster' ? 'active' : ''}`}
-                  onClick={() => setClassSubTab('roster')}
+                  className={`tab-btn ${classSubTab === 'students' ? 'active' : ''}`}
+                  onClick={() => setClassSubTab('students')}
                 >
                   Students
                   <span className="tab-count">{classStudents.length}</span>
@@ -2081,41 +2336,39 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         <div style={{ flex: '1 1 240px', minWidth: 220 }}>
                           <input
                             type="text"
-                            className="form-input"
                             placeholder="Search resources by title, topic tag, or file name..."
                             value={resSearchQuery}
                             onChange={(e) => setResSearchQuery(e.target.value)}
-                            style={{ width: '100%', fontSize: 12, padding: '7px 12px' }}
+                            style={{
+                              width: '100%',
+                              height: 32,
+                              padding: '0 12px',
+                              fontSize: 12,
+                              borderRadius: 6,
+                              border: '1px solid #E5E3DF',
+                              background: '#FFFFFF',
+                              color: '#1A1A1A',
+                              outline: 'none',
+                              boxSizing: 'border-box',
+                            }}
                           />
                         </div>
 
                         {/* Type Filter Pills */}
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {[
-                            { id: 'all', label: `All (${thisClassResources.length})` },
-                            { id: 'pdf', label: `PDFs (${thisClassResources.filter((r) => r.resource_type === 'pdf').length})` },
-                            { id: 'slides', label: `Slides (${thisClassResources.filter((r) => r.resource_type === 'slides').length})` },
-                            { id: 'worksheet', label: `Worksheets (${thisClassResources.filter((r) => r.resource_type === 'worksheet').length})` },
-                            { id: 'link', label: `Links (${thisClassResources.filter((r) => r.resource_type === 'link').length})` },
-                          ].map((pill) => (
-                            <button
-                              key={pill.id}
-                              type="button"
-                              onClick={() => setResTypeFilter(pill.id as any)}
-                              style={{
-                                padding: '4px 10px',
-                                fontSize: 11,
-                                fontWeight: 600,
-                                borderRadius: 4,
-                                border: resTypeFilter === pill.id ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
-                                background: resTypeFilter === pill.id ? '#2D2C2A' : '#FFFFFF',
-                                color: resTypeFilter === pill.id ? '#FFFFFF' : 'var(--neutral-dark)',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              {pill.label}
-                            </button>
-                          ))}
+                        <div style={{ display: 'flex' }}>
+                          <SegmentedControl
+                            value={resTypeFilter}
+                            onChange={(val) => setResTypeFilter(val as any)}
+                            options={[
+                              { value: 'all', label: `All (${thisClassResources.length})` },
+                              { value: 'pdf', label: `PDFs (${thisClassResources.filter((r) => r.resource_type === 'pdf').length})` },
+                              { value: 'slides', label: `Slides (${thisClassResources.filter((r) => r.resource_type === 'slides').length})` },
+                              { value: 'worksheet', label: `Worksheets (${thisClassResources.filter((r) => r.resource_type === 'worksheet').length})` },
+                              { value: 'link', label: `Links (${thisClassResources.filter((r) => r.resource_type === 'link').length})` },
+                            ]}
+                            height={32}
+                            textTransform="none"
+                          />
                         </div>
                       </div>
 
@@ -2613,8 +2866,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </div>
                   )}
 
-                  {/* SUBTAB 5: STUDENT ROSTER (Full-Page Inline Management) */}
-                  {classSubTab === 'roster' && (
+                  {/* SUBTAB 5: ENROLLED STUDENTS */}
+                  {classSubTab === 'students' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                       <div
                         style={{
@@ -2631,7 +2884,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       >
                         <div>
                           <h4 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                            Enrolled Student Roster ({classStudents.length} Students)
+                            Enrolled Students ({classStudents.length})
                           </h4>
                           <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
                             Students who have active access to this classroom, its broadcasts, resources, and assessments.
@@ -2640,11 +2893,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
                         <button
                           type="button"
-                          className="btn-primary"
-                          onClick={() => setIsManageStudentsOpen(true)}
+                          className="btn-secondary"
+                          onClick={() => setIsEditClassModalOpen(true)}
                           style={{ padding: '6px 14px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
                         >
-                          <Settings size={13} /> Quick Manage Roster
+                          <Edit3 size={13} /> Edit Class Students
                         </button>
                       </div>
 
@@ -2657,10 +2910,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                             <button
                               type="button"
                               className="btn-primary"
-                              onClick={() => setIsManageStudentsOpen(true)}
+                              onClick={() => setIsEditClassModalOpen(true)}
                               style={{ padding: '6px 14px', fontSize: 12 }}
                             >
-                              + Enroll Students Now
+                              + Edit Class to Add Students
                             </button>
                           </div>
                         ) : (
@@ -2736,50 +2989,81 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           </>
         )}
 
-        {/* VIEW 2: HOMEROOM ATTENDANCE & ROLL CALL (WITH FULL ATTENDANCE REGISTER & HISTORY) */}
+        {/* VIEW 2: HOMEROOM ATTENDANCE & ROLL CALL (WITH RAPID DAILY ROLL CALL & MONTHLY MATRIX) */}
         {activeNavMode === 'homeroom_attendance' && (
           <>
             <header className="content-header">
-              <div className="header-top">
+              <div className="header-top" style={{ alignItems: 'flex-start' }}>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#2C6E6A', letterSpacing: '0.06em' }}>
-                    HOMEROOM CLASS TEACHER REGISTER · {homeroomLabel}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', textTransform: 'uppercase' }}>
+                      Homeroom Register
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                      {homeroomLabel}
+                    </span>
                   </div>
-                  <h1 className="page-title" style={{ margin: '2px 0 0' }}>
+                  <h1 className="page-title" style={{ margin: 0 }}>
                     Attendance Roll Call &amp; Records
                   </h1>
                 </div>
 
                 {attendanceViewMode === 'mark' ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input
-                      type="date"
-                      className="form-input"
-                      value={selectedDate}
-                      onChange={(e) => setSelectedDate(e.target.value)}
-                      style={{ width: 150, padding: '6px 10px', fontSize: 12 }}
-                    />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                        Date:
+                      </label>
+                      <input
+                        type="date"
+                        className="form-input"
+                        value={selectedDate}
+                        onChange={(e) => setSelectedDate(e.target.value)}
+                        style={{ width: 145, padding: '5px 8px', fontSize: 12, fontWeight: 600 }}
+                      />
+                    </div>
                     <button
+                      type="button"
                       onClick={handleMarkAllPresent}
                       style={{
                         padding: '6px 12px',
                         fontSize: 11.5,
                         fontWeight: 600,
-                        background: '#EBF3F2',
-                        color: '#2C6E6A',
-                        border: '1px solid #CBE2DF',
+                        background: '#EAF3EF',
+                        color: '#2D6E5D',
+                        border: '1px solid #C7E4D8',
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      <Check size={13} /> Mark All Present
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearAllAttendance}
+                      style={{
+                        padding: '6px 10px',
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        background: '#FFFFFF',
+                        color: 'var(--text-secondary)',
+                        border: '1px solid var(--border-color)',
                         borderRadius: 6,
                         cursor: 'pointer',
                       }}
                     >
-                      Mark All Present
+                      Clear
                     </button>
                     <button
+                      type="button"
                       onClick={handleSaveAttendanceClick}
                       style={{
-                        padding: '6px 14px',
+                        padding: '6px 16px',
                         fontSize: 11.5,
-                        fontWeight: 600,
+                        fontWeight: 700,
                         background: '#2D2C2A',
                         color: '#FFFFFF',
                         border: '1px solid #2D2C2A',
@@ -2794,35 +3078,101 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <input
                       type="text"
-                      placeholder="Search student in records..."
-                      className="form-input"
-                      style={{ width: 220, padding: '6px 10px', fontSize: 12 }}
+                      placeholder={attendanceViewMode === 'history' ? "Search student in records..." : "Search student or reason..."}
                       value={historyStudentSearch}
                       onChange={(e) => setHistoryStudentSearch(e.target.value)}
+                      style={{
+                        height: 32,
+                        width: 240,
+                        padding: '0 12px',
+                        fontSize: 12,
+                        borderRadius: 6,
+                        border: '1px solid #E5E3DF',
+                        background: '#FFFFFF',
+                        color: '#1A1A1A',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                      }}
                     />
                   </div>
                 )}
               </div>
 
-              {/* Subtabs to toggle between Taking Roll Call and Viewing Full History */}
+              {/* Primary Tabs */}
               <div className="tabs">
                 <button
-                  className={`tab-btn ${attendanceViewMode === 'history' ? 'active' : ''}`}
-                  onClick={() => setAttendanceViewMode('history')}
-                >
-                  Full Attendance Register &amp; History ({homeroomHistoryAnalytics.recordedDatesCount} Sessions)
-                </button>
-                <button
+                  type="button"
                   className={`tab-btn ${attendanceViewMode === 'mark' ? 'active' : ''}`}
                   onClick={() => setAttendanceViewMode('mark')}
                 >
-                  Take Daily Roll Call ({selectedDate})
+                  Daily Roll Call ({selectedDate})
+                </button>
+                <button
+                  type="button"
+                  className={`tab-btn ${attendanceViewMode === 'history' ? 'active' : ''}`}
+                  onClick={() => setAttendanceViewMode('history')}
+                >
+                  Monthly Matrix &amp; History
+                  <span className="tab-count">{homeroomHistoryAnalytics.recordedDatesCount}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`tab-btn ${attendanceViewMode === 'leaves' ? 'active' : ''}`}
+                  onClick={() => setAttendanceViewMode('leaves')}
+                >
+                  Permit Leave (PL) Requests
+                  {pendingLeaves.length > 0 ? (
+                    <span className="tab-count" style={{ background: '#D97706', color: '#FFFFFF', fontWeight: 700 }}>
+                      {pendingLeaves.length} Pending
+                    </span>
+                  ) : homeroomLeaveRequests.length > 0 ? (
+                    <span className="tab-count">{homeroomLeaveRequests.length}</span>
+                  ) : null}
                 </button>
               </div>
             </header>
 
-            <div className="content-body" style={{ padding: '24px 32px' }}>
-              {/* SUBMODE 1: TAKE DAILY ROLL CALL */}
+            <div className="content-body">
+              {/* PENDING PERMIT LEAVE NOTIFICATION BANNER (when on other tabs) */}
+              {pendingLeaves.length > 0 && attendanceViewMode !== 'leaves' && (
+                <div
+                  style={{
+                    marginBottom: 16,
+                    padding: '10px 16px',
+                    borderRadius: 8,
+                    background: '#FFFBEB',
+                    border: '1px solid #FDE68A',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    color: '#92400E',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                    <span>🔔</span>
+                    <span>
+                      <strong>{pendingLeaves.length} Permit Leave (PL) request{pendingLeaves.length > 1 ? 's' : ''}</strong> submitted by students in your homeroom are awaiting review.
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setAttendanceViewMode('leaves')}
+                    style={{
+                      padding: '4px 12px',
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      background: '#D97706',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Review &amp; Approve
+                  </button>
+                </div>
+              )}
+
+              {/* TAB 1: RAPID DAILY ROLL CALL */}
               {attendanceViewMode === 'mark' && (
                 <div>
                   {saveFeedback && (
@@ -2831,7 +3181,29 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </div>
                   )}
 
-                  {/* Attendance Sheet */}
+                  {/* Summary Metric Counter Bar */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <div style={{ padding: '6px 12px', borderRadius: 6, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', fontSize: 12, fontWeight: 700 }}>
+                        ● {presentCount} Present
+                      </div>
+                      <div style={{ padding: '6px 12px', borderRadius: 6, background: '#FDF1F0', color: '#DC2626', border: '1px solid #FECACA', fontSize: 12, fontWeight: 700 }}>
+                        ● {unauthCount} Absent
+                      </div>
+                      <div style={{ padding: '6px 12px', borderRadius: 6, background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', fontSize: 12, fontWeight: 700 }}>
+                        ● {authCount} Permit Leave (PL)
+                      </div>
+                      <div style={{ padding: '6px 12px', borderRadius: 6, background: '#F8F7F4', color: 'var(--text-secondary)', border: '1px solid #ECEAE5', fontSize: 12, fontWeight: 600 }}>
+                        Total: {homeroomStudents.length} Students
+                      </div>
+                    </div>
+
+                    <div style={{ fontSize: 11.5, color: '#6B7280', background: '#F9FAFB', padding: '6px 10px', borderRadius: 6, border: '1px solid #E5E7EB' }}>
+                      ⌨️ <strong>Quick Keys:</strong> Type <kbd style={{ background: '#FFF', border: '1px solid #D1D5DB', padding: '1px 4px', borderRadius: 3, fontWeight: 700 }}>P</kbd> (Present), <kbd style={{ background: '#FFF', border: '1px solid #D1D5DB', padding: '1px 4px', borderRadius: 3, fontWeight: 700 }}>A</kbd> (Absent), or <kbd style={{ background: '#FFF', border: '1px solid #D1D5DB', padding: '1px 4px', borderRadius: 3, fontWeight: 700 }}>L</kbd> (Permit Leave) to record and auto-jump to the next student.
+                    </div>
+                  </div>
+
+                  {/* Fast Roll Call Table */}
                   <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
                     {homeroomStudents.length === 0 ? (
                       <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
@@ -2840,49 +3212,195 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     ) : (
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                         <thead>
-                          <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10, textTransform: 'uppercase' }}>
-                            <th style={{ textAlign: 'left', padding: '8px 12px', width: 36 }}>#</th>
-                            <th style={{ textAlign: 'left', padding: '8px 12px' }}>Student Name</th>
-                            <th style={{ textAlign: 'left', padding: '8px 12px' }}>Admission No.</th>
-                            <th style={{ textAlign: 'center', padding: '8px 12px' }}>Present</th>
-                            <th style={{ textAlign: 'center', padding: '8px 12px' }}>Auth Absent</th>
-                            <th style={{ textAlign: 'center', padding: '8px 12px' }}>Unauth Absent</th>
+                          <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10.5, textTransform: 'uppercase' }}>
+                            <th style={{ textAlign: 'left', padding: '10px 14px', width: 36 }}>#</th>
+                            <th style={{ textAlign: 'left', padding: '10px 14px' }}>Student Name</th>
+                            <th style={{ textAlign: 'left', padding: '10px 14px', width: 140 }}>Admission No.</th>
+                            <th style={{ textAlign: 'center', padding: '10px 14px', width: 90 }}>Key Entry</th>
+                            <th style={{ textAlign: 'center', padding: '10px 14px', width: 320 }}>Mark Attendance</th>
+                            <th style={{ textAlign: 'center', padding: '10px 14px', width: 130 }}>Status</th>
                           </tr>
                         </thead>
                         <tbody>
                           {homeroomStudents.map((st, idx) => {
                             const status = dailyRecords[st.id] || 'present';
+                            const keyLetter = status === 'present' ? 'P' : status === 'unauth_absent' ? 'A' : status === 'auth_absent' ? 'PL' : '';
+
                             return (
-                              <tr key={st.id} style={{ borderBottom: '1px solid #ECEAE5' }}>
-                                <td style={{ padding: '8px 12px', color: '#9E9B95' }}>{idx + 1}</td>
-                                <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--neutral-dark)' }}>{st.name}</td>
-                                <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 11 }}>{st.admission_number || st.user_code || '—'}</td>
-                                <td style={{ textAlign: 'center', padding: '8px 12px' }}>
+                              <tr
+                                key={st.id}
+                                style={{
+                                  borderBottom: '1px solid #ECEAE5',
+                                  background: idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7',
+                                }}
+                              >
+                                <td style={{ padding: '10px 14px', color: '#9E9B95', fontWeight: 600 }}>{idx + 1}</td>
+                                <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                                  {st.name}
+                                </td>
+                                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: 11.5, color: '#55534E' }}>
+                                  {st.admission_number || st.user_code || '—'}
+                                </td>
+
+                                {/* Quick Single-Key Input (P / A / L) with instant focus-next */}
+                                <td style={{ textAlign: 'center', padding: '8px 10px' }}>
                                   <input
-                                    type="radio"
-                                    name={`att-${st.id}`}
-                                    checked={status === 'present'}
-                                    onChange={() => handleAttendanceRadio(st.id, 'present')}
-                                    style={{ accentColor: '#2C6E6A', cursor: 'pointer' }}
+                                    id={`roll_key_${idx}`}
+                                    type="text"
+                                    maxLength={2}
+                                    value={keyLetter}
+                                    onChange={(e) => {
+                                      const val = e.target.value.trim().toUpperCase();
+                                      if (val === 'P') handleSetStudentStatus(st.id, idx, 'present');
+                                      else if (val === 'A') handleSetStudentStatus(st.id, idx, 'unauth_absent');
+                                      else if (val === 'L' || val === 'PL') handleSetStudentStatus(st.id, idx, 'auth_absent');
+                                    }}
+                                    onKeyDown={(e) => handleRapidKeyDown(e, idx, st.id)}
+                                    onFocus={(e) => e.target.select()}
+                                    placeholder="—"
+                                    style={{
+                                      width: 44,
+                                      height: 32,
+                                      textAlign: 'center',
+                                      fontSize: 12.5,
+                                      fontWeight: 800,
+                                      fontFamily: 'monospace',
+                                      borderRadius: 6,
+                                      border: status === 'present'
+                                        ? '1.5px solid #2D6E5D'
+                                        : status === 'unauth_absent'
+                                        ? '1.5px solid #DC2626'
+                                        : status === 'auth_absent'
+                                        ? '1.5px solid #D97706'
+                                        : '1px solid #D1D5DB',
+                                      background: status === 'present'
+                                        ? '#EAF3EF'
+                                        : status === 'unauth_absent'
+                                        ? '#FDF1F0'
+                                        : status === 'auth_absent'
+                                        ? '#FEF3C7'
+                                        : '#FFFFFF',
+                                      color: status === 'present'
+                                        ? '#2D6E5D'
+                                        : status === 'unauth_absent'
+                                        ? '#DC2626'
+                                        : status === 'auth_absent'
+                                        ? '#92400E'
+                                        : '#1A1A1A',
+                                      outline: 'none',
+                                      cursor: 'pointer',
+                                    }}
+                                    title="Type P (Present), A (Absent), or L (Permit Leave)"
                                   />
                                 </td>
-                                <td style={{ textAlign: 'center', padding: '8px 12px' }}>
-                                  <input
-                                    type="radio"
-                                    name={`att-${st.id}`}
-                                    checked={status === 'auth_absent'}
-                                    onChange={() => handleAttendanceRadio(st.id, 'auth_absent')}
-                                    style={{ accentColor: '#D4A373', cursor: 'pointer' }}
-                                  />
+
+                                {/* Quick Tap Status Buttons */}
+                                <td style={{ textAlign: 'center', padding: '8px 10px' }}>
+                                  <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSetStudentStatus(st.id, idx, 'present')}
+                                      style={{
+                                        padding: '4px 10px',
+                                        fontSize: 11.5,
+                                        fontWeight: status === 'present' ? 700 : 500,
+                                        borderRadius: 6,
+                                        border: status === 'present' ? '1px solid #2D6E5D' : '1px solid #E5E7EB',
+                                        background: status === 'present' ? '#2D6E5D' : '#FFFFFF',
+                                        color: status === 'present' ? '#FFFFFF' : '#4B5563',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s ease',
+                                      }}
+                                    >
+                                      P · Present
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSetStudentStatus(st.id, idx, 'unauth_absent')}
+                                      style={{
+                                        padding: '4px 10px',
+                                        fontSize: 11.5,
+                                        fontWeight: status === 'unauth_absent' ? 700 : 500,
+                                        borderRadius: 6,
+                                        border: status === 'unauth_absent' ? '1px solid #DC2626' : '1px solid #E5E7EB',
+                                        background: status === 'unauth_absent' ? '#DC2626' : '#FFFFFF',
+                                        color: status === 'unauth_absent' ? '#FFFFFF' : '#4B5563',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s ease',
+                                      }}
+                                    >
+                                      A · Absent
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSetStudentStatus(st.id, idx, 'auth_absent')}
+                                      style={{
+                                        padding: '4px 10px',
+                                        fontSize: 11.5,
+                                        fontWeight: status === 'auth_absent' ? 700 : 500,
+                                        borderRadius: 6,
+                                        border: status === 'auth_absent' ? '1px solid #D97706' : '1px solid #E5E7EB',
+                                        background: status === 'auth_absent' ? '#D97706' : '#FFFFFF',
+                                        color: status === 'auth_absent' ? '#FFFFFF' : '#4B5563',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s ease',
+                                      }}
+                                    >
+                                      PL · Permit Leave
+                                    </button>
+                                  </div>
                                 </td>
-                                <td style={{ textAlign: 'center', padding: '8px 12px' }}>
-                                  <input
-                                    type="radio"
-                                    name={`att-${st.id}`}
-                                    checked={status === 'unauth_absent'}
-                                    onChange={() => handleAttendanceRadio(st.id, 'unauth_absent')}
-                                    style={{ accentColor: '#D9534F', cursor: 'pointer' }}
-                                  />
+
+                                {/* Visual Pill Badge */}
+                                <td style={{ textAlign: 'center', padding: '8px 14px' }}>
+                                  {status === 'present' ? (
+                                    <span
+                                      style={{
+                                        display: 'inline-block',
+                                        padding: '3px 8px',
+                                        borderRadius: 4,
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        background: '#EAF3EF',
+                                        color: '#2D6E5D',
+                                        border: '1px solid #C7E4D8',
+                                      }}
+                                    >
+                                      Present
+                                    </span>
+                                  ) : status === 'auth_absent' ? (
+                                    <span
+                                      style={{
+                                        display: 'inline-block',
+                                        padding: '3px 8px',
+                                        borderRadius: 4,
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        background: '#FEF3C7',
+                                        color: '#92400E',
+                                        border: '1px solid #FDE68A',
+                                      }}
+                                    >
+                                      Permit Leave
+                                    </span>
+                                  ) : (
+                                    <span
+                                      style={{
+                                        display: 'inline-block',
+                                        padding: '3px 8px',
+                                        borderRadius: 4,
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        background: '#FDF1F0',
+                                        color: '#DC2626',
+                                        border: '1px solid #FECACA',
+                                      }}
+                                    >
+                                      Absent
+                                    </span>
+                                  )}
                                 </td>
                               </tr>
                             );
@@ -2896,9 +3414,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   <div style={{ marginTop: 20, background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                       <div>
-                        <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>Automated Daily Roll Call Report</h4>
+                        <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>Automated Daily Roll Call Summary</h4>
                         <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
-                          Ready formatted for school records and WhatsApp parent updates.
+                          Formatted for school records, leadership review, and parent updates.
                         </p>
                       </div>
                       <button
@@ -2935,7 +3453,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 </div>
               )}
 
-              {/* SUBMODE 2: FULL ATTENDANCE REGISTER & HISTORY */}
+              {/* TAB 2: MONTHLY MATRIX & HISTORY */}
               {attendanceViewMode === 'history' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                   {/* Homeroom Historical Analytics KPI Cards */}
@@ -2965,7 +3483,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </div>
 
                     <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 16px' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total Homeroom Roster</div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total Homeroom Students</div>
                       <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--neutral-dark)', marginTop: 4 }}>
                         {homeroomStudents.length}
                       </div>
@@ -2973,451 +3491,25 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </div>
                   </div>
 
-                  {/* Register View Selector Bar */}
+                  {/* Register Sub-Tabs Selector Bar */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-                    <div style={{ display: 'flex', gap: 6, background: '#FAF9F6', padding: '3px', borderRadius: 6, border: '1px solid var(--border-color)' }}>
-                      <button
-                        onClick={() => {
-                          setHistoryTab('by_date');
-                          setViewingHistoryStudentId('');
-                        }}
-                        style={{
-                          padding: '6px 14px',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          borderRadius: 4,
-                          border: 'none',
-                          cursor: 'pointer',
-                          background: historyTab === 'by_date' ? '#2D2C2A' : 'transparent',
-                          color: historyTab === 'by_date' ? '#FFFFFF' : 'var(--text-secondary)',
-                        }}
-                      >
-                        Daily Session by Date ({homeroomDateLogs.length} Days)
-                      </button>
-                      <button
-                        onClick={() => {
-                          setHistoryTab('by_student');
-                          setViewingHistoryStudentId('');
-                        }}
-                        style={{
-                          padding: '6px 14px',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          borderRadius: 4,
-                          border: 'none',
-                          cursor: 'pointer',
-                          background: historyTab === 'by_student' ? '#2D2C2A' : 'transparent',
-                          color: historyTab === 'by_student' ? '#FFFFFF' : 'var(--text-secondary)',
-                        }}
-                      >
-                        Summary by Student ({filteredHomeroomHistoryStudents.length})
-                      </button>
-                      <button
-                        onClick={() => {
-                          setHistoryTab('matrix');
-                          setViewingHistoryStudentId('');
-                        }}
-                        style={{
-                          padding: '6px 14px',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          borderRadius: 4,
-                          border: 'none',
-                          cursor: 'pointer',
-                          background: historyTab === 'matrix' ? '#2D2C2A' : 'transparent',
-                          color: historyTab === 'matrix' ? '#FFFFFF' : 'var(--text-secondary)',
-                        }}
-                      >
-                        Monthly Matrix Calendar Grid
-                      </button>
-                    </div>
+                    <SegmentedControl
+                      value={historyTab}
+                      onChange={(tab) => {
+                        setHistoryTab(tab);
+                        setViewingHistoryStudentId('');
+                      }}
+                      options={[
+                        { value: 'matrix', label: 'Monthly Matrix Grid' },
+                        { value: 'by_student', label: `Summary by Student (${filteredHomeroomHistoryStudents.length})` },
+                        { value: 'by_date', label: `Daily Session Logs (${homeroomDateLogs.length} Days)` },
+                      ]}
+                      height={34}
+                      textTransform="none"
+                    />
                   </div>
 
-                  {/* 1. VIEW BY DATE (CLEAN ELEGANT DROPDOWN + MAIN INLINE TABLE) */}
-                  {historyTab === 'by_date' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                      {/* DATE SELECTION TOOLBAR WITH DROPDOWN AND STEPPERS */}
-                      <div
-                        style={{
-                          background: '#FFFFFF',
-                          border: '1px solid var(--border-color)',
-                          borderRadius: 8,
-                          padding: '12px 18px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          flexWrap: 'wrap',
-                          gap: 12,
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 280 }}>
-                          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                            Select Recorded Session:
-                          </label>
-                          {homeroomDateLogs.length === 0 ? (
-                            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>No sessions recorded yet.</span>
-                          ) : (
-                            <div style={{ flex: 1, maxWidth: 360 }}>
-                              <CustomSelect
-                                value={viewingHistoryDate}
-                                onChange={(val) => setViewingHistoryDate(val)}
-                                options={homeroomDateLogs.map((d) => ({
-                                  value: d.date,
-                                  label: `${d.date} · ${d.rate}% Present (${d.present}/${d.totalStudents})`,
-                                }))}
-                              />
-                            </div>
-                          )}
-                        </div>
-
-                        {homeroomDateLogs.length > 0 && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <button
-                              onClick={() => handleStepDate('prev')}
-                              disabled={homeroomDateLogs.findIndex((d) => d.date === viewingHistoryDate) >= homeroomDateLogs.length - 1}
-                              style={{
-                                padding: '6px 12px',
-                                fontSize: 11.5,
-                                fontWeight: 600,
-                                background: '#FAF9F6',
-                                border: '1px solid var(--border-color)',
-                                borderRadius: 5,
-                                cursor: 'pointer',
-                                color: 'var(--neutral-dark)',
-                                opacity: homeroomDateLogs.findIndex((d) => d.date === viewingHistoryDate) >= homeroomDateLogs.length - 1 ? 0.4 : 1,
-                              }}
-                            >
-                              ← Older Date
-                            </button>
-                            <button
-                              onClick={() => handleStepDate('next')}
-                              disabled={homeroomDateLogs.findIndex((d) => d.date === viewingHistoryDate) <= 0}
-                              style={{
-                                padding: '6px 12px',
-                                fontSize: 11.5,
-                                fontWeight: 600,
-                                background: '#FAF9F6',
-                                border: '1px solid var(--border-color)',
-                                borderRadius: 5,
-                                cursor: 'pointer',
-                                color: 'var(--neutral-dark)',
-                                opacity: homeroomDateLogs.findIndex((d) => d.date === viewingHistoryDate) <= 0 ? 0.4 : 1,
-                              }}
-                            >
-                              Newer Date →
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* MAIN INLINE ROSTER FOR THE SELECTED DATE */}
-                      {activeViewingDateObj ? (
-                        <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-                          {/* Top Banner with Date Stats */}
-                          <div
-                            style={{
-                              padding: '16px 20px',
-                              borderBottom: '1px solid var(--border-color)',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              flexWrap: 'wrap',
-                              gap: 12,
-                              background: '#FDFCFB',
-                            }}
-                          >
-                            <div>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                                DAILY SESSION ROSTER · {homeroomLabel}
-                              </div>
-                              <h3 style={{ fontSize: 18, fontWeight: 800, margin: '2px 0 0', color: 'var(--neutral-dark)' }}>
-                                Attendance Record on {activeViewingDateObj.date}
-                              </h3>
-                              <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
-                                {activeViewingDateObj.present} of {activeViewingDateObj.totalStudents} Students Present ({activeViewingDateObj.rate}% Attendance)
-                              </p>
-                            </div>
-
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, auto)', gap: 8 }}>
-                                <div style={{ background: '#EAF3EF', border: '1px solid #C7E4D8', borderRadius: 6, padding: '4px 10px', textAlign: 'center' }}>
-                                  <span style={{ fontSize: 10, color: '#2D6E5D', fontWeight: 700, textTransform: 'uppercase' }}>Present: </span>
-                                  <strong style={{ fontSize: 12, color: '#2D6E5D' }}>{activeViewingDateObj.present}</strong>
-                                </div>
-                                <div style={{ background: '#FEF7EC', border: '1px solid #F5DEB3', borderRadius: 6, padding: '4px 10px', textAlign: 'center' }}>
-                                  <span style={{ fontSize: 10, color: '#9E6C1B', fontWeight: 700, textTransform: 'uppercase' }}>Auth Absent: </span>
-                                  <strong style={{ fontSize: 12, color: '#9E6C1B' }}>{activeViewingDateObj.authAbsent}</strong>
-                                </div>
-                                <div style={{ background: '#FDF1F0', border: '1px solid #F5C6CB', borderRadius: 6, padding: '4px 10px', textAlign: 'center' }}>
-                                  <span style={{ fontSize: 10, color: '#A83B38', fontWeight: 700, textTransform: 'uppercase' }}>Unauth Absent: </span>
-                                  <strong style={{ fontSize: 12, color: '#A83B38' }}>{activeViewingDateObj.unauthAbsent}</strong>
-                                </div>
-                              </div>
-
-                              <button
-                                className="btn-primary"
-                                onClick={() => {
-                                  setSelectedDate(activeViewingDateObj.date);
-                                  setAttendanceViewMode('mark');
-                                }}
-                                style={{ padding: '6px 14px', fontSize: 12 }}
-                              >
-                                Edit in Roll Call →
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Full Inline Student Status Table */}
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                            <thead>
-                              <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10, textTransform: 'uppercase' }}>
-                                <th style={{ textAlign: 'left', padding: '9px 16px', width: 40 }}>#</th>
-                                <th style={{ textAlign: 'left', padding: '9px 16px' }}>Student Name</th>
-                                <th style={{ textAlign: 'left', padding: '9px 16px' }}>Admission No.</th>
-                                <th style={{ textAlign: 'left', padding: '9px 16px' }}>Class Section</th>
-                                <th style={{ textAlign: 'right', padding: '9px 16px' }}>Attendance Status on {activeViewingDateObj.date}</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {activeViewingDateObj.studentStatuses.map(({ student, status }, idx) => (
-                                <tr key={student.id} style={{ borderBottom: '1px solid #ECEAE5' }}>
-                                  <td style={{ padding: '9px 16px', color: '#9E9B95' }}>{idx + 1}</td>
-                                  <td style={{ padding: '9px 16px', fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                                    {student.name}
-                                  </td>
-                                  <td style={{ padding: '9px 16px', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
-                                    {student.admission_number || student.user_code || '—'}
-                                  </td>
-                                  <td style={{ padding: '9px 16px', color: 'var(--text-secondary)' }}>
-                                    Grade {homeroomGrade}-{homeroomSection}
-                                  </td>
-                                  <td style={{ textAlign: 'right', padding: '9px 16px' }}>
-                                    <span
-                                      style={{
-                                        display: 'inline-block',
-                                        padding: '3px 10px',
-                                        borderRadius: 4,
-                                        fontSize: 10.5,
-                                        fontWeight: 700,
-                                        textTransform: 'uppercase',
-                                        background: status === 'present' ? '#EAF3EF' : status === 'auth_absent' ? '#FEF7EC' : status === 'unauth_absent' ? '#FDF1F0' : '#FAF9F6',
-                                        color: status === 'present' ? '#2D6E5D' : status === 'auth_absent' ? '#9E6C1B' : status === 'unauth_absent' ? '#A83B38' : 'var(--text-secondary)',
-                                        border: status === 'present' ? '1px solid #C7E4D8' : status === 'auth_absent' ? '1px solid #F5DEB3' : status === 'unauth_absent' ? '1px solid #F5C6CB' : '1px solid var(--border-color)',
-                                      }}
-                                    >
-                                      {status === 'present' ? 'Present' : status === 'auth_absent' ? 'Authorized Absent' : status === 'unauth_absent' ? 'Unauthorized Absent' : 'Unrecorded'}
-                                    </span>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <div className="panel-block" style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                          No recorded dates found. Click &quot;Take Daily Roll Call&quot; above to mark today&apos;s attendance!
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* 2. VIEW BY STUDENT (CUMULATIVE TABLE & INLINE DETAIL DRAWER) */}
-                  {historyTab === 'by_student' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                      {activeViewingStudentObj && (
-                        <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, padding: '16px 20px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                            <div>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase' }}>
-                                STUDENT ATTENDANCE HISTORY
-                              </div>
-                              <h3 style={{ fontSize: 16, fontWeight: 700, margin: '2px 0 0' }}>
-                                {activeViewingStudentObj.name} ({activeViewingStudentObj.admission_number || activeViewingStudentObj.user_code || '—'})
-                              </h3>
-                            </div>
-                            <button
-                              onClick={() => setViewingHistoryStudentId('')}
-                              style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, background: '#FAF9F6', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                            >
-                              Close History Drawer <X size={12} />
-                            </button>
-                          </div>
-
-                          {(() => {
-                            const stat = homeroomHistoryAnalytics.studentStats[activeViewingStudentObj.id] || {
-                              totalRecorded: 0,
-                              present: 0,
-                              authAbsent: 0,
-                              unauthAbsent: 0,
-                              rate: 100,
-                              datesList: [],
-                            };
-                            return (
-                              <div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 14 }}>
-                                  <div style={{ background: '#FAF9F6', border: '1px solid var(--border-color)', borderRadius: 6, padding: '8px 12px', textAlign: 'center' }}>
-                                    <div style={{ fontSize: 10, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Present</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700, color: '#2C6E6A' }}>{stat.present}</div>
-                                  </div>
-                                  <div style={{ background: '#FAF9F6', border: '1px solid var(--border-color)', borderRadius: 6, padding: '8px 12px', textAlign: 'center' }}>
-                                    <div style={{ fontSize: 10, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Auth Absent</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700, color: '#D4A373' }}>{stat.authAbsent}</div>
-                                  </div>
-                                  <div style={{ background: '#FAF9F6', border: '1px solid var(--border-color)', borderRadius: 6, padding: '8px 12px', textAlign: 'center' }}>
-                                    <div style={{ fontSize: 10, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Unauth Absent</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700, color: '#D9534F' }}>{stat.unauthAbsent}</div>
-                                  </div>
-                                  <div style={{ background: '#FAF9F6', border: '1px solid var(--border-color)', borderRadius: 6, padding: '8px 12px', textAlign: 'center' }}>
-                                    <div style={{ fontSize: 10, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Rate %</div>
-                                    <div style={{ fontSize: 18, fontWeight: 700, color: stat.rate >= 85 ? '#2C6E6A' : '#D9534F' }}>{stat.rate}%</div>
-                                  </div>
-                                </div>
-
-                                <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 6 }}>
-                                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-                                    <thead>
-                                      <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10, textTransform: 'uppercase' }}>
-                                        <th style={{ textAlign: 'left', padding: '6px 12px' }}>Date</th>
-                                        <th style={{ textAlign: 'right', padding: '6px 12px' }}>Status</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {stat.datesList.map((d) => (
-                                        <tr key={d.date} style={{ borderBottom: '1px solid #ECEAE5' }}>
-                                          <td style={{ padding: '6px 12px', fontWeight: 600 }}>{d.date}</td>
-                                          <td style={{ textAlign: 'right', padding: '6px 12px' }}>
-                                            <span
-                                              style={{
-                                                display: 'inline-block',
-                                                padding: '1px 6px',
-                                                borderRadius: 3,
-                                                fontSize: 10,
-                                                fontWeight: 700,
-                                                textTransform: 'uppercase',
-                                                background: d.status === 'present' ? '#EAF3EF' : d.status === 'auth_absent' ? '#FEF7EC' : '#FDF1F0',
-                                                color: d.status === 'present' ? '#2D6E5D' : d.status === 'auth_absent' ? '#9E6C1B' : '#A83B38',
-                                              }}
-                                            >
-                                              {d.status === 'present' ? 'Present' : d.status === 'auth_absent' ? 'Auth Absent' : 'Unauth Absent'}
-                                            </span>
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      )}
-
-                      <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-                        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)' }}>
-                          <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>
-                            Cumulative Attendance Record by Student ({filteredHomeroomHistoryStudents.length} Students)
-                          </h4>
-                          <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
-                            Complete summary across all recorded school days. Click &quot;View Dates&quot; to inspect any student.
-                          </p>
-                        </div>
-
-                        {filteredHomeroomHistoryStudents.length === 0 ? (
-                          <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-                            No students matching your search.
-                          </div>
-                        ) : (
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                            <thead>
-                              <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10, textTransform: 'uppercase' }}>
-                                <th style={{ textAlign: 'left', padding: '9px 14px', width: 36 }}>#</th>
-                                <th style={{ textAlign: 'left', padding: '9px 14px' }}>Student Name</th>
-                                <th style={{ textAlign: 'left', padding: '9px 14px' }}>Admission No.</th>
-                                <th style={{ textAlign: 'center', padding: '9px 14px' }}>Days Present</th>
-                                <th style={{ textAlign: 'center', padding: '9px 14px' }}>Auth Absent</th>
-                                <th style={{ textAlign: 'center', padding: '9px 14px' }}>Unauth Absent</th>
-                                <th style={{ textAlign: 'center', padding: '9px 14px' }}>Total Sessions</th>
-                                <th style={{ textAlign: 'right', padding: '9px 14px' }}>Rate %</th>
-                                <th style={{ textAlign: 'right', padding: '9px 14px' }}>Action</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {filteredHomeroomHistoryStudents.map((st, idx) => {
-                                const stat = homeroomHistoryAnalytics.studentStats[st.id] || {
-                                  totalRecorded: 0,
-                                  present: 0,
-                                  authAbsent: 0,
-                                  unauthAbsent: 0,
-                                  rate: 100,
-                                  datesList: [],
-                                };
-                                const isAtRisk = stat.rate < 85;
-
-                                return (
-                                  <tr key={st.id} style={{ borderBottom: '1px solid #ECEAE5' }}>
-                                    <td style={{ padding: '9px 14px', color: '#9E9B95' }}>{idx + 1}</td>
-                                    <td style={{ padding: '9px 14px', fontWeight: 600, color: 'var(--neutral-dark)' }}>
-                                      {st.name}
-                                    </td>
-                                    <td style={{ padding: '9px 14px', fontFamily: 'monospace', fontSize: 11 }}>
-                                      {st.admission_number || st.user_code || '—'}
-                                    </td>
-                                    <td style={{ textAlign: 'center', padding: '9px 14px', fontWeight: 600, color: '#2C6E6A' }}>
-                                      {stat.present}
-                                    </td>
-                                    <td style={{ textAlign: 'center', padding: '9px 14px', color: '#D4A373' }}>
-                                      {stat.authAbsent}
-                                    </td>
-                                    <td style={{ textAlign: 'center', padding: '9px 14px', color: stat.unauthAbsent > 0 ? '#D9534F' : 'var(--text-secondary)', fontWeight: stat.unauthAbsent > 0 ? 700 : 400 }}>
-                                      {stat.unauthAbsent}
-                                    </td>
-                                    <td style={{ textAlign: 'center', padding: '9px 14px', color: 'var(--text-secondary)' }}>
-                                      {stat.totalRecorded}
-                                    </td>
-                                    <td style={{ textAlign: 'right', padding: '9px 14px' }}>
-                                      <span
-                                        style={{
-                                          display: 'inline-block',
-                                          padding: '2px 8px',
-                                          borderRadius: 4,
-                                          fontSize: 10.5,
-                                          fontWeight: 700,
-                                          background: isAtRisk ? '#FDF1F0' : '#EAF3EF',
-                                          color: isAtRisk ? '#A83B38' : '#2D6E5D',
-                                          border: isAtRisk ? '1px solid #F5C6CB' : '1px solid #C7E4D8',
-                                        }}
-                                      >
-                                        {stat.rate}%
-                                      </span>
-                                    </td>
-                                    <td style={{ textAlign: 'right', padding: '9px 14px' }}>
-                                      <button
-                                        onClick={() => setViewingHistoryStudentId(st.id)}
-                                        style={{
-                                          padding: '3px 8px',
-                                          fontSize: 11,
-                                          fontWeight: 600,
-                                          background: '#FFFFFF',
-                                          border: '1px solid var(--border-color)',
-                                          borderRadius: 4,
-                                          cursor: 'pointer',
-                                          color: 'var(--neutral-dark)',
-                                        }}
-                                      >
-                                        View Dates
-                                      </button>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 3. VIEW FULL DATE MATRIX (SPREADSHEET GRID WITH MONTH SELECTOR & FIXED COLUMNS) */}
+                  {/* 1. VIEW FULL DATE MATRIX (SPREADSHEET GRID WITH MONTH SELECTOR & FIXED COLUMNS) */}
                   {historyTab === 'matrix' && (
                     <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
                       {/* Matrix Control Bar */}
@@ -3438,7 +3530,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                             Monthly Homeroom Attendance Matrix ({matrixMonth})
                           </h4>
                           <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
-                            Legend: <strong>P</strong> = Present (Green), <strong>A</strong> = Authorized Leave (Amber), <strong>U</strong> = Unauthorized Absent (Red)
+                            Legend: <strong style={{ color: '#2D6E5D' }}>P</strong> = Present (Green), <strong style={{ color: '#92400E' }}>PL</strong> = Permit Leave (Amber), <strong style={{ color: '#DC2626' }}>A</strong> = Absent (Red)
                           </p>
                         </div>
 
@@ -3457,7 +3549,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       </div>
 
                       {/* Horizontal Scrolling Matrix Grid with Sticky Header & Sticky Student Column */}
-                      <div style={{ overflowX: 'auto', maxHeight: 460 }}>
+                      <div style={{ overflowX: 'auto', maxHeight: 480 }}>
                         <table style={{ width: 'max-content', minWidth: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                           <thead>
                             <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
@@ -3507,11 +3599,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                               <th style={{ textAlign: 'center', padding: '6px 8px', minWidth: 44, background: '#EAF3EF', color: '#2D6E5D', borderLeft: '1px solid var(--border-color)' }}>
                                 Pres
                               </th>
-                              <th style={{ textAlign: 'center', padding: '6px 8px', minWidth: 44, background: '#FEF7EC', color: '#9E6C1B' }}>
-                                Auth
+                              <th style={{ textAlign: 'center', padding: '6px 8px', minWidth: 44, background: '#FEF3C7', color: '#92400E' }}>
+                                PL
                               </th>
-                              <th style={{ textAlign: 'center', padding: '6px 8px', minWidth: 44, background: '#FDF1F0', color: '#A83B38' }}>
-                                Unauth
+                              <th style={{ textAlign: 'center', padding: '6px 8px', minWidth: 44, background: '#FDF1F0', color: '#DC2626' }}>
+                                Abs
                               </th>
                               <th style={{ textAlign: 'center', padding: '6px 10px', minWidth: 54, background: '#F8F7F4', fontWeight: 700 }}>
                                 Rate%
@@ -3582,14 +3674,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                               height: 22,
                                               lineHeight: '22px',
                                               borderRadius: 3,
-                                              background: '#FEF7EC',
-                                              color: '#9E6C1B',
+                                              background: '#FEF3C7',
+                                              color: '#92400E',
                                               fontWeight: 700,
-                                              fontSize: 10.5,
+                                              fontSize: 10,
                                             }}
-                                            title={`${dateStr}: Authorized Absent`}
+                                            title={`${dateStr}: Permit Leave (PL)`}
                                           >
-                                            A
+                                            PL
                                           </span>
                                         ) : status === 'unauth_absent' ? (
                                           <span
@@ -3600,13 +3692,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                               lineHeight: '22px',
                                               borderRadius: 3,
                                               background: '#FDF1F0',
-                                              color: '#A83B38',
+                                              color: '#DC2626',
                                               fontWeight: 700,
                                               fontSize: 10.5,
                                             }}
-                                            title={`${dateStr}: Unauthorized Absent`}
+                                            title={`${dateStr}: Absent`}
                                           >
-                                            U
+                                            A
                                           </span>
                                         ) : (
                                           <span style={{ color: isWeekend ? '#E2DFD8' : '#ECEAE5', fontSize: 11 }}>
@@ -3621,13 +3713,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                   <td style={{ textAlign: 'center', padding: '6px 8px', fontWeight: 700, color: '#2D6E5D', background: '#F8FBF9', borderLeft: '1px solid var(--border-color)' }}>
                                     {mStat.present}
                                   </td>
-                                  <td style={{ textAlign: 'center', padding: '6px 8px', color: '#9E6C1B', background: '#FFFCF7' }}>
+                                  <td style={{ textAlign: 'center', padding: '6px 8px', color: '#92400E', background: '#FEF3C7', fontWeight: 600 }}>
                                     {mStat.authAbsent}
                                   </td>
-                                  <td style={{ textAlign: 'center', padding: '6px 8px', color: mStat.unauthAbsent > 0 ? '#A83B38' : 'var(--text-secondary)', fontWeight: mStat.unauthAbsent > 0 ? 700 : 400, background: '#FFFDFD' }}>
+                                  <td style={{ textAlign: 'center', padding: '6px 8px', color: mStat.unauthAbsent > 0 ? '#DC2626' : 'var(--text-secondary)', fontWeight: mStat.unauthAbsent > 0 ? 700 : 400, background: '#FFFDFD' }}>
                                     {mStat.unauthAbsent}
                                   </td>
-                                  <td style={{ textAlign: 'center', padding: '6px 10px', fontWeight: 700, color: mStat.rate >= 85 ? '#2D6E5D' : '#A83B38' }}>
+                                  <td style={{ textAlign: 'center', padding: '6px 10px', fontWeight: 700, color: mStat.rate >= 85 ? '#2D6E5D' : '#DC2626' }}>
                                     {mStat.rate}%
                                   </td>
                                 </tr>
@@ -3638,12 +3730,317 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       </div>
                     </div>
                   )}
+
+                  {/* 2. VIEW SUMMARY BY STUDENT */}
+                  {historyTab === 'by_student' && (
+                    <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10.5, textTransform: 'uppercase' }}>
+                              <th style={{ textAlign: 'left', padding: '10px 14px', width: 36 }}>#</th>
+                              <th style={{ textAlign: 'left', padding: '10px 14px' }}>Student Name</th>
+                              <th style={{ textAlign: 'left', padding: '10px 14px' }}>Admission No.</th>
+                              <th style={{ textAlign: 'center', padding: '10px 14px' }}>Present</th>
+                              <th style={{ textAlign: 'center', padding: '10px 14px' }}>Permit Leave (PL)</th>
+                              <th style={{ textAlign: 'center', padding: '10px 14px' }}>Absent</th>
+                              <th style={{ textAlign: 'center', padding: '10px 14px' }}>Total Sessions</th>
+                              <th style={{ textAlign: 'right', padding: '10px 14px' }}>Rate %</th>
+                              <th style={{ textAlign: 'right', padding: '10px 14px' }}>Inspect</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredHomeroomHistoryStudents.map((st, idx) => {
+                              const stat = homeroomHistoryAnalytics.studentStats[st.id] || { totalRecorded: 0, present: 0, authAbsent: 0, unauthAbsent: 0, rate: 100, datesList: [] };
+                              const isAtRisk = stat.totalRecorded > 0 && stat.rate < 85;
+
+                              return (
+                                <tr key={st.id} style={{ borderBottom: '1px solid #ECEAE5' }}>
+                                  <td style={{ padding: '10px 14px', color: '#9E9B95' }}>{idx + 1}</td>
+                                  <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--neutral-dark)' }}>{st.name}</td>
+                                  <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: 11 }}>{st.admission_number || st.user_code || '—'}</td>
+                                  <td style={{ textAlign: 'center', padding: '10px 14px', color: '#2D6E5D', fontWeight: 600 }}>{stat.present}</td>
+                                  <td style={{ textAlign: 'center', padding: '10px 14px', color: '#92400E', fontWeight: 600 }}>{stat.authAbsent}</td>
+                                  <td style={{ textAlign: 'center', padding: '10px 14px', color: stat.unauthAbsent > 0 ? '#DC2626' : 'var(--text-secondary)', fontWeight: stat.unauthAbsent > 0 ? 700 : 400 }}>
+                                    {stat.unauthAbsent}
+                                  </td>
+                                  <td style={{ textAlign: 'center', padding: '10px 14px', color: 'var(--text-secondary)' }}>{stat.totalRecorded}</td>
+                                  <td style={{ textAlign: 'right', padding: '10px 14px' }}>
+                                    <span
+                                      style={{
+                                        display: 'inline-block',
+                                        padding: '2px 8px',
+                                        borderRadius: 4,
+                                        fontSize: 10.5,
+                                        fontWeight: 700,
+                                        background: isAtRisk ? '#FDF1F0' : '#EAF3EF',
+                                        color: isAtRisk ? '#DC2626' : '#2D6E5D',
+                                        border: isAtRisk ? '1px solid #FECACA' : '1px solid #C7E4D8',
+                                      }}
+                                    >
+                                      {stat.rate}%
+                                    </span>
+                                  </td>
+                                  <td style={{ textAlign: 'right', padding: '10px 14px' }}>
+                                    <button
+                                      onClick={() => setViewingHistoryStudentId(st.id)}
+                                      style={{
+                                        padding: '3px 8px',
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        background: '#FFFFFF',
+                                        border: '1px solid var(--border-color)',
+                                        borderRadius: 4,
+                                        cursor: 'pointer',
+                                        color: 'var(--neutral-dark)',
+                                      }}
+                                    >
+                                      View Dates
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 3. VIEW DAILY SESSION LOGS */}
+                  {historyTab === 'by_date' && (
+                    <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+                      <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                          Daily Attendance Session History ({homeroomDateLogs.length} Recorded Sessions)
+                        </div>
+                      </div>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10.5, textTransform: 'uppercase' }}>
+                              <th style={{ textAlign: 'left', padding: '10px 14px' }}>Date</th>
+                              <th style={{ textAlign: 'center', padding: '10px 14px' }}>Present</th>
+                              <th style={{ textAlign: 'center', padding: '10px 14px' }}>Permit Leave (PL)</th>
+                              <th style={{ textAlign: 'center', padding: '10px 14px' }}>Absent</th>
+                              <th style={{ textAlign: 'center', padding: '10px 14px' }}>Total</th>
+                              <th style={{ textAlign: 'right', padding: '10px 14px' }}>Session Rate</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {homeroomDateLogs.map((log) => (
+                              <tr key={log.date} style={{ borderBottom: '1px solid #ECEAE5' }}>
+                                <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--neutral-dark)' }}>{log.date}</td>
+                                <td style={{ textAlign: 'center', padding: '10px 14px', color: '#2D6E5D', fontWeight: 600 }}>{log.present}</td>
+                                <td style={{ textAlign: 'center', padding: '10px 14px', color: '#92400E', fontWeight: 600 }}>{log.authAbsent}</td>
+                                <td style={{ textAlign: 'center', padding: '10px 14px', color: log.unauthAbsent > 0 ? '#DC2626' : 'var(--text-secondary)', fontWeight: log.unauthAbsent > 0 ? 700 : 400 }}>
+                                  {log.unauthAbsent}
+                                </td>
+                                <td style={{ textAlign: 'center', padding: '10px 14px', color: 'var(--text-secondary)' }}>{log.totalStudents}</td>
+                                <td style={{ textAlign: 'right', padding: '10px 14px', fontWeight: 700, color: log.rate >= 85 ? '#2D6E5D' : '#DC2626' }}>
+                                  {log.rate}%
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 3: PERMIT LEAVE (PL) REQUESTS */}
+              {attendanceViewMode === 'leaves' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* Status Filter Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                    <div>
+                      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--neutral-dark)', margin: 0 }}>
+                        Student Permit Leave &amp; Medical Notes ({filteredLeavesForTeacher.length})
+                      </h3>
+                      <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
+                        Approved requests automatically register as <strong>Permit Leave (PL)</strong> in the attendance records.
+                      </p>
+                    </div>
+
+                    <SegmentedControl
+                      value={leaveStatusFilter}
+                      onChange={(val) => setLeaveStatusFilter(val as any)}
+                      options={[
+                        { value: 'all', label: `All (${leavesCounts.all})` },
+                        { value: 'pending', label: `Pending (${leavesCounts.pending})` },
+                        { value: 'approved', label: `Approved (${leavesCounts.approved})` },
+                        { value: 'rejected', label: `Rejected (${leavesCounts.rejected})` },
+                      ]}
+                      height={32}
+                      textTransform="none"
+                    />
+                  </div>
+
+                  {filteredLeavesForTeacher.length === 0 ? (
+                    <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, padding: '48px 24px', textAlign: 'center' }}>
+                      <FileText size={32} style={{ color: 'var(--text-secondary)', margin: '0 auto 12px', display: 'block', opacity: 0.5 }} />
+                      <h4 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px', color: 'var(--neutral-dark)' }}>
+                        No Permit Leave Requests Found
+                      </h4>
+                      <p style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 400, margin: '0 auto' }}>
+                        {leaveStatusFilter === 'pending'
+                          ? 'No pending permit leave requests awaiting your review.'
+                          : 'No student leave submissions match the selected filter.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
+                      {filteredLeavesForTeacher.map((leave) => {
+                        const student = profiles.find((p) => p.id === leave.student_id || p.email === leave.student_id);
+                        const isPending = leave.status === 'submitted' || !leave.status;
+                        const isApproved = leave.status === 'approved';
+                        const isRejected = leave.status === 'rejected';
+
+                        return (
+                          <div
+                            key={leave.id}
+                            style={{
+                              background: isPending ? '#FFFBEB' : '#FFFFFF',
+                              border: isPending ? '1.5px solid #FDE68A' : '1px solid var(--border-color)',
+                              borderRadius: 8,
+                              padding: '16px 20px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 12,
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+                              <div>
+                                <div style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                  {student ? student.name : 'Homeroom Student'}
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'monospace', marginTop: 2 }}>
+                                  Admission No: {student?.admission_number || student?.user_code || '—'} · {student?.email}
+                                </div>
+                              </div>
+
+                              <div>
+                                {isPending && (
+                                  <span style={{ padding: '3px 9px', borderRadius: 4, fontSize: 11, fontWeight: 700, background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' }}>
+                                    Pending Review
+                                  </span>
+                                )}
+                                {isApproved && (
+                                  <span style={{ padding: '3px 9px', borderRadius: 4, fontSize: 11, fontWeight: 700, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8' }}>
+                                    ✓ Approved (Permit Leave)
+                                  </span>
+                                )}
+                                {isRejected && (
+                                  <span style={{ padding: '3px 9px', borderRadius: 4, fontSize: 11, fontWeight: 700, background: '#FDF1F0', color: '#DC2626', border: '1px solid #FECACA' }}>
+                                    ✕ Rejected
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, background: isPending ? '#FEF9EE' : '#FAF9F6', padding: '10px 14px', borderRadius: 6, fontSize: 12 }}>
+                              <div>
+                                <span style={{ color: 'var(--text-secondary)', textTransform: 'uppercase', fontSize: 10, fontWeight: 700 }}>Leave Period: </span>
+                                <strong style={{ color: 'var(--neutral-dark)' }}>{leave.startDate}{leave.endDate && leave.endDate !== leave.startDate ? ` → ${leave.endDate}` : ''}</strong>
+                              </div>
+                              <div>
+                                <span style={{ color: 'var(--text-secondary)', textTransform: 'uppercase', fontSize: 10, fontWeight: 700 }}>Type: </span>
+                                <strong style={{ color: '#2C6E6A' }}>{leave.leaveType || 'Medical / Sick'}</strong>
+                              </div>
+                            </div>
+
+                            {leave.reason && (
+                              <div style={{ fontSize: 12.5, color: '#374151', lineHeight: 1.4 }}>
+                                <strong style={{ color: 'var(--neutral-dark)' }}>Reason:</strong> {leave.reason}
+                              </div>
+                            )}
+
+                            {/* Medical Document / Certificate attachment */}
+                            {(leave.fileUrl || leave.fileName) && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => openFileInNewTab({ fileUrl: leave.fileUrl || '', fileName: leave.fileName || 'leave_note.pdf' })}
+                                  style={{
+                                    padding: '5px 12px',
+                                    fontSize: 11.5,
+                                    fontWeight: 600,
+                                    borderRadius: 4,
+                                    background: '#FAF9F6',
+                                    border: '1px solid var(--border-color)',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    color: '#2C6E6A',
+                                  }}
+                                >
+                                  <FileText size={13} />
+                                  <span>View Medical Note / Attachment ({formatShortFileName(leave.fileName || 'document.pdf', 24)})</span>
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Action Buttons for Pending requests */}
+                            {isPending && (
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4, borderTop: '1px solid #F3F0E6', paddingTop: 12 }}>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (onRejectLeave) {
+                                      await onRejectLeave(leave.id, leave.student_id);
+                                    }
+                                  }}
+                                  style={{
+                                    padding: '6px 14px',
+                                    fontSize: 11.5,
+                                    fontWeight: 600,
+                                    borderRadius: 6,
+                                    background: '#FFFFFF',
+                                    color: '#DC2626',
+                                    border: '1px solid #FECACA',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  Reject
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (onApproveLeave) {
+                                      await onApproveLeave(leave.id, leave.student_id);
+                                    }
+                                  }}
+                                  style={{
+                                    padding: '6px 16px',
+                                    fontSize: 11.5,
+                                    fontWeight: 700,
+                                    borderRadius: 6,
+                                    background: '#2D6E5D',
+                                    color: '#FFFFFF',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                  }}
+                                >
+                                  <Check size={13} /> Approve (Mark PL)
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           </>
         )}
-
         {/* VIEW 3: HOMEROOM STUDENT ACHIEVEMENTS */}
         {activeNavMode === 'homeroom_awards' && (
           <>
@@ -3661,10 +4058,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 <input
                   type="text"
                   placeholder="Search student or award title..."
-                  className="form-input"
-                  style={{ width: 240, padding: '6px 10px', fontSize: 12 }}
                   value={awardSearch}
                   onChange={(e) => setAwardSearch(e.target.value)}
+                  style={{
+                    height: 32,
+                    width: 240,
+                    padding: '0 12px',
+                    fontSize: 12,
+                    borderRadius: 6,
+                    border: '1px solid #E5E3DF',
+                    background: '#FFFFFF',
+                    color: '#1A1A1A',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
                 />
               </div>
             </header>
@@ -3910,77 +4317,26 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 }}
               >
                 {/* Pill Tabs */}
-                <div style={{ display: 'flex', gap: 6, background: '#FAF9F6', padding: 4, borderRadius: 8, border: '1px solid #ECEAE5' }}>
-                  <button
-                    type="button"
-                    onClick={() => setHrActiveTab('broadcasts')}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '8px 18px',
-                      fontSize: 12.5,
-                      fontWeight: hrActiveTab === 'broadcasts' ? 700 : 600,
-                      borderRadius: 6,
-                      border: 'none',
-                      background: hrActiveTab === 'broadcasts' ? '#2D2C2A' : 'transparent',
-                      color: hrActiveTab === 'broadcasts' ? '#FFFFFF' : 'var(--text-secondary)',
-                      boxShadow: hrActiveTab === 'broadcasts' ? '0 2px 5px rgba(0,0,0,0.12)' : 'none',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                    }}
-                  >
-                    <Megaphone size={14} />
-                    <span>Class Circulars &amp; Notices</span>
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 800,
-                        padding: '1px 7px',
-                        borderRadius: 10,
-                        background: hrActiveTab === 'broadcasts' ? 'rgba(255,255,255,0.2)' : '#ECEAE5',
-                        color: hrActiveTab === 'broadcasts' ? '#FFFFFF' : 'var(--text-secondary)',
-                      }}
-                    >
-                      {homeroomBroadcasts.length}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setHrActiveTab('resources')}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '8px 18px',
-                      fontSize: 12.5,
-                      fontWeight: hrActiveTab === 'resources' ? 700 : 600,
-                      borderRadius: 6,
-                      border: 'none',
-                      background: hrActiveTab === 'resources' ? '#2D2C2A' : 'transparent',
-                      color: hrActiveTab === 'resources' ? '#FFFFFF' : 'var(--text-secondary)',
-                      boxShadow: hrActiveTab === 'resources' ? '0 2px 5px rgba(0,0,0,0.12)' : 'none',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                    }}
-                  >
-                    <BookOpen size={14} />
-                    <span>Class Materials &amp; Guides</span>
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 800,
-                        padding: '1px 7px',
-                        borderRadius: 10,
-                        background: hrActiveTab === 'resources' ? 'rgba(255,255,255,0.2)' : '#ECEAE5',
-                        color: hrActiveTab === 'resources' ? '#FFFFFF' : 'var(--text-secondary)',
-                      }}
-                    >
-                      {homeroomResources.length}
-                    </span>
-                  </button>
-                </div>
+                <SegmentedControl
+                  value={hrActiveTab}
+                  onChange={(tab) => setHrActiveTab(tab)}
+                  options={[
+                    {
+                      value: 'broadcasts',
+                      label: 'Class Circulars & Notices',
+                      icon: <Megaphone size={14} />,
+                      count: homeroomBroadcasts.length,
+                    },
+                    {
+                      value: 'resources',
+                      label: 'Shared Class Materials',
+                      icon: <BookOpen size={14} />,
+                      count: homeroomResources.length,
+                    },
+                  ]}
+                  height={36}
+                  textTransform="none"
+                />
 
                 {hrActiveTab === 'resources' && (
                   <button
@@ -4367,10 +4723,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       <input
                         type="text"
                         placeholder="Search resources..."
-                        className="form-input"
-                        style={{ width: 240, padding: '6px 12px', fontSize: 12 }}
                         value={hrResSearchQuery}
                         onChange={(e) => setHrResSearchQuery(e.target.value)}
+                        style={{
+                          height: 32,
+                          width: 240,
+                          padding: '0 12px',
+                          fontSize: 12,
+                          borderRadius: 6,
+                          border: '1px solid #E5E3DF',
+                          background: '#FFFFFF',
+                          color: '#1A1A1A',
+                          outline: 'none',
+                          boxSizing: 'border-box',
+                        }}
                       />
                       <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 700 }}>
                         {filteredHrResources.length} Materials Shared
@@ -4710,17 +5076,202 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             <SupportView currentUser={currentUser} />
           </div>
         )}
+
+        {/* VIEW 8: HOD DEPARTMENT HUB */}
+        {activeNavMode === 'hod_hub' && (
+          <div style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+            {/* Header */}
+            <div
+              style={{
+                background: '#FFFFFF',
+                border: '1px solid var(--border-color)',
+                borderTop: '3px solid #7C5CBF',
+                borderRadius: 10,
+                padding: '18px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 14,
+                boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <span
+                    style={{
+                      fontSize: 9.5,
+                      fontWeight: 800,
+                      padding: '2px 7px',
+                      borderRadius: 4,
+                      background: '#F3EFFA',
+                      color: '#6D28D9',
+                      border: '1px solid #DDD6FE',
+                      letterSpacing: '0.04em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    HEAD OF DEPARTMENT PORTAL
+                  </span>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                    {userDepartmentDef?.name || 'Department Oversight'}
+                  </span>
+                </div>
+                <h2 style={{ fontSize: 18, fontWeight: 700, margin: '6px 0 2px', color: 'var(--neutral-dark)', fontFamily: 'var(--font-display)' }}>
+                  {userDepartmentDef?.name || 'Academic'} Department Leadership Hub
+                </h2>
+                <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: 0 }}>
+                  Curriculum consistency, grade register audits, and assessment standards across {departmentClassrooms.length} department classes.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    padding: '6px 12px',
+                    borderRadius: 6,
+                    background: '#FAF9F6',
+                    border: '1px solid var(--border-color)',
+                    color: '#6D28D9',
+                  }}
+                >
+                  HOD: {currentUser.name}
+                </span>
+              </div>
+            </div>
+
+            {/* Department KPI Stats Strip (matching reference mockup) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+              <KpiSparklineCard
+                label="DEPARTMENT AVERAGE"
+                value={`${departmentAnalytics.overallAverageScore}%`}
+                subValue="Mean Score"
+                growthText="+2.1% vs target"
+                sparklineData={[40, 55, 60, 75, 70, 85, 80]}
+              />
+              <KpiSparklineCard
+                label="SYLLABUS PACE"
+                value={`${departmentAnalytics.overallSyllabusProgress}%`}
+                subValue="Completed"
+                growthText="+4.8% on schedule"
+                sparklineData={[50, 60, 65, 70, 75, 80, 85]}
+              />
+              <KpiSparklineCard
+                label="DEPARTMENT CLASSES"
+                value={departmentClassrooms.length}
+                subValue="Cohorts"
+                growthText="100% active"
+                sparklineData={[30, 40, 50, 60, 70, 80, 90]}
+              />
+              <KpiSparklineCard
+                label="ASSESSED STUDENTS"
+                value={departmentAnalytics.totalEnrollment}
+                subValue="Students"
+                growthText="Discipline cohort"
+                sparklineData={[60, 70, 65, 80, 75, 90, 88]}
+              />
+            </div>
+
+            {/* Department Visual Graphs (matching reference mockup) */}
+            <div style={{ marginBottom: 14 }}>
+              <MatrixTrendChart
+                data={departmentAnalytics.scoreDistribution}
+                overallAverage={departmentAnalytics.overallAverageScore}
+                totalStudents={departmentAnalytics.totalEnrollment}
+                title={`${userDepartmentDef?.name || 'DEPARTMENT'} SCORE & CURRICULUM TREND`}
+              />
+            </div>
+
+            {/* Department Classrooms & Direct Mark Register Access */}
+            <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--neutral-dark)' }}>
+                    Department Classrooms &amp; Mark Registers
+                  </h3>
+                  <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
+                    Click any classroom to audit mark compliance, verify entered grades, or enter student marks directly.
+                  </p>
+                </div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: '#6D28D9', background: '#F3EFFA', padding: '4px 10px', borderRadius: 6, border: '1px solid #DDD6FE' }}>
+                  {departmentClassrooms.length} Active Classes
+                </span>
+              </div>
+
+              <div style={{ padding: '16px 20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                {departmentClassrooms.length === 0 ? (
+                  <div style={{ padding: '30px 20px', textAlign: 'center', gridColumn: '1 / -1' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--neutral-dark)' }}>No classrooms assigned to this department yet</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 4 }}>Classes matching this department&apos;s subjects will appear here automatically.</div>
+                  </div>
+                ) : (
+                  departmentClassrooms.map((cls) => {
+                    const enrolledCount = (cls.enrolled_student_ids || []).length;
+                    return (
+                      <div
+                        key={cls.id}
+                        style={{
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 8,
+                          padding: '14px 16px',
+                          background: '#FAF9F6',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          gap: 12,
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                              {cls.name || cls.class_name}
+                            </span>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: '#EDE9FE', color: '#6D28D9' }}>
+                              {cls.class_name || 'Class'}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 4 }}>
+                            Subject: <strong style={{ color: 'var(--neutral-dark)' }}>{cls.subject || 'General'}</strong>
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                            Teacher: {cls.teacher_name || 'Assigned Faculty'} • {enrolledCount} Students
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            setSelectedClassId(cls.id);
+                            setIsMarkEntryOpen(true);
+                          }}
+                          style={{
+                            padding: '7px 12px',
+                            fontSize: 11.5,
+                            fontWeight: 700,
+                            color: '#FFFFFF',
+                            background: '#1A1A1A',
+                            border: 'none',
+                            borderRadius: 6,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                          }}
+                        >
+                          <ShieldCheck size={13} /> Audit Mark Register &rarr;
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         </>}
       </main>
-
-      {/* MANAGE CLASS ENROLLMENT MODAL */}
-      <ManageClassStudentsModal
-        isOpen={isManageStudentsOpen}
-        activeClass={activeClassObj || null}
-        profiles={profiles}
-        onClose={() => setIsManageStudentsOpen(false)}
-        onSave={(classId, studentIds) => onUpdateClassEnrollment(classId, studentIds)}
-      />
 
       {/* REVIEW TEST RESULTS MODAL */}
       <ReviewTestResultsModal

@@ -942,54 +942,133 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
         onMouseLeave={sidebar.handleMouseLeave}
         onDoubleClick={sidebar.togglePin}
       >
-        {/* HEADER SECTION */}
-        <div className="sidebar-header">
-          <div className="sidebar-brand-row">
-            <WoodlemLogo collapsed={sidebar.isCollapsed} />
-          </div>
+        {/* LOGO */}
+        <div style={{ padding: sidebar.isCollapsed ? '16px 0 0 0' : '16px 16px 0 16px', flexShrink: 0, overflow: 'hidden' }}>
+          <WoodlemLogo collapsed={sidebar.isCollapsed} />
+        </div>
 
-          {/* PARENT PROFILE CARD */}
-          <div
-            className="sidebar-profile-box"
-            title={`${currentUser?.name || 'Parent'} • Parent / Guardian`}
-          >
-            <div className="sidebar-profile-avatar-slot">
-              <div className="sidebar-profile-avatar avatar-parent-themed" style={{ overflow: 'hidden' }}>
-                {sidebarAvatarUrl ? (
-                  <img
-                    src={sidebarAvatarUrl}
-                    alt="Profile"
-                    style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
-                    onError={(e) => {
-                      (e.currentTarget as HTMLElement).style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  (currentUser?.name || 'P').charAt(0).toUpperCase()
-                )}
-              </div>
+        {/* CONSOLE LABEL */}
+        {!sidebar.isCollapsed && (
+          <div style={{
+            padding: '10px 16px 12px',
+            fontSize: 10.5,
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            color: '#8C8A84',
+            textTransform: 'uppercase',
+            borderBottom: '1px solid #E8E5DF',
+            flexShrink: 0,
+            textAlign: 'center',
+          }}>
+            Parent Workspace Portal
+          </div>
+        )}
+
+        {/* PROFILE CARD */}
+        {sidebar.isCollapsed ? (
+          <div style={{ padding: '12px 0 6px', display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
+            <div
+              title={`${currentUser?.name || 'Parent'} • Parent / Guardian`}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                background: '#3D7A6E',
+                color: '#FFFFFF',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 13,
+                fontWeight: 700,
+                overflow: 'hidden',
+                flexShrink: 0,
+                border: '1.5px solid #E8E5DF',
+              }}
+            >
+              {sidebarAvatarUrl ? (
+                <img
+                  src={sidebarAvatarUrl}
+                  alt="Profile"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={(e) => {
+                    (e.currentTarget as HTMLElement).style.display = 'none';
+                  }}
+                />
+              ) : (
+                (currentUser?.name || 'P').charAt(0).toUpperCase()
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={{
+            margin: '12px 12px 0',
+            border: '1px solid #E8E5DF',
+            borderRadius: 8,
+            padding: '10px 12px',
+            background: '#FAF9F6',
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+          }}>
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: '50%',
+                background: '#3D7A6E',
+                color: '#FFFFFF',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 13,
+                fontWeight: 700,
+                overflow: 'hidden',
+                flexShrink: 0,
+                border: '1.5px solid #E8E5DF',
+              }}
+            >
+              {sidebarAvatarUrl ? (
+                <img
+                  src={sidebarAvatarUrl}
+                  alt="Profile"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={(e) => {
+                    (e.currentTarget as HTMLElement).style.display = 'none';
+                  }}
+                />
+              ) : (
+                (currentUser?.name || 'P').charAt(0).toUpperCase()
+              )}
             </div>
 
-            <div className="profile-details-expanded">
-              <div className="sidebar-profile-name">
+            <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.25 }}>
                 {currentUser?.name || 'Parent Portal'}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                <span
-                  className="sidebar-profile-badge"
-                  style={{ background: '#EAF3F1', color: '#265E5A', borderColor: '#B8D9D4' }}
-                >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: '0.06em',
+                  background: '#1A1A1A',
+                  color: '#FFFFFF',
+                  padding: '2px 7px',
+                  borderRadius: 4,
+                  textTransform: 'uppercase',
+                  lineHeight: 1.25,
+                }}>
                   Parent / Guardian
                 </span>
               </div>
-              <div className="sidebar-profile-adm" style={{ marginTop: 3 }}>
+              <div style={{ fontSize: 10.5, color: '#7A7873', fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {linkedStudents.length > 0
                   ? `${linkedStudents.length} Ward${linkedStudents.length > 1 ? 's' : ''} Linked`
                   : 'No Wards Linked'}
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* NAVIGATION ITEMS */}
         <nav className="nav-menu">
@@ -1133,10 +1212,10 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
         </nav>
 
         {/* SIDEBAR FOOTER */}
-        <div className="sidebar-footer">
+        <div className="sidebar-footer" style={{ background: 'transparent' }}>
           <div className="sidebar-tooltip-wrapper">
             <button
-              className={`logout-btn-clean ${activeTab === 'settings' ? 'active' : ''}`}
+              className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
               onClick={() => {
                 setActiveTab('settings');
                 sidebar.handleNavClick();
@@ -1152,7 +1231,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
           <div className="sidebar-tooltip-wrapper">
             <button
-              className={`logout-btn-clean ${activeTab === 'support' ? 'active' : ''}`}
+              className={`nav-item ${activeTab === 'support' ? 'active' : ''}`}
               onClick={() => {
                 setActiveTab('support');
                 sidebar.handleNavClick();
@@ -2215,10 +2294,10 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                       const isAuthAbsent = status === 'auth_absent';
                       const isUnauthAbsent = status === 'unauth_absent';
 
-                      const badgeBg = isPresent ? '#EAF3EF' : isAuthAbsent ? '#FEF7EC' : isUnauthAbsent ? '#FDF1F0' : '#F1F5F9';
-                      const badgeText = isPresent ? '#2D6E5D' : isAuthAbsent ? '#9E6C1B' : isUnauthAbsent ? '#A83B38' : '#64748B';
-                      const badgeBorder = isPresent ? '#C7E4D8' : isAuthAbsent ? '#F5DEB3' : isUnauthAbsent ? '#F5C6CB' : '#CBD5E1';
-                      const label = isPresent ? 'Present' : isAuthAbsent ? 'Authorized Leave' : isUnauthAbsent ? 'Unexcused Absence' : 'Not Recorded';
+                      const badgeBg = isPresent ? '#EAF3EF' : isAuthAbsent ? '#FEF3C7' : isUnauthAbsent ? '#FDF1F0' : '#F1F5F9';
+                      const badgeText = isPresent ? '#2D6E5D' : isAuthAbsent ? '#92400E' : isUnauthAbsent ? '#DC2626' : '#64748B';
+                      const badgeBorder = isPresent ? '#C7E4D8' : isAuthAbsent ? '#FDE68A' : isUnauthAbsent ? '#FECACA' : '#CBD5E1';
+                      const label = isPresent ? 'Present' : isAuthAbsent ? 'Permit Leave (PL)' : isUnauthAbsent ? 'Absent' : 'Not Recorded';
 
                       return (
                         <div

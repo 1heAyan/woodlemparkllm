@@ -8,7 +8,7 @@ export interface PortalNavigationTarget {
   view?: string; // e.g. 'class', 'awards', 'attendance', 'hub', 'settings', 'support', 'overview', 'directory', 'classes', 'documents', 'progress'
   classId?: string; // target subject classroom ID
   className?: string; // target class name / subject
-  subTab?: string; // 'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'roster' | 'mark' | 'history'
+  subTab?: string; // 'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'students' | 'roster' | 'mark' | 'history'
   modalAction?: 'provision_user' | 'bulk_import' | 'create_class' | 'create_test' | 'create_assignment' | 'add_achievement';
   extraParams?: Record<string, any>;
 }
@@ -71,6 +71,15 @@ export const PortalNavigationProvider: React.FC<{
 
   // Initialize Welcome Message
   const getWelcomeMessage = useCallback((user: UserProfile | null): ChatMessage => {
+    if (!user) {
+      return {
+        id: 'welcome-msg',
+        sender: 'assistant',
+        text: `Welcome to **Woodlem Park School**! 👋 I am Woodpecker, your AI assistant.\n\nI can help you log in to your portal account or introduce you to Woodlem's academic curriculum, holistic campus, and digital LMS features.\n\nHow can I help you today?`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+    }
+
     const role = user?.role || 'student';
     const name = user?.name || 'there';
 
@@ -97,13 +106,41 @@ export const PortalNavigationProvider: React.FC<{
     {
       id: 'welcome-msg',
       sender: 'assistant',
-      text: 'Hello! I am Woodpecker, your AI assistant. I can help you submit assignments, view study resources, check your syllabus checklist, track attendance, and navigate all your subject classrooms.',
+      text: 'Welcome to Woodlem Park School! 👋 I am Woodpecker, your AI assistant. I can help you log in to your portal account or introduce you to Woodlem\'s academic curriculum, holistic campus, and digital LMS features.\n\nHow can I help you today?',
       time: '12:00 PM',
     },
   ]);
 
-  // Load chat messages & greeting on client mount
+  const prevUserRef = useRef<string | null>(initialUser ? initialUser.id : 'guest');
+
+  // Load chat messages & greeting on client mount or user session change
   useEffect(() => {
+    const currentUserId = initialUser ? initialUser.id : (currentUser ? currentUser.id : 'guest');
+    const userChanged = prevUserRef.current !== currentUserId;
+    prevUserRef.current = currentUserId;
+
+    if (userChanged) {
+      // Refresh chat greeting when switching between login screen (guest) and logged-in user
+      const freshWelcome = getWelcomeMessage(initialUser);
+      setMessages([freshWelcome]);
+      if (!initialUser) {
+        setIsAiPanelOpen(false);
+      }
+      try {
+        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify([freshWelcome]));
+        if (!initialUser) {
+          localStorage.setItem(AI_PANEL_STATE_KEY, 'false');
+        }
+      } catch {}
+      return;
+    }
+
+    if (!initialUser && !currentUser) {
+      const guestWelcome = getWelcomeMessage(null);
+      setMessages([guestWelcome]);
+      return;
+    }
+
     try {
       const saved = localStorage.getItem(CHAT_STORAGE_KEY);
       if (saved) {
@@ -124,9 +161,7 @@ export const PortalNavigationProvider: React.FC<{
     } catch (e) {
       console.warn('Failed to restore chat messages from localStorage:', e);
     }
-    if (initialUser || currentUser) {
-      setMessages([getWelcomeMessage(initialUser || currentUser)]);
-    }
+    setMessages([getWelcomeMessage(initialUser || currentUser)]);
   }, [initialUser, currentUser, getWelcomeMessage]);
 
   // Restore panel open state from localStorage
@@ -134,12 +169,13 @@ export const PortalNavigationProvider: React.FC<{
     if (typeof window !== 'undefined') {
       try {
         const savedState = localStorage.getItem(AI_PANEL_STATE_KEY);
-        if (savedState === 'true') {
+        // Only open panel if there is an active logged-in user or explicitly requested
+        if (savedState === 'true' && initialUser) {
           setIsAiPanelOpen(true);
         }
       } catch (e) {}
     }
-  }, []);
+  }, [initialUser]);
 
   // Save panel state changes
   useEffect(() => {
@@ -159,12 +195,21 @@ export const PortalNavigationProvider: React.FC<{
     }
   }, [messages]);
 
-  // Sync user updates
+  // Sync user updates and handle logout
   useEffect(() => {
-    if (initialUser) {
-      setCurrentUser(initialUser);
+    setCurrentUser(initialUser);
+    if (!initialUser) {
+      setIsAiPanelOpen(false);
+      const guestWelcome = getWelcomeMessage(null);
+      setMessages([guestWelcome]);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(AI_PANEL_STATE_KEY, 'false');
+          localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify([guestWelcome]));
+        } catch (e) {}
+      }
     }
-  }, [initialUser]);
+  }, [initialUser, getWelcomeMessage]);
 
   const toggleAiPanel = useCallback(() => {
     setIsAiPanelOpen((prev) => !prev);

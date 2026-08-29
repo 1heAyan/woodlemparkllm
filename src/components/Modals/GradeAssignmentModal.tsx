@@ -126,7 +126,7 @@ export const GradeAssignmentModal: React.FC<GradeAssignmentModalProps> = ({
         <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px' }}>
           {studentSubmissionList.length === 0 ? (
             <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-              No students enrolled in this classroom roster.
+              No students enrolled in this class.
             </div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>

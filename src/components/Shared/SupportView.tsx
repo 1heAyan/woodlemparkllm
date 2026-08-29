@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { UserProfile } from '@/lib/supabaseClient';
+import { SegmentedControl } from '@/components/UI/SegmentedControl';
 
 interface SupportViewProps {
   currentUser: UserProfile;
@@ -104,41 +105,17 @@ export const SupportView: React.FC<SupportViewProps> = () => {
         </div>
 
         {/* Sub-Tabs (Contacts and FAQ Only) */}
-        <div style={{ display: 'flex', gap: 6, background: '#FAF9F6', padding: 4, borderRadius: 6, border: '1px solid var(--border-color)' }}>
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('contacts')}
-            style={{
-              padding: '6px 16px',
-              fontSize: 12.5,
-              fontWeight: activeSubTab === 'contacts' ? 700 : 500,
-              borderRadius: 4,
-              border: 'none',
-              background: activeSubTab === 'contacts' ? '#2D2C2A' : 'transparent',
-              color: activeSubTab === 'contacts' ? '#FFFFFF' : 'var(--text-secondary)',
-              boxShadow: activeSubTab === 'contacts' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
-              cursor: 'pointer',
-            }}
-          >
-            Campus Directory &amp; Contacts
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('faq')}
-            style={{
-              padding: '6px 16px',
-              fontSize: 12.5,
-              fontWeight: activeSubTab === 'faq' ? 700 : 500,
-              borderRadius: 4,
-              border: 'none',
-              background: activeSubTab === 'faq' ? '#2D2C2A' : 'transparent',
-              color: activeSubTab === 'faq' ? '#FFFFFF' : 'var(--text-secondary)',
-              boxShadow: activeSubTab === 'faq' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
-              cursor: 'pointer',
-            }}
-          >
-            Knowledge Base &amp; FAQ
-          </button>
+        <div style={{ display: 'flex' }}>
+          <SegmentedControl
+            value={activeSubTab}
+            onChange={(tab) => setActiveSubTab(tab)}
+            options={[
+              { value: 'contacts', label: 'Campus Directory & Contacts' },
+              { value: 'faq', label: 'Knowledge Base & FAQ' },
+            ]}
+            height={34}
+            textTransform="none"
+          />
         </div>
       </div>
 
@@ -329,12 +306,15 @@ export const SupportView: React.FC<SupportViewProps> = () => {
                 style={{
                   flex: 1,
                   minWidth: 240,
-                  padding: '9px 14px',
+                  height: 32,
+                  padding: '0 12px',
+                  fontSize: 12,
                   borderRadius: 6,
-                  border: '1px solid var(--border-color)',
-                  fontSize: 13,
+                  border: '1px solid #E5E3DF',
+                  background: '#FFFFFF',
+                  color: '#1A1A1A',
                   outline: 'none',
-                  background: '#FAF9F6',
+                  boxSizing: 'border-box',
                 }}
               />
             </div>

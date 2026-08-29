@@ -17,6 +17,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { supabase, SubjectClass, UserProfile } from '@/lib/supabaseClient';
+import { SegmentedControl } from '@/components/UI/SegmentedControl';
 
 export interface GradeAssessmentTerm {
   id: string;
@@ -612,37 +613,17 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
         }}
       >
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <h2
-              style={{
-                fontSize: 18,
-                fontWeight: 700,
-                color: 'var(--neutral-dark)',
-                fontFamily: 'var(--font-display)',
-                margin: 0,
-              }}
-            >
-              Grade-Wise Examination Terms & Assessment Setup
-            </h2>
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                padding: '2px 7px',
-                borderRadius: 4,
-                background: '#EAF3EF',
-                color: '#265E5A',
-                border: '1px solid #C7E4D8',
-                textTransform: 'uppercase',
-              }}
-            >
-              ADMINISTRATIVE CONTROL
-            </span>
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 0 0', maxWidth: 680 }}>
-            Assessment terms (e.g. Periodic Tests, Half-Yearly, Final Exams) are configured centrally per Grade. Teachers
-            cannot create terms — they automatically receive these standardized terms to record marks.
-          </p>
+          <h2
+            style={{
+              fontSize: 18,
+              fontWeight: 700,
+              color: 'var(--neutral-dark)',
+              fontFamily: 'var(--font-display)',
+              margin: 0,
+            }}
+          >
+            Grade-Wise Examination Terms &amp; Assessment Setup
+          </h2>
         </div>
 
         <button
@@ -665,45 +646,18 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
       </div>
 
       {/* Grade Selector Tabs Strip */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {VALID_GRADES.map(g => {
-          const count = (gradeTermsMap[g] || []).length;
-          const isSelected = selectedGrade === g;
-          return (
-            <button
-              key={g}
-              onClick={() => setSelectedGrade(g)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '9px 18px',
-                borderRadius: 8,
-                fontSize: 13,
-                fontWeight: 700,
-                border: isSelected ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
-                background: isSelected ? '#2D2C2A' : '#FFFFFF',
-                color: isSelected ? '#FFFFFF' : 'var(--neutral-dark)',
-                cursor: 'pointer',
-                transition: 'all 0.12s ease',
-              }}
-            >
-              <span>Grade {g}</span>
-              <span
-                style={{
-                  fontSize: 10.5,
-                  fontWeight: 800,
-                  padding: '1px 6px',
-                  borderRadius: 10,
-                  background: isSelected ? '#454340' : 'var(--surface-variant)',
-                  color: isSelected ? '#FFFFFF' : 'var(--neutral-dark)',
-                }}
-              >
-                {count} {count === 1 ? 'Term' : 'Terms'}
-              </span>
-            </button>
-          );
-        })}
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <SegmentedControl
+          value={selectedGrade}
+          onChange={(g) => setSelectedGrade(g)}
+          options={VALID_GRADES.map((g) => ({
+            value: g,
+            label: `Grade ${g}`,
+            count: (gradeTermsMap[g] || []).length,
+          }))}
+          height={34}
+          textTransform="none"
+        />
       </div>
 
       {/* Grade Overview KPI Strip */}
@@ -785,9 +739,6 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
             </span>
           </div>
 
-          <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-            {currentGradeTerms.length} assessment {currentGradeTerms.length === 1 ? 'column' : 'columns'} active
-          </span>
         </div>
 
         {currentGradeTerms.length === 0 ? (
