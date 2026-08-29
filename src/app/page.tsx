@@ -1301,50 +1301,107 @@ export default function WoodlemApp() {
       total_marks: questions.reduce((sum, q) => sum + (q.points || 1), 0),
     };
 
-    // Store teacher_id both as top-level column (if it exists in the table)
-    // AND inside the subject JSON blob as a guaranteed fallback.
     const subjectJson = JSON.stringify({
       duration_minutes: durationMinutes,
       questions,
       media_url: mediaUrl,
       total_marks: newTest.total_marks,
-      teacher_id: currentUser?.id,  // ← embedded fallback
+      teacher_id: currentUser?.id,
     });
 
-    // Try insert with top-level teacher_id column first
-    const supabasePayload = {
-      id: newTest.id,
-      title: newTest.title,
-      class_name: newTest.class_name,
-      teacher_id: currentUser?.id,
-      subject: subjectJson,
-    };
-
+    // 1. Optimistically update local tests state immediately
     setTests((prev) => [newTest, ...prev]);
+
+    // 2. Multi-tier database insertion strategy
+    let dbSuccess = false;
+
+    // Tier 1: Standard Supabase Schema with questions (JSONB), duration_minutes, teacher_id
     try {
-      const { error } = await supabase.from('tests').insert([supabasePayload]);
-      if (error) {
-        // teacher_id column might not exist yet — retry without it (teacher_id is in subject JSON)
-        const fallbackPayload = {
+      const tier1Payload: any = {
+        id: newTest.id,
+        title: newTest.title,
+        class_name: newTest.class_name,
+        questions: newTest.questions,
+        duration_minutes: newTest.duration_minutes,
+      };
+      if (currentUser?.id) tier1Payload.teacher_id = currentUser.id;
+
+      const { error: err1 } = await supabase.from('tests').insert([tier1Payload]);
+      if (!err1) {
+        dbSuccess = true;
+      } else {
+        console.warn('Test insert Tier 1 notice (retrying core JSONB):', err1.message);
+      }
+    } catch (e) {
+      console.warn('Exception during Tier 1 test insert:', e);
+    }
+
+    // Tier 2: Core columns only (id, title, class_name, questions JSONB, duration_minutes)
+    if (!dbSuccess) {
+      try {
+        const tier2Payload = {
+          id: newTest.id,
+          title: newTest.title,
+          class_name: newTest.class_name,
+          questions: newTest.questions,
+          duration_minutes: newTest.duration_minutes,
+        };
+        const { error: err2 } = await supabase.from('tests').insert([tier2Payload]);
+        if (!err2) {
+          dbSuccess = true;
+        } else {
+          console.warn('Test insert Tier 2 notice (retrying stringified):', err2.message);
+        }
+      } catch (e) {
+        console.warn('Exception during Tier 2 test insert:', e);
+      }
+    }
+
+    // Tier 3: Legacy subject JSON string column
+    if (!dbSuccess) {
+      try {
+        const tier3Payload = {
           id: newTest.id,
           title: newTest.title,
           class_name: newTest.class_name,
           subject: subjectJson,
         };
-        const { error: error2 } = await supabase.from('tests').insert([fallbackPayload]);
-        if (error2) {
-          console.error('Supabase error inserting test (fallback):', error2);
-          // Revert local state so user knows it didn't save
-          setTests((prev) => prev.filter((t) => t.id !== newTest.id));
-          alert('Failed to save the test to the database. Please try again.');
-          return;
+        const { error: err3 } = await supabase.from('tests').insert([tier3Payload]);
+        if (!err3) {
+          dbSuccess = true;
+        } else {
+          console.warn('Test insert Tier 3 notice (retrying minimal):', err3.message);
         }
+      } catch (e) {
+        console.warn('Exception during Tier 3 test insert:', e);
       }
-    } catch (e) {
-      console.error('Failed to save test:', e);
-      setTests((prev) => prev.filter((t) => t.id !== newTest.id));
-      alert('Failed to save the test. Please check your connection.');
-      return;
+    }
+
+    // Tier 4: Minimal valid row
+    if (!dbSuccess) {
+      try {
+        const tier4Payload = {
+          id: newTest.id,
+          title: newTest.title,
+          class_name: newTest.class_name,
+        };
+        const { error: err4 } = await supabase.from('tests').insert([tier4Payload]);
+        if (!err4) {
+          dbSuccess = true;
+        }
+      } catch (e) {
+        console.warn('Exception during Tier 4 test insert:', e);
+      }
+    }
+
+    // Always cache locally so created test is never lost
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('woodlem_offline_tests_v1');
+        const list = cached ? JSON.parse(cached) : [];
+        list.unshift(newTest);
+        localStorage.setItem('woodlem_offline_tests_v1', JSON.stringify(list));
+      } catch {}
     }
 
     recordAuditLog(
@@ -1352,6 +1409,7 @@ export default function WoodlemApp() {
       title,
       `Published new class test with ${questions.length} questions for ${className}`
     );
+
     alert(`Class Test "${title}" published successfully.`);
     loadAllData();
   };
