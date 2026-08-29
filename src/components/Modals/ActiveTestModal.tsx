@@ -216,12 +216,12 @@ export const ActiveTestModal: React.FC<ActiveTestModalProps> = ({
                       {/* MCQ Options */}
                       {q.type === 'mcq' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                          {q.options.map((opt) => {
+                          {q.options.map((opt, optIdx) => {
                             const isSelected = selectedAnswers[q.id] === opt;
-                            const letter = String.fromCharCode(65 + q.options.indexOf(opt));
+                            const letter = String.fromCharCode(65 + optIdx);
                             return (
                               <label
-                                key={opt}
+                                key={`${q.id}_opt_${optIdx}`}
                                 onClick={() => handleSelectOption(q.id, opt)}
                                 style={{
                                   display: 'flex', alignItems: 'center', gap: 10,
@@ -234,7 +234,7 @@ export const ActiveTestModal: React.FC<ActiveTestModalProps> = ({
                               >
                                 <input
                                   type="radio"
-                                  name={`q-${q.id}`}
+                                  name={`test-question-answer-radio-${q.id}`}
                                   checked={isSelected}
                                   onChange={() => handleSelectOption(q.id, opt)}
                                   style={{ accentColor: '#2C6E6A' }}

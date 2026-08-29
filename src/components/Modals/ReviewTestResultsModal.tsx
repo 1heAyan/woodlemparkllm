@@ -70,15 +70,24 @@ export const ReviewTestResultsModal: React.FC<ReviewTestResultsModalProps> = ({
   };
 
   return (
-    <div className="modal-overlay active" onClick={onClose}>
+    <div
+      className="modal-overlay active"
+      onClick={onClose}
+      style={{
+        zIndex: 1100,
+        overflowY: 'auto',
+        WebkitOverflowScrolling: 'touch',
+      }}
+    >
       <div
         className="modal-content"
         onClick={(e) => e.stopPropagation()}
         style={{
           display: 'flex',
           flexDirection: 'column',
-          height: '100%',
-          overflowY: 'auto',
+          minHeight: '100%',
+          height: 'auto',
+          overflowY: 'visible',
           background: 'var(--bg-primary, #FAF9F6)',
         }}
       >
