@@ -16,6 +16,9 @@ const ALL_SECTIONS = [
 interface CreateTestModalProps {
   isOpen: boolean;
   activeClass?: string;
+  subjectClasses?: any[];
+  existingTests?: any[];
+  currentUser?: any;
   onClose: () => void;
   onSubmit: (data: {
     title: string;
@@ -27,16 +30,16 @@ interface CreateTestModalProps {
 }
 
 const makeBlankMCQ = (idx: number): TestQuestion => ({
-  id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${idx}`,
+  id: `q-${Date.now()}-${idx}`,
   type: 'mcq',
   question: '',
   options: ['', '', '', ''],
-  correct: '__idx__0',
+  correct: '',
   points: 1,
 });
 
 const makeBlankText = (idx: number): TestQuestion => ({
-  id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${idx}`,
+  id: `q-${Date.now()}-${idx}`,
   type: 'text',
   question: '',
   options: [],
@@ -66,10 +69,9 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
 
   /* ── Question Helpers ── */
   const addQuestion = (type: 'mcq' | 'text') => {
-    const count = questions.length + 1;
     setQuestions((prev) => [
       ...prev,
-      type === 'mcq' ? makeBlankMCQ(count) : makeBlankText(count),
+      type === 'mcq' ? makeBlankMCQ(prev.length + 1) : makeBlankText(prev.length + 1),
     ]);
   };
 
@@ -91,6 +93,7 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
         if (i !== qIdx) return q;
         const opts = [...q.options];
         opts[optIdx] = text;
+        // correct is stored as index tag — no need to chase text
         return { ...q, options: opts };
       })
     );
@@ -615,8 +618,7 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
 
                         return (
                           <div
-                            key={`opt_${q.id}_${optIdx}`}
-                            onClick={() => updateQ(qIdx, { correct: idxTag })}
+                            key={optIdx}
                             style={{
                               display: 'flex',
                               alignItems: 'center',
@@ -626,15 +628,13 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
                               border: isCorrect ? '1.5px solid #10B981' : '1px solid #E2E8F0',
                               borderRadius: 6,
                               transition: 'all 0.12s ease',
-                              cursor: 'pointer',
                             }}
                           >
                             <input
                               type="radio"
-                              name={`correct-radio-q-${q.id}`}
+                              name={`correct-${q.id}`}
                               checked={isCorrect}
                               onChange={() => updateQ(qIdx, { correct: idxTag })}
-                              onClick={(e) => e.stopPropagation()}
                               style={{ accentColor: '#10B981', cursor: 'pointer', width: 16, height: 16 }}
                               title="Mark as correct answer"
                             />
@@ -652,7 +652,6 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
                               type="text"
                               value={opt}
                               onChange={(e) => updateOption(qIdx, optIdx, e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
                               placeholder={`Option ${letter}`}
                               style={{
                                 flex: 1,

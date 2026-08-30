@@ -21,10 +21,8 @@ import {
   Grid,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { supabase, SubjectClass, UserProfile } from '@/lib/supabaseClient';
-import { getStoredGradeTerms } from '../Admin/AdminAssessmentTermsView';
+import { getStoredGradeTerms, decodeAssessmentNotes, encodeMarkNote, decodeMarkNote } from '../Admin/AdminAssessmentTermsView';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,11 +31,15 @@ export type Assessment = {
   title: string;
   assessment_date: string;
   maximum_marks: number;
+  written_max_marks?: number;
+  internal_max_marks?: number;
   notes?: string;
 };
 
 export type MarkData = {
   marks: string;
+  written_marks?: string;
+  internal_marks?: string;
   teacher_note: string;
   is_visible_to_student: boolean;
 };
@@ -161,10 +163,23 @@ export function MarkEntryModal({
 
       assessments.forEach(a => {
         const md = gridData[s.id]?.[a.id];
-        if (md && md.marks !== '' && !isNaN(Number(md.marks))) {
-          totalScored += Number(md.marks);
-          totalMax += a.maximum_marks;
-          gradedCount += 1;
+        if (!md) return;
+
+        const hasSplit = a.written_max_marks !== undefined && a.internal_max_marks !== undefined;
+        if (hasSplit) {
+          const w = md.written_marks !== '' && md.written_marks !== undefined ? Number(md.written_marks) : null;
+          const i = md.internal_marks !== '' && md.internal_marks !== undefined ? Number(md.internal_marks) : null;
+          if (w !== null && !isNaN(w) && i !== null && !isNaN(i)) {
+            totalScored += w + i;
+            totalMax += a.maximum_marks;
+            gradedCount += 1;
+          }
+        } else {
+          if (md.marks !== '' && !isNaN(Number(md.marks))) {
+            totalScored += Number(md.marks);
+            totalMax += a.maximum_marks;
+            gradedCount += 1;
+          }
         }
       });
 
@@ -315,6 +330,7 @@ export function MarkEntryModal({
             return {
               title: parsed.title || m.file_name || 'Assessment',
               maximum_marks: Number(parsed.maximum_marks || m.file_url || 40),
+              notes: parsed.notes || '',
             };
           });
         }
@@ -345,7 +361,7 @@ export function MarkEntryModal({
         }
 
         if (termsToSeed.length > 0) {
-          const newRows = termsToSeed.map(t => {
+          const newRows = termsToSeed.map((t: any) => {
             const baseSlug = t.title.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30);
             return {
               id: `offline_term_g${targetGrade}_${baseSlug}_${classRoom.id}`,
@@ -354,7 +370,7 @@ export function MarkEntryModal({
               title: t.title,
               assessment_date: new Date().toISOString().slice(0, 10),
               maximum_marks: t.maximum_marks,
-              notes: '',
+              notes: t.notes || '',
             };
           });
 
@@ -371,7 +387,17 @@ export function MarkEntryModal({
         }
       }
 
-      setAssessments(assData || []);
+      // Enrich assessments with written/internal max from notes JSON
+      const enrichedAssData = (assData || []).map((a: any) => {
+        const dec = decodeAssessmentNotes(a.notes);
+        return {
+          ...a,
+          written_max_marks: dec.written_max,
+          internal_max_marks: dec.internal_max,
+        };
+      });
+
+      setAssessments(enrichedAssData);
 
       if (!assData || assData.length === 0) {
         setGridData({});
@@ -390,11 +416,14 @@ export function MarkEntryModal({
       const nextGrid: GridData = {};
       enrolledStudents.forEach(s => {
         nextGrid[s.id] = {};
-        assData!.forEach(a => {
-          const m = (marksData || []).find(x => x.student_id === s.id && x.assessment_id === a.id);
+        (assData || []).forEach((a: any) => {
+          const m = (marksData || []).find((x: any) => x.student_id === s.id && x.assessment_id === a.id);
+          const decoded = decodeMarkNote(m?.teacher_note);
           nextGrid[s.id][a.id] = {
             marks: m?.marks !== undefined && m?.marks !== null ? String(m.marks) : '',
-            teacher_note: m?.teacher_note ?? '',
+            written_marks: decoded.written,
+            internal_marks: decoded.internal,
+            teacher_note: decoded.note,
             is_visible_to_student: true,
           };
         });
@@ -488,6 +517,18 @@ export function MarkEntryModal({
         }
       }
     }
+    if ((field === 'written_marks' || field === 'internal_marks') && typeof val === 'string') {
+      if (val !== '') {
+        const assessment = assessments.find(x => x.id === assessmentId);
+        const maxField = field === 'written_marks' ? assessment?.written_max_marks : assessment?.internal_max_marks;
+        const maxMarks = maxField !== undefined ? maxField : Infinity;
+        const num = Number(val);
+        if (!isNaN(num)) {
+          if (num > maxMarks) finalVal = String(maxMarks);
+          else if (num < 0) finalVal = '0';
+        }
+      }
+    }
 
     setGridData(prev => ({
       ...prev,
@@ -500,6 +541,7 @@ export function MarkEntryModal({
       },
     }));
   };
+
 
   // ── Keyboard Navigation ──────────────────────────────────────────────────
   const handleKeyDown = (
@@ -548,22 +590,38 @@ export function MarkEntryModal({
     Object.entries(gridData).forEach(([sid, amap]) => {
       Object.entries(amap).forEach(([aid, md]) => {
         const assessment = assessments.find(x => x.id === aid);
+        const hasSplit = assessment?.written_max_marks !== undefined && assessment?.internal_max_marks !== undefined;
         const maxMarks = assessment ? assessment.maximum_marks : Infinity;
         let numMarks: number | null = null;
 
-        if (md.marks !== '') {
-          const parsed = Number(md.marks);
-          if (!isNaN(parsed)) {
-            numMarks = Math.min(maxMarks, Math.max(0, parsed));
+        if (hasSplit) {
+          // Compute total from written + internal
+          const w = md.written_marks !== '' && md.written_marks !== undefined ? Number(md.written_marks) : null;
+          const i = md.internal_marks !== '' && md.internal_marks !== undefined ? Number(md.internal_marks) : null;
+          if (w !== null && !isNaN(w) && i !== null && !isNaN(i)) {
+            numMarks = Math.min(maxMarks, Math.max(0, w + i));
+          } else if (md.marks !== '') {
+            const parsed = Number(md.marks);
+            if (!isNaN(parsed)) numMarks = Math.min(maxMarks, Math.max(0, parsed));
+          }
+        } else {
+          if (md.marks !== '') {
+            const parsed = Number(md.marks);
+            if (!isNaN(parsed)) {
+              numMarks = Math.min(maxMarks, Math.max(0, parsed));
+            }
           }
         }
+
+        // Encode written/internal marks into teacher_note as JSON
+        const encodedNote = encodeMarkNote(md.written_marks, md.internal_marks, md.teacher_note);
 
         rows.push({
           id: `${aid}_${sid}`,
           assessment_id: aid,
           student_id: sid,
           marks: numMarks,
-          teacher_note: md.teacher_note,
+          teacher_note: encodedNote,
           is_visible_to_student: true,
           updated_at: new Date().toISOString(),
         });
@@ -612,240 +670,7 @@ export function MarkEntryModal({
     showToast('Filled empty cells with 0.', 'info');
   };
 
-  // ── PDF Marksheet Export ───────────────────────────────────────────────────
-  const handleExportPDF = () => {
-    try {
-      const doc = new jsPDF({
-        orientation: 'landscape',
-        unit: 'pt',
-        format: 'a4',
-      });
-
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-
-      // Top brand header banner
-      doc.setFillColor(28, 77, 70); // #1C4D46 Woodlem Dark Green
-      doc.rect(0, 0, pageWidth, 52, 'F');
-
-      // Gold/Emerald accent line
-      doc.setFillColor(212, 160, 23); // #D4A017 Gold accent
-      doc.rect(0, 52, pageWidth, 3, 'F');
-
-      // School Name
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(15);
-      doc.setTextColor(255, 255, 255);
-      doc.text('WOODLEM PARK SCHOOL', 28, 24);
-
-      // Subtitle
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9.5);
-      doc.setTextColor(200, 230, 225);
-      doc.text('Official Marks Register & Academic Performance Marksheet', 28, 40);
-
-      // Date / Academic Info (Top Right)
-      const exportDateStr = new Date().toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      });
-      doc.setFontSize(9);
-      doc.setTextColor(220, 240, 235);
-      doc.text(`Generated: ${exportDateStr}`, pageWidth - 28, 24, { align: 'right' });
-      doc.text(`Academic Cohort 2025–2026`, pageWidth - 28, 40, { align: 'right' });
-
-      // Classroom Info Box (Below Header)
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(28, 64, pageWidth - 56, 32, 4, 4, 'FD');
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(30, 41, 59);
-      doc.text(`${classRoom.name}`, 38, 80);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(100, 116, 139);
-      doc.text(`Grade ${classGrade} · Cohort ${classRoom.section || classRoom.class_name || 'Standard'}`, 38, 91);
-
-      // Right side metrics inside box
-      const classAvgText = overallKPIs.classAverage > 0 ? `${overallKPIs.classAverage.toFixed(1)}%` : '—';
-      const topScoreText = overallKPIs.highestScore ? `${overallKPIs.highestScore.pct.toFixed(0)}%` : '—';
-      const passRateText = overallKPIs.gradedCells > 0 ? `${overallKPIs.passRate.toFixed(0)}%` : '—';
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(44, 110, 106);
-      const metricsText = `Enrolled Students: ${enrolledStudents.length}    |    Class Average: ${classAvgText}    |    Top Score: ${topScoreText}    |    Pass Rate: ${passRateText}`;
-      doc.text(metricsText, pageWidth - 38, 84, { align: 'right' });
-
-      // Build Table Headers
-      const headers: string[] = ['#', 'Student Name', 'Admission No.'];
-      assessments.forEach((a) => {
-        headers.push(`${a.title}\n(Max ${a.maximum_marks})`);
-      });
-      headers.push('Total\nScored', 'Total\nMax', 'Overall\n%', 'Status');
-
-      // Build Table Body
-      const tableBody: any[] = [];
-      displayedStudents.forEach((s, idx) => {
-        const row: (string | number)[] = [
-          idx + 1,
-          s.name,
-          s.admission_number || s.user_code || '—',
-        ];
-
-        assessments.forEach((a) => {
-          const md = gridData[s.id]?.[a.id];
-          const val = md && md.marks !== '' ? `${md.marks}` : '—';
-          row.push(val);
-        });
-
-        const st = studentStatsMap[s.id];
-        const scored = st ? st.totalScored : 0;
-        const max = st ? st.totalMax : 0;
-        const pct = st && st.totalMax > 0 ? `${st.percentage.toFixed(1)}%` : '—';
-        const isPass = st && st.totalMax > 0 ? st.percentage >= 50 : null;
-        const resultLabel = isPass === null ? '—' : isPass ? 'PASS' : 'RETEST';
-
-        row.push(scored, max, pct, resultLabel);
-        tableBody.push(row);
-      });
-
-      // Build Summary / Average Footer Rows
-      const avgRow: (string | number)[] = ['', 'CLASS AVERAGE', ''];
-      const highRow: (string | number)[] = ['', 'HIGHEST SCORE', ''];
-      const lowRow: (string | number)[] = ['', 'LOWEST SCORE', ''];
-      const passRow: (string | number)[] = ['', 'PASS RATE (≥ 50%)', ''];
-
-      assessments.forEach((a) => {
-        const colStats = getColStats(a.id, a.maximum_marks);
-        avgRow.push(colStats.avg !== '—' ? `${colStats.avg}` : '—');
-        highRow.push(colStats.high !== '—' ? `${colStats.high}` : '—');
-        lowRow.push(colStats.low !== '—' ? `${colStats.low}` : '—');
-        passRow.push(colStats.pass !== '—' ? `${colStats.pass}` : '—');
-      });
-
-      avgRow.push(
-        overallKPIs.classAverage > 0 ? `${overallKPIs.classAverage.toFixed(1)}%` : '—',
-        '—',
-        overallKPIs.classAverage > 0 ? `${overallKPIs.classAverage.toFixed(1)}%` : '—',
-        '—'
-      );
-      highRow.push(
-        overallKPIs.highestScore ? `${overallKPIs.highestScore.score}` : '—',
-        '—',
-        overallKPIs.highestScore ? `${overallKPIs.highestScore.pct.toFixed(0)}%` : '—',
-        '—'
-      );
-      lowRow.push('—', '—', '—', '—');
-      passRow.push(
-        overallKPIs.gradedCells > 0 ? `${overallKPIs.passRate.toFixed(0)}%` : '—',
-        '—',
-        overallKPIs.gradedCells > 0 ? `${overallKPIs.passRate.toFixed(0)}%` : '—',
-        '—'
-      );
-
-      tableBody.push(avgRow, highRow, lowRow, passRow);
-
-      // AutoTable generation
-      autoTable(doc, {
-        head: [headers],
-        body: tableBody,
-        startY: 104,
-        margin: { left: 28, right: 28, bottom: 42 },
-        theme: 'grid',
-        styles: {
-          fontSize: 8,
-          cellPadding: 3.5,
-          textColor: [30, 41, 59],
-          valign: 'middle',
-          halign: 'center',
-          lineColor: [226, 232, 240],
-          lineWidth: 0.5,
-        },
-        headStyles: {
-          fillColor: [44, 110, 106], // #2C6E6A
-          textColor: [255, 255, 255],
-          fontStyle: 'bold',
-          halign: 'center',
-          fontSize: 8,
-        },
-        columnStyles: {
-          0: { cellWidth: 22, halign: 'center' }, // #
-          1: { halign: 'left', fontStyle: 'bold' }, // Student Name
-          2: { halign: 'center', font: 'courier' }, // Admission No
-        },
-        didParseCell: (data: any) => {
-          // Highlight Summary Rows at bottom
-          const totalRows = tableBody.length;
-          if (data.row.index >= totalRows - 4) {
-            data.cell.styles.fontStyle = 'bold';
-            data.cell.styles.fillColor = [241, 245, 249]; // Slate 100
-            if (data.row.index === totalRows - 4) {
-              data.cell.styles.textColor = [44, 110, 106]; // Emerald
-            } else if (data.row.index === totalRows - 3) {
-              data.cell.styles.textColor = [16, 185, 129]; // Green
-            } else if (data.row.index === totalRows - 2) {
-              data.cell.styles.textColor = [100, 116, 139]; // Gray
-            } else {
-              data.cell.styles.textColor = [79, 70, 229]; // Indigo
-            }
-          }
-          // Highlight Status column
-          if (data.section === 'body' && data.column.index === headers.length - 1) {
-            const val = String(data.cell.raw);
-            if (val === 'PASS') {
-              data.cell.styles.textColor = [22, 101, 52];
-              data.cell.styles.fontStyle = 'bold';
-            } else if (val === 'RETEST') {
-              data.cell.styles.textColor = [185, 28, 28];
-              data.cell.styles.fontStyle = 'bold';
-            }
-          }
-        },
-      });
-
-      // Footer / Signatures on each page
-      const totalPages = (doc as any).internal.getNumberOfPages();
-      for (let i = 1; i <= totalPages; i++) {
-        doc.setPage(i);
-
-        // Signatures on the last page
-        if (i === totalPages) {
-          const sigY = pageHeight - 30;
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8);
-          doc.setTextColor(100, 116, 139);
-
-          doc.text('Faculty Signature: ___________________________', 28, sigY);
-          doc.text('Principal / Academic Head Signature: ___________________________', pageWidth / 2, sigY);
-        }
-
-        // Bottom system footer
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        doc.setTextColor(148, 163, 184);
-        doc.text(
-          'Woodlem Park School Assessment Portal • Official Academic Document',
-          28,
-          pageHeight - 12
-        );
-        doc.text(`Page ${i} of ${totalPages}`, pageWidth - 28, pageHeight - 12, { align: 'right' });
-      }
-
-      const fileName = `${classRoom.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_Marks_Register.pdf`;
-      doc.save(fileName);
-      showToast(`Exported ${fileName} in PDF format successfully.`, 'success');
-    } catch (err: any) {
-      console.error('PDF export failed:', err);
-      showToast('PDF Export failed. Please try again.', 'error');
-    }
-  };
-
-  // ── Excel Export (Fallback / Alternative) ─────────────────────────────────
+  // ── Excel Export ─────────────────────────────────────────────────────────
   const handleExportExcel = () => {
     try {
       const rows: Record<string, string | number>[] = [];
@@ -1110,7 +935,7 @@ export function MarkEntryModal({
           {/* Action Buttons Header Group */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <button
-              onClick={handleExportPDF}
+              onClick={handleExportExcel}
               disabled={enrolledStudents.length === 0 || assessments.length === 0}
               className="btn-secondary"
               style={{
@@ -1123,10 +948,10 @@ export function MarkEntryModal({
                 cursor: enrolledStudents.length === 0 || assessments.length === 0 ? 'not-allowed' : 'pointer',
                 opacity: enrolledStudents.length === 0 || assessments.length === 0 ? 0.6 : 1,
               }}
-              title="Export Marksheet in PDF format"
+              title="Download Excel spreadsheet"
             >
               <Download size={14} />
-              <span>Export PDF</span>
+              <span>Export</span>
             </button>
 
             <button
@@ -1292,17 +1117,13 @@ export function MarkEntryModal({
                 placeholder="Search student or roll no..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
+                className="form-input"
                 style={{
-                  padding: '0 12px 0 34px',
-                  fontSize: 12,
+                  padding: '8px 12px 8px 34px',
+                  fontSize: 13,
                   width: 240,
-                  height: 32,
-                  borderRadius: 6,
-                  border: '1px solid #E5E3DF',
-                  background: '#FFFFFF',
-                  color: '#1A1A1A',
-                  outline: 'none',
-                  boxSizing: 'border-box',
+                  height: 38,
+                  borderRadius: 8,
                 }}
               />
               {searchQuery && (
@@ -1532,6 +1353,7 @@ export function MarkEntryModal({
                     {/* Assessment Headers */}
                     {assessments.map(a => {
                       const stats = getColStats(a.id, a.maximum_marks);
+                      const hasSplit = a.written_max_marks !== undefined && a.internal_max_marks !== undefined;
 
                       return (
                         <th
@@ -1543,7 +1365,7 @@ export function MarkEntryModal({
                             background: '#F8F7F4',
                             borderRight: '1px solid var(--border-color)',
                             borderBottom: '1px solid var(--border-color)',
-                            minWidth: 160,
+                            minWidth: hasSplit ? 210 : 160,
                             padding: '10px 14px',
                             textAlign: 'center',
                             verticalAlign: 'top',
@@ -1569,7 +1391,7 @@ export function MarkEntryModal({
                             </div>
 
                             {/* Date & Max Marks */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, marginBottom: 6 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, marginBottom: hasSplit ? 4 : 6 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--text-secondary)' }}>
                                 <Calendar size={10} />
                                 <span>{fmtDate(a.assessment_date)}</span>
@@ -1587,6 +1409,19 @@ export function MarkEntryModal({
                                 Max {a.maximum_marks}
                               </span>
                             </div>
+
+                            {/* Written + Internal split breakdown pill */}
+                            {hasSplit && (
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginBottom: 4 }}>
+                                <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: '#E8F4FA', color: '#1B5E7A', border: '1px solid #B8DCF0' }}>
+                                  Written /{a.written_max_marks}
+                                </span>
+                                <span style={{ fontSize: 9.5, color: 'var(--text-secondary)' }}>+</span>
+                                <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: '#EAF3EF', color: '#265E5A', border: '1px solid #C7E4D8' }}>
+                                  Internal /{a.internal_max_marks}
+                                </span>
+                              </div>
+                            )}
 
                             {/* Column Stats Chip */}
                             <div
@@ -1707,10 +1542,15 @@ export function MarkEntryModal({
                             teacher_note: '',
                             is_visible_to_student: true,
                           };
-                          const grade = getWoodlemGrade(md.marks, a.maximum_marks);
+                          const hasSplit = a.written_max_marks !== undefined && a.internal_max_marks !== undefined;
                           const isInvalid = md.marks !== '' && Number(md.marks) > a.maximum_marks;
                           const cellKey = `${s.id}_${a.id}`;
                           const isCommentOpen = activeCommentKey === cellKey;
+
+                          // Computed total for split mode
+                          const splitW = md.written_marks !== '' && md.written_marks !== undefined ? Number(md.written_marks) : null;
+                          const splitI = md.internal_marks !== '' && md.internal_marks !== undefined ? Number(md.internal_marks) : null;
+                          const splitTotal = splitW !== null && !isNaN(splitW) && splitI !== null && !isNaN(splitI) ? splitW + splitI : null;
 
                           return (
                             <td
@@ -1723,107 +1563,217 @@ export function MarkEntryModal({
                                 position: 'relative',
                               }}
                             >
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                  gap: 4,
-                                  height: 40,
-                                  padding: '0 4px',
-                                }}
-                              >
-                                {/* Score Input */}
-                                <input
-                                  ref={el => {
-                                    inputRefs.current[cellKey] = el;
-                                  }}
-                                  type="number"
-                                  min={0}
-                                  max={a.maximum_marks}
-                                  step="any"
-                                  value={md.marks}
-                                  onChange={e => {
-                                    const raw = e.target.value;
-                                    if (raw === '') {
-                                      setCell(s.id, a.id, 'marks', '');
-                                      return;
-                                    }
-                                    const num = Number(raw);
-                                    if (isNaN(num)) return;
-                                    if (num > a.maximum_marks) {
-                                      setCell(s.id, a.id, 'marks', String(a.maximum_marks));
-                                      return;
-                                    }
-                                    if (num < 0) {
-                                      setCell(s.id, a.id, 'marks', '0');
-                                      return;
-                                    }
-                                    setCell(s.id, a.id, 'marks', raw);
-                                  }}
-                                  onKeyDown={e => {
-                                    if (e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E') {
-                                      e.preventDefault();
-                                    }
-                                    handleKeyDown(e, rowIdx, aIdx);
-                                  }}
-                                  placeholder="—"
-                                  style={{
-                                    flex: 1,
-                                    width: '100%',
-                                    border: 'none',
-                                    background: 'transparent',
-                                    fontSize: 13.5,
-                                    fontWeight: 700,
-                                    color: isInvalid ? '#D9534F' : 'var(--neutral-dark)',
-                                    textAlign: 'center',
-                                    outline: 'none',
-                                    fontFamily: 'inherit',
-                                    padding: 0,
-                                  }}
-                                />
+                              {hasSplit ? (
+                                /* ── SPLIT MODE: Written + Internal sub-inputs ── */
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '2px 0' }}>
+                                  {/* Written Input */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <span style={{ fontSize: 9, fontWeight: 700, color: '#1B5E7A', minWidth: 32, letterSpacing: '0.01em' }}>W</span>
+                                    <input
+                                      ref={el => { inputRefs.current[`${cellKey}_w`] = el; }}
+                                      type="number"
+                                      min={0}
+                                      max={a.written_max_marks}
+                                      step="any"
+                                      value={md.written_marks ?? ''}
+                                      onChange={e => {
+                                        const raw = e.target.value;
+                                        setCell(s.id, a.id, 'written_marks', raw);
+                                      }}
+                                      onKeyDown={e => {
+                                        if (e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E') e.preventDefault();
+                                      }}
+                                      placeholder="—"
+                                      style={{
+                                        flex: 1,
+                                        border: '1px solid #B8DCF0',
+                                        borderRadius: 4,
+                                        background: '#F0F8FF',
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        color: '#1B5E7A',
+                                        textAlign: 'center',
+                                        outline: 'none',
+                                        fontFamily: 'inherit',
+                                        padding: '2px 4px',
+                                        height: 22,
+                                      }}
+                                    />
+                                    <span style={{ fontSize: 9, color: 'var(--text-secondary)', minWidth: 24 }}>/{a.written_max_marks}</span>
+                                  </div>
 
-                                {/* Teacher Note Button */}
-                                <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                                  <button
-                                    type="button"
-                                    className="comment-trigger-btn"
-                                    onClick={() => setActiveCommentKey(isCommentOpen ? null : cellKey)}
-                                    style={{
-                                      width: 18,
-                                      height: 18,
-                                      borderRadius: 4,
-                                      border: `1px solid ${md.teacher_note ? '#F3D9A0' : 'transparent'}`,
-                                      background: md.teacher_note ? '#FEF7EC' : 'transparent',
-                                      color: md.teacher_note ? '#B37D4A' : 'var(--text-secondary)',
-                                      cursor: 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      padding: 0,
-                                      position: 'relative',
-                                    }}
-                                    title={md.teacher_note ? `Note: "${md.teacher_note}"` : 'Add note'}
-                                  >
-                                    <MessageSquare size={11} />
-                                    {md.teacher_note && (
-                                      <span
-                                        style={{
-                                          position: 'absolute',
-                                          top: -1,
-                                          right: -1,
-                                          width: 4,
-                                          height: 4,
-                                          borderRadius: '50%',
-                                          background: '#D4A373',
-                                        }}
-                                      />
-                                    )}
-                                  </button>
+                                  {/* Internal Input */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <span style={{ fontSize: 9, fontWeight: 700, color: '#265E5A', minWidth: 32, letterSpacing: '0.01em' }}>Int</span>
+                                    <input
+                                      ref={el => { inputRefs.current[`${cellKey}_i`] = el; }}
+                                      type="number"
+                                      min={0}
+                                      max={a.internal_max_marks}
+                                      step="any"
+                                      value={md.internal_marks ?? ''}
+                                      onChange={e => {
+                                        const raw = e.target.value;
+                                        setCell(s.id, a.id, 'internal_marks', raw);
+                                      }}
+                                      onKeyDown={e => {
+                                        if (e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E') e.preventDefault();
+                                      }}
+                                      placeholder="—"
+                                      style={{
+                                        flex: 1,
+                                        border: '1px solid #C7E4D8',
+                                        borderRadius: 4,
+                                        background: '#F0FAF5',
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        color: '#265E5A',
+                                        textAlign: 'center',
+                                        outline: 'none',
+                                        fontFamily: 'inherit',
+                                        padding: '2px 4px',
+                                        height: 22,
+                                      }}
+                                    />
+                                    <span style={{ fontSize: 9, color: 'var(--text-secondary)', minWidth: 24 }}>/{a.internal_max_marks}</span>
+                                  </div>
+
+                                  {/* Computed Total display */}
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, paddingTop: 1 }}>
+                                    <span style={{ fontSize: 9, color: 'var(--text-secondary)', minWidth: 32 }}>Total</span>
+                                    <span style={{
+                                      flex: 1,
+                                      textAlign: 'center',
+                                      fontSize: 11.5,
+                                      fontWeight: 700,
+                                      color: splitTotal !== null
+                                        ? splitTotal >= a.maximum_marks * 0.7 ? '#265E5A' : splitTotal >= a.maximum_marks * 0.5 ? '#B37D4A' : '#D9534F'
+                                        : 'var(--text-secondary)',
+                                    }}>
+                                      {splitTotal !== null ? `${splitTotal}/${a.maximum_marks}` : '—'}
+                                    </span>
+                                    {/* Note button */}
+                                    <button
+                                      type="button"
+                                      className="comment-trigger-btn"
+                                      onClick={() => setActiveCommentKey(isCommentOpen ? null : cellKey)}
+                                      style={{
+                                        width: 16, height: 16, borderRadius: 3,
+                                        border: `1px solid ${md.teacher_note ? '#F3D9A0' : 'transparent'}`,
+                                        background: md.teacher_note ? '#FEF7EC' : 'transparent',
+                                        color: md.teacher_note ? '#B37D4A' : 'var(--text-secondary)',
+                                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flexShrink: 0,
+                                      }}
+                                      title={md.teacher_note ? `Note: "${md.teacher_note}"` : 'Add note'}
+                                    >
+                                      <MessageSquare size={9} />
+                                    </button>
+                                  </div>
                                 </div>
-                              </div>
+                              ) : (
+                                /* ── SINGLE MODE: original total input ── */
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 4,
+                                    height: 40,
+                                    padding: '0 4px',
+                                  }}
+                                >
+                                  {/* Score Input */}
+                                  <input
+                                    ref={el => {
+                                      inputRefs.current[cellKey] = el;
+                                    }}
+                                    type="number"
+                                    min={0}
+                                    max={a.maximum_marks}
+                                    step="any"
+                                    value={md.marks}
+                                    onChange={e => {
+                                      const raw = e.target.value;
+                                      if (raw === '') {
+                                        setCell(s.id, a.id, 'marks', '');
+                                        return;
+                                      }
+                                      const num = Number(raw);
+                                      if (isNaN(num)) return;
+                                      if (num > a.maximum_marks) {
+                                        setCell(s.id, a.id, 'marks', String(a.maximum_marks));
+                                        return;
+                                      }
+                                      if (num < 0) {
+                                        setCell(s.id, a.id, 'marks', '0');
+                                        return;
+                                      }
+                                      setCell(s.id, a.id, 'marks', raw);
+                                    }}
+                                    onKeyDown={e => {
+                                      if (e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E') {
+                                        e.preventDefault();
+                                      }
+                                      handleKeyDown(e, rowIdx, aIdx);
+                                    }}
+                                    placeholder="—"
+                                    style={{
+                                      flex: 1,
+                                      width: '100%',
+                                      border: 'none',
+                                      background: 'transparent',
+                                      fontSize: 13.5,
+                                      fontWeight: 700,
+                                      color: isInvalid ? '#D9534F' : 'var(--neutral-dark)',
+                                      textAlign: 'center',
+                                      outline: 'none',
+                                      fontFamily: 'inherit',
+                                      padding: 0,
+                                    }}
+                                  />
 
-                              {/* Comment Popover */}
+                                  {/* Teacher Note Button */}
+                                  <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                                    <button
+                                      type="button"
+                                      className="comment-trigger-btn"
+                                      onClick={() => setActiveCommentKey(isCommentOpen ? null : cellKey)}
+                                      style={{
+                                        width: 18,
+                                        height: 18,
+                                        borderRadius: 4,
+                                        border: `1px solid ${md.teacher_note ? '#F3D9A0' : 'transparent'}`,
+                                        background: md.teacher_note ? '#FEF7EC' : 'transparent',
+                                        color: md.teacher_note ? '#B37D4A' : 'var(--text-secondary)',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        padding: 0,
+                                        position: 'relative',
+                                      }}
+                                      title={md.teacher_note ? `Note: "${md.teacher_note}"` : 'Add note'}
+                                    >
+                                      <MessageSquare size={11} />
+                                      {md.teacher_note && (
+                                        <span
+                                          style={{
+                                            position: 'absolute',
+                                            top: -1,
+                                            right: -1,
+                                            width: 4,
+                                            height: 4,
+                                            borderRadius: '50%',
+                                            background: '#D4A373',
+                                          }}
+                                        />
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Comment Popover (shared for both modes) */}
                               {isCommentOpen && (
                                 <div
                                   ref={commentRef}

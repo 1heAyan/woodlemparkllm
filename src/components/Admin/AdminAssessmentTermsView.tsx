@@ -24,8 +24,47 @@ export interface GradeAssessmentTerm {
   title: string;
   assessment_date: string;
   maximum_marks: number;
+  written_max_marks?: number;
+  internal_max_marks?: number;
   notes?: string;
   grade: string;
+}
+
+// ── Helpers to encode/decode written+internal split in notes field ────────────
+export function encodeAssessmentNotes(written?: number, internal?: number, text?: string): string {
+  if (written !== undefined && internal !== undefined) {
+    return JSON.stringify({ wm: written, im: internal, n: text || '' });
+  }
+  return text || '';
+}
+
+export function decodeAssessmentNotes(notes?: string): { written_max?: number; internal_max?: number; text: string } {
+  if (!notes) return { text: '' };
+  try {
+    const j = JSON.parse(notes);
+    if (typeof j === 'object' && ('wm' in j || 'im' in j)) {
+      return { written_max: j.wm, internal_max: j.im, text: j.n || '' };
+    }
+  } catch {}
+  return { text: notes };
+}
+
+export function encodeMarkNote(written?: string, internal?: string, note?: string): string {
+  if ((written !== undefined && written !== '') || (internal !== undefined && internal !== '')) {
+    return JSON.stringify({ w: written ?? '', i: internal ?? '', n: note || '' });
+  }
+  return note || '';
+}
+
+export function decodeMarkNote(teacherNote?: string): { written?: string; internal?: string; note: string } {
+  if (!teacherNote) return { note: '' };
+  try {
+    const j = JSON.parse(teacherNote);
+    if (typeof j === 'object' && ('w' in j || 'i' in j)) {
+      return { written: String(j.w ?? ''), internal: String(j.i ?? ''), note: j.n || '' };
+    }
+  } catch {}
+  return { note: teacherNote };
 }
 
 interface AdminAssessmentTermsViewProps {
@@ -147,6 +186,8 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
   const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [formMax, setFormMax] = useState('40');
   const [formNotes, setFormNotes] = useState('');
+  const [formWrittenMax, setFormWrittenMax] = useState('');
+  const [formInternalMax, setFormInternalMax] = useState('');
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -363,6 +404,8 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
     setFormDate(new Date().toISOString().slice(0, 10));
     setFormMax('40');
     setFormNotes('');
+    setFormWrittenMax('');
+    setFormInternalMax('');
     setFormError('');
     setShowModal(true);
   };
@@ -373,7 +416,10 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
     setFormTitle(term.title);
     setFormDate(term.assessment_date || new Date().toISOString().slice(0, 10));
     setFormMax(String(term.maximum_marks));
-    setFormNotes(term.notes || '');
+    const decoded = decodeAssessmentNotes(term.notes);
+    setFormNotes(decoded.text);
+    setFormWrittenMax(term.written_max_marks !== undefined ? String(term.written_max_marks) : decoded.written_max !== undefined ? String(decoded.written_max) : '');
+    setFormInternalMax(term.internal_max_marks !== undefined ? String(term.internal_max_marks) : decoded.internal_max !== undefined ? String(decoded.internal_max) : '');
     setFormError('');
     setShowModal(true);
   };
@@ -381,8 +427,22 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
   // Save / Propagate Assessment Term
   const handleSaveTerm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formTitle.trim() || Number(formMax) <= 0) {
+
+    const numWritten = formWrittenMax !== '' ? Number(formWrittenMax) : undefined;
+    const numInternal = formInternalMax !== '' ? Number(formInternalMax) : undefined;
+
+    // If both split fields are filled, auto-compute the total
+    let numMax = Number(formMax);
+    if (numWritten !== undefined && numInternal !== undefined) {
+      numMax = numWritten + numInternal;
+    }
+
+    if (!formTitle.trim() || numMax <= 0) {
       setFormError('Please provide a valid title and maximum marks.');
+      return;
+    }
+    if (numWritten !== undefined && numInternal !== undefined && (numWritten < 0 || numInternal < 0)) {
+      setFormError('Written and Internal marks must be positive numbers.');
       return;
     }
 
@@ -391,18 +451,22 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
 
     try {
       const cleanTitle = formTitle.trim();
-      const numMax = Number(formMax);
       const targetGrade = selectedGrade;
       const baseSlug = cleanTitle.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30);
       const defaultDate = new Date().toISOString().slice(0, 10);
       const termId = editingTerm?.id || `grade_term_g${targetGrade}_${baseSlug}`;
+
+      // Encode written/internal split into notes field as JSON
+      const encodedNotes = encodeAssessmentNotes(numWritten, numInternal, formNotes);
 
       const termData: GradeAssessmentTerm = {
         id: termId,
         title: cleanTitle,
         assessment_date: defaultDate,
         maximum_marks: numMax,
-        notes: formNotes || '',
+        written_max_marks: numWritten,
+        internal_max_marks: numInternal,
+        notes: encodedNotes,
         grade: targetGrade,
       };
 
@@ -440,6 +504,7 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
             .update({
               title: cleanTitle,
               maximum_marks: numMax,
+              notes: encodedNotes,
             })
             .in('class_id', currentGradeClasses.map(c => c.id))
             .eq('title', editingTerm.title);
@@ -451,7 +516,7 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
             title: cleanTitle,
             assessment_date: defaultDate,
             maximum_marks: numMax,
-            notes: '',
+            notes: encodedNotes,
           }));
 
           await supabase
@@ -821,8 +886,16 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
                       <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
                         {term.title}
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                        Grade {selectedGrade} Master Term
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                        {(() => {
+                          const dec = decodeAssessmentNotes(term.notes);
+                          const wm = term.written_max_marks ?? dec.written_max;
+                          const im = term.internal_max_marks ?? dec.internal_max;
+                          if (wm !== undefined && im !== undefined) {
+                            return <span style={{ color: '#2D6E5D', fontWeight: 600 }}>Written /{wm} · Internal /{im}</span>;
+                          }
+                          return <span>Grade {selectedGrade} Master Term</span>;
+                        })()}
                       </div>
                     </td>
 
@@ -1077,14 +1150,80 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
                 </div>
               </div>
 
+              {/* Written + Internal Split Section */}
+              <div style={{ background: '#F8FAF9', border: '1px solid #D1EAE0', borderRadius: 8, padding: '14px 16px' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#2D6E5D', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Mark Weightage Split (Optional)
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginBottom: 12 }}>
+                  Set a Written Exam and Internal/CA component split. Leave blank to use a single total marks field.
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                  <div>
+                    <label className="form-label" style={{ fontSize: 11 }}>Written Exam (Max Marks)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={formWrittenMax}
+                      onChange={e => {
+                        setFormWrittenMax(e.target.value);
+                        const w = Number(e.target.value);
+                        const i = Number(formInternalMax);
+                        if (e.target.value !== '' && formInternalMax !== '') {
+                          setFormMax(String(w + i));
+                        }
+                      }}
+                      placeholder="e.g. 35"
+                      className="form-input"
+                      style={{ padding: '7px 10px', fontSize: 13 }}
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label" style={{ fontSize: 11 }}>Internal / CA (Max Marks)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={formInternalMax}
+                      onChange={e => {
+                        setFormInternalMax(e.target.value);
+                        const w = Number(formWrittenMax);
+                        const i = Number(e.target.value);
+                        if (formWrittenMax !== '' && e.target.value !== '') {
+                          setFormMax(String(w + i));
+                        }
+                      }}
+                      placeholder="e.g. 5"
+                      className="form-input"
+                      style={{ padding: '7px 10px', fontSize: 13 }}
+                    />
+                  </div>
+                </div>
+                {formWrittenMax !== '' && formInternalMax !== '' && (
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#2D6E5D', padding: '5px 10px', background: '#EAF3EF', borderRadius: 5, display: 'inline-block' }}>
+                    Total = {Number(formWrittenMax) + Number(formInternalMax)} Marks
+                  </div>
+                )}
+              </div>
+
               <div>
-                <label className="form-label">Maximum Marks *</label>
+                <label className="form-label">Total Maximum Marks *
+                  {formWrittenMax !== '' && formInternalMax !== '' && (
+                    <span style={{ fontSize: 10.5, color: 'var(--text-secondary)', fontWeight: 400, marginLeft: 6 }}>(auto-computed from split above)</span>
+                  )}
+                </label>
                 <input
                   required
                   type="number"
                   min={1}
                   value={formMax}
-                  onChange={e => setFormMax(e.target.value)}
+                  onChange={e => {
+                    setFormMax(e.target.value);
+                    // If user edits total manually, clear the split
+                    if (formWrittenMax !== '' || formInternalMax !== '') {
+                      setFormWrittenMax('');
+                      setFormInternalMax('');
+                    }
+                  }}
                   placeholder="e.g. 40, 50, 80, 100"
                   className="form-input"
                   style={{ padding: '8px 12px', fontSize: 13 }}
@@ -1096,7 +1235,7 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
                     <button
                       key={m}
                       type="button"
-                      onClick={() => setFormMax(String(m))}
+                      onClick={() => { setFormMax(String(m)); setFormWrittenMax(''); setFormInternalMax(''); }}
                       style={{
                         fontSize: 11,
                         fontWeight: 600,

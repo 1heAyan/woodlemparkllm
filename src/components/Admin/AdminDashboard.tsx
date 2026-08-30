@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, SlidersHorizontal, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
-import { UserProfile, ParentDocument, HubActivity, ParentStudentLinkRequest, SubjectClass, TestItem, SyllabusTerm } from '@/lib/supabaseClient';
+import { UserProfile, ParentDocument, HubActivity, SubjectClass, TestItem, SyllabusTerm } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { SettingsView } from '@/components/Shared/SettingsView';
@@ -35,7 +35,6 @@ interface AdminDashboardProps {
   parentDocuments: ParentDocument[];
   hubActivities: HubActivity[];
   subjectClasses: SubjectClass[];
-  linkRequests?: ParentStudentLinkRequest[];
   tests?: TestItem[];
   syllabus?: SyllabusTerm[];
   attendance?: Record<string, Record<string, string>>;
@@ -45,13 +44,11 @@ interface AdminDashboardProps {
   onEditUser: (user: UserProfile) => void;
   onUpdateUser?: (updatedUser: UserProfile) => Promise<void> | void;
   onDeleteUser: (userId: string) => void;
-  onApproveLinkRequest?: (requestId: string) => Promise<void>;
-  onRejectLinkRequest?: (requestId: string) => Promise<void>;
   onSignOut: () => void;
   onRefreshData?: () => void;
 }
 
-type AdminTab = 'overview' | 'delegation' | 'directory' | 'link_requests' | 'classes' | 'assessments' | 'hub' | 'settings' | 'support';
+type AdminTab = 'overview' | 'delegation' | 'directory' | 'classes' | 'assessments' | 'hub' | 'settings' | 'support';
 
 const VALID_GRADES = ['9', '10', '11', '12'] as const;
 const BASE_SECTIONS = ['A', 'B', 'C', 'D'] as const;
@@ -62,7 +59,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   parentDocuments,
   hubActivities,
   subjectClasses = [],
-  linkRequests = [],
   tests = [],
   syllabus = [],
   attendance = {},
@@ -72,17 +68,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onEditUser,
   onUpdateUser,
   onDeleteUser,
-  onApproveLinkRequest,
-  onRejectLinkRequest,
   onSignOut,
   onRefreshData,
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
-  const [docSubTab, setDocSubTab] = useState<'clearances' | 'link_requests'>('clearances');
   const [roleFilter, setRoleFilter] = useState<'all' | 'student' | 'teacher' | 'parent' | 'admin'>('all');
   const [classFilter, setClassFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [docStudentFilter, setDocStudentFilter] = useState('');
   const [selectedClassInspect, setSelectedClassInspect] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserProfile | null>(null);
@@ -107,8 +99,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
   }, [profiles, subjectClasses, tests, syllabus, attendance, testResults, overviewGradeFilter]);
 
-  const pendingLinkRequests = useMemo(() => linkRequests.filter((r) => r.status === 'pending'), [linkRequests]);
-
   // Portal Navigation & AI Copilot Integration
   const { isAiPanelOpen, toggleAiPanel, subscribeToNavigation } = usePortalNavigation();
 
@@ -122,8 +112,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setActiveTab('classes');
       } else if (target.view === 'assessments' || target.view === 'exams' || target.view === 'terms' || target.view === 'marks') {
         setActiveTab('assessments');
-      } else if (target.view === 'link_requests' || target.view === 'documents' || target.view === 'requests') {
-        setActiveTab('link_requests');
       } else if (target.view === 'hub' || target.view === 'activities') {
         setActiveTab('hub');
       } else if (target.view === 'settings' || target.view === 'password') {
@@ -221,19 +209,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
   }, [profiles, roleFilter, classFilter, searchQuery]);
 
-  // Filtered parent documents
-  const filteredDocs = useMemo(() => {
-    if (!docStudentFilter) return parentDocuments;
-    return parentDocuments.filter((d) => d.student_id === docStudentFilter);
-  }, [parentDocuments, docStudentFilter]);
+
 
   // Format student / teacher class & subject badge
   const formatUserAssignment = (p: UserProfile) => {
     if (p.role === 'student') {
       const cleanG = (p.grade || '').replace(/[^0-9]/g, '') || p.grade;
       const cleanS = (p.class_letter || '').toUpperCase() || '';
-      if (!cleanG && !cleanS) return 'Unassigned';
-      return `Grade ${cleanG}${cleanS ? `-${cleanS}` : ''}`;
+      const base = `Grade ${cleanG || '12'}${cleanS ? `-${cleanS}` : ''}`;
+      return p.parent_link_code ? `${base} · Code: ${p.parent_link_code}` : base;
     }
     if (p.role === 'teacher') {
       const parts: string[] = [];
@@ -268,7 +252,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       `"${p.name || ''}"`,
       `"${p.email || ''}"`,
       `"${p.role || ''}"`,
-      `"${sanitizeUserCode(p.admission_number || p.user_code, p.email)}"`,
+      `"${p.role === 'parent' ? '' : sanitizeUserCode(p.admission_number || p.user_code, p.email)}"`,
       `"${p.grade || ''}"`,
       `"${p.class_letter || ''}"`,
       `"${p.subject || ''}"`,
@@ -471,49 +455,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       </div>
 
       {/* Pending Parent Link Requests Alert Banner */}
-      {pendingLinkRequests.length > 0 && (
-        <div
-          style={{
-            background: 'linear-gradient(90deg, #FEF7EC 0%, #FFFBEB 100%)',
-            border: '1.5px solid #F5DEB3',
-            borderRadius: 8,
-            padding: '12px 18px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Zap size={18} style={{ color: '#D97706', flexShrink: 0 }} />
-            <div>
-              <strong style={{ color: '#8A5D16', fontSize: 13 }}>
-                {pendingLinkRequests.length} Parent-Student Link Request{pendingLinkRequests.length > 1 ? 's' : ''} Awaiting Approval
-              </strong>
-              <div style={{ fontSize: 11.5, color: '#9B6634', marginTop: 1 }}>
-                Parents have submitted their child&apos;s admission number in the Parent Portal. Click below to review and approve access.
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={() => setActiveTab('link_requests')}
-            style={{
-              padding: '7px 16px',
-              background: '#2C6E6A',
-              color: '#FFFFFF',
-              borderRadius: 6,
-              fontWeight: 700,
-              fontSize: 12,
-              border: 'none',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Review Requests &rarr;
-          </button>
-        </div>
-      )}
-
       {/* KPI Stats Strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
         {[
@@ -522,12 +463,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           { label: 'FACULTY', val: teachers.length, sub: 'Teaching staff & HODs', tab: 'directory' as const, role: 'teacher' as const, isAlert: false },
           { label: 'PARENTS', val: parents.length, sub: 'Linked guardians', tab: 'directory' as const, role: 'parent' as const, isAlert: false },
           {
-            label: 'LINK REQUESTS',
-            val: pendingLinkRequests.length > 0 ? `${pendingLinkRequests.length} PENDING` : `${linkRequests.length} TOTAL`,
-            sub: 'Parent-student links',
-            tab: 'link_requests' as const,
+            label: 'CLASSES & SECTIONS',
+            val: `${activeClassList.length} ACTIVE`,
+            sub: 'Active cohorts (9-12)',
+            tab: 'classes' as const,
             role: 'all' as const,
-            isAlert: pendingLinkRequests.length > 0,
+            isAlert: false,
           },
         ].map((k) => (
           <div
@@ -825,7 +766,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <td style={tdStyle}>{rolePill(p.role, p)}</td>
                   <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11.5 }}>{p.email}</td>
                   <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11, color: '#44423E' }}>
-                    {sanitizeUserCode(p.admission_number || p.user_code, p.email) || '—'}
+                    {p.role === 'parent' ? '—' : (sanitizeUserCode(p.admission_number || p.user_code, p.email) || '—')}
                   </td>
                   <td style={{ ...tdStyle, fontSize: 11.5, color: '#4A4843' }}>
                     {formatUserAssignment(p)}
@@ -1191,548 +1132,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     </div>
   );
 
-  // ─── TAB 4: DOCUMENTS & VERIFICATIONS ────────────────────────────────────────
-  const renderDocuments = () => {
-    const pendingRequests = linkRequests.filter((r) => r.status === 'pending');
 
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* Subtab Segmented Control */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', paddingBottom: 10 }}>
-          <SegmentedControl
-            value={docSubTab}
-            onChange={(tab) => setDocSubTab(tab)}
-            options={[
-              {
-                value: 'clearances',
-                label: 'Clearance Documents',
-                count: parentDocuments.length,
-              },
-              {
-                value: 'link_requests',
-                label: 'Parent-Student Link Requests',
-                count: pendingRequests.length > 0 ? pendingRequests.length : undefined,
-              },
-            ]}
-            height={34}
-            textTransform="none"
-          />
-        </div>
 
-        {docSubTab === 'clearances' ? (
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-            <div
-              style={{
-                padding: '10px 14px',
-                borderBottom: '1px solid var(--border-color)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: 8,
-                background: '#FAF9F6',
-              }}
-            >
-              <div>
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>Parent Document Submissions</span>
-                <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 8 }}>
-                  Total {filteredDocs.length} records
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 220 }}>
-                <CustomSelect
-                  value={docStudentFilter}
-                  onChange={(val) => setDocStudentFilter(val)}
-                  placeholder="All Students"
-                  buttonStyle={{ height: 32, padding: '0 12px', fontSize: 12, borderRadius: 6, borderColor: '#E5E3DF' }}
-                  options={[
-                    { value: '', label: 'All Students' },
-                    ...students.map((s) => ({
-                      value: s.id,
-                      label: `${s.name} (${s.grade ? `G${s.grade}-${s.class_letter}` : 'General'})`,
-                    })),
-                  ]}
-                />
-              </div>
-            </div>
-
-            <div style={{ overflowX: 'auto' }}>
-              {filteredDocs.length === 0 ? (
-                <div style={{ padding: '36px 20px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>No document records found</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>Submissions by parents will appear here automatically.</div>
-                </div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>
-                      <th style={{ ...thStyle, width: 32 }}>#</th>
-                      <th style={thStyle}>Document Type</th>
-                      <th style={thStyle}>Student Name</th>
-                      <th style={thStyle}>Status</th>
-                      <th style={thStyle}>Uploaded File</th>
-                      <th style={{ ...thStyle, textAlign: 'right' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredDocs.map((doc, idx) => {
-                      const student = profiles.find((p) => p.id === doc.student_id);
-                      const submitted = doc.status === 'submitted';
-                      return (
-                        <tr
-                          key={doc.id || idx}
-                          style={{ background: idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7' }}
-                        >
-                          <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
-                          <td style={{ ...tdStyle, fontWeight: 600 }}>{doc.doc_type}</td>
-                          <td style={{ ...tdStyle, color: 'var(--neutral-dark)' }}>
-                            {student ? `${student.name} (${student.grade ? `G${student.grade}-${student.class_letter}` : ''})` : 'Unknown Student'}
-                          </td>
-                          <td style={tdStyle}>
-                            <span
-                              style={{
-                                display: 'inline-block',
-                                padding: '1px 6px',
-                                fontSize: 9.5,
-                                fontWeight: 700,
-                                letterSpacing: '0.04em',
-                                textTransform: 'uppercase',
-                                borderRadius: 4,
-                                background: submitted ? '#EAF3EF' : '#FEF7EC',
-                                color: submitted ? '#2D6E5D' : '#9E6C1B',
-                                border: submitted ? '1px solid #C7E4D8' : '1px solid #F5DEB3',
-                              }}
-                            >
-                              {submitted ? 'SUBMITTED' : 'PENDING'}
-                            </span>
-                          </td>
-                          <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11 }} title={doc.file_name || ''}>
-                            {submitted ? (formatShortFileName(doc.file_name || '') || 'File attached') : 'Awaiting submission'}
-                          </td>
-                          <td style={{ ...tdStyle, textAlign: 'right' }}>
-                            {submitted ? (
-                              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    openFileInNewTab({
-                                      fileName: doc.file_name || 'Clearance_Document.pdf',
-                                      fileUrl: doc.file_url,
-                                      studentName: student?.name || 'Student',
-                                      title: doc.doc_type,
-                                      description: `Official verified ${doc.doc_type} document submission for ${student?.name || 'Student'}.`,
-                                      submissionDate: doc.uploaded_at,
-                                    });
-                                  }}
-                                  style={{
-                                    padding: '4px 10px',
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    background: '#2D2C2A',
-                                    color: '#FFFFFF',
-                                    border: 'none',
-                                    borderRadius: 4,
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  View
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    downloadFile({
-                                      fileName: doc.file_name || `${doc.doc_type}_${student?.name || 'Student'}.pdf`,
-                                      fileUrl: doc.file_url,
-                                      studentName: student?.name || 'Student',
-                                      title: doc.doc_type,
-                                      description: `Official verified ${doc.doc_type} document submission for ${student?.name || 'Student'}.`,
-                                      submissionDate: doc.uploaded_at,
-                                    });
-                                  }}
-                                  style={{
-                                    padding: '4px 8px',
-                                    fontSize: 11,
-                                    fontWeight: 600,
-                                    background: '#FFFFFF',
-                                    color: 'var(--neutral-dark)',
-                                    border: '1px solid var(--border-color)',
-                                    borderRadius: 4,
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  Download
-                                </button>
-                              </div>
-                            ) : (
-                              <span style={{ fontSize: 11, color: '#9E9B95' }}>Awaiting</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        ) : (
-          /* LINK REQUESTS QUEUE */
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-            <div
-              style={{
-                padding: '10px 14px',
-                borderBottom: '1px solid var(--border-color)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                background: '#FAF9F6',
-              }}
-            >
-              <div>
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>Parent-Student Verification Queue</span>
-                <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 8 }}>
-                  {linkRequests.length} total verification requests ({pendingRequests.length} pending)
-                </span>
-              </div>
-            </div>
-
-            <div style={{ overflowX: 'auto' }}>
-              {linkRequests.length === 0 ? (
-                <div style={{ padding: '36px 20px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>No student link requests filed yet</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-                    When parents enter their child&apos;s admission number in the Parent Portal, their verification requests will appear here for your approval.
-                  </div>
-                </div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>
-                      <th style={{ ...thStyle, width: 32 }}>#</th>
-                      <th style={thStyle}>Parent Applicant</th>
-                      <th style={thStyle}>Requested Student / Ward</th>
-                      <th style={thStyle}>Admission Number</th>
-                      <th style={thStyle}>Relationship</th>
-                      <th style={thStyle}>Status</th>
-                      <th style={{ ...thStyle, textAlign: 'right' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {linkRequests.map((req, idx) => {
-                      const isPending = req.status === 'pending';
-                      const isApproved = req.status === 'approved';
-                      const isRejected = req.status === 'rejected';
-
-                      return (
-                        <tr
-                          key={req.id || idx}
-                          style={{ background: idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7' }}
-                        >
-                          <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
-                          <td style={tdStyle}>
-                            <div style={{ fontWeight: 600, color: 'var(--neutral-dark)' }}>{req.parent_name}</div>
-                            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{req.parent_email}</div>
-                          </td>
-                          <td style={tdStyle}>
-                            <div style={{ fontWeight: 600, color: '#20554E' }}>{req.student_name}</div>
-                            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{req.student_grade || 'Student'}</div>
-                          </td>
-                          <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11.5, fontWeight: 600 }}>
-                            {req.student_admission_number}
-                          </td>
-                          <td style={{ ...tdStyle, fontSize: 11.5 }}>
-                            <div>{req.relationship || 'Parent / Guardian'}</div>
-                            {req.notes && (
-                              <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', fontStyle: 'italic', marginTop: 2 }}>
-                                &quot;{req.notes}&quot;
-                              </div>
-                            )}
-                          </td>
-                          <td style={tdStyle}>
-                            <span
-                              style={{
-                                display: 'inline-block',
-                                padding: '2px 8px',
-                                fontSize: 10,
-                                fontWeight: 700,
-                                textTransform: 'uppercase',
-                                borderRadius: 4,
-                                background: isApproved ? '#EAF3EF' : isRejected ? '#FDF1F0' : '#FEF7EC',
-                                color: isApproved ? '#2D6E5D' : isRejected ? '#A83B38' : '#9E6C1B',
-                                border: isApproved ? '1px solid #C7E4D8' : isRejected ? '1px solid #F5C6CB' : '1px solid #F5DEB3',
-                              }}
-                            >
-                              {req.status}
-                            </span>
-                          </td>
-                          <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            {isPending ? (
-                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                                <button
-                                  onClick={() => onApproveLinkRequest && onApproveLinkRequest(req.id)}
-                                  style={{
-                                    padding: '5px 12px',
-                                    fontSize: 11.5,
-                                    fontWeight: 700,
-                                    background: '#2D2C2A',
-                                    color: '#FFFFFF',
-                                    border: 'none',
-                                    borderRadius: 5,
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                  }}
-                                >
-                                  <Check size={12} /> Approve &amp; Link
-                                </button>
-                                <button
-                                  onClick={() => onRejectLinkRequest && onRejectLinkRequest(req.id)}
-                                  style={{
-                                    padding: '5px 9px',
-                                    fontSize: 11.5,
-                                    fontWeight: 600,
-                                    background: '#FDF1F0',
-                                    color: '#A83B38',
-                                    border: '1px solid #F5C6CB',
-                                    borderRadius: 5,
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                  }}
-                                >
-                                  <X size={12} /> Reject
-                                </button>
-                              </div>
-                            ) : (
-                              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                                {isApproved ? 'Linked to Parent' : 'Request Rejected'}
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // ─── TAB: PARENT-STUDENT LINK REQUESTS (VERIFICATION QUEUE) ───────────
-  const renderLinkRequests = () => {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {/* Header summary banner */}
-        <div
-          style={{
-            background: 'var(--surface)',
-            border: '1px solid var(--border-color)',
-            padding: '20px 24px',
-            borderRadius: 10,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: 14,
-            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
-          }}
-        >
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: 'var(--neutral-dark)' }}>
-                Parent-Student Link Verification Queue
-              </h2>
-              {pendingLinkRequests.length > 0 && (
-                <span
-                  style={{
-                    background: '#FEF7EC',
-                    color: '#B37D4A',
-                    border: '1px solid #F3D9A0',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    padding: '2px 8px',
-                    borderRadius: 12,
-                  }}
-                >
-                  {pendingLinkRequests.length} Pending Approval
-                </span>
-              )}
-            </div>
-            <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
-              Review parent requests to link student accounts. Approving will bind the student to the parent profile and unlock academic monitoring.
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={onOpenProvisionModal}
-              className="btn-primary"
-              style={{
-                padding: '7px 14px',
-                fontSize: 12,
-                borderRadius: 6,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              + Create Parent Account
-            </button>
-          </div>
-        </div>
-
-        {/* Link Requests Table */}
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-          <div
-            style={{
-              padding: '10px 14px',
-              borderBottom: '1px solid var(--border-color)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              background: '#FAF9F6',
-            }}
-          >
-            <div>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>All Verification Requests</span>
-              <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 8 }}>
-                {linkRequests.length} total requests ({pendingLinkRequests.length} pending)
-              </span>
-            </div>
-          </div>
-
-          <div style={{ overflowX: 'auto' }}>
-            {linkRequests.length === 0 ? (
-              <div style={{ padding: '48px 24px', textAlign: 'center' }}>
-                <div style={{ width: 48, height: 48, borderRadius: 12, background: '#EAF3EF', color: '#2C6E6A', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-                  <UserCheck size={24} />
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)' }}>No Link Requests in Queue</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, maxWidth: 460, margin: '4px auto 0' }}>
-                  When parents submit their child&apos;s admission number in the Parent Portal, their verification requests will appear here for one-click approval.
-                </div>
-              </div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    <th style={{ ...thStyle, width: 36 }}>#</th>
-                    <th style={thStyle}>Parent Applicant</th>
-                    <th style={thStyle}>Requested Student / Ward</th>
-                    <th style={thStyle}>Admission Number</th>
-                    <th style={thStyle}>Relationship</th>
-                    <th style={thStyle}>Status</th>
-                    <th style={{ ...thStyle, textAlign: 'right' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {linkRequests.map((req, idx) => {
-                    const isPending = req.status === 'pending';
-                    const isApproved = req.status === 'approved';
-                    const isRejected = req.status === 'rejected';
-
-                    return (
-                      <tr key={req.id || idx} style={{ background: isPending ? '#FFFCF5' : idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7' }}>
-                        <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
-                        <td style={tdStyle}>
-                          <div style={{ fontWeight: 700, color: 'var(--neutral-dark)' }}>{req.parent_name}</div>
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{req.parent_email}</div>
-                        </td>
-                        <td style={tdStyle}>
-                          <div style={{ fontWeight: 700, color: '#20554E' }}>{req.student_name}</div>
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{req.student_grade || 'Student'}</div>
-                        </td>
-                        <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: '#1A1A1A' }}>
-                          {req.student_admission_number}
-                        </td>
-                        <td style={{ ...tdStyle, fontSize: 12 }}>
-                          <div>{req.relationship || 'Parent / Guardian'}</div>
-                          {req.notes && (
-                            <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontStyle: 'italic', marginTop: 2 }}>
-                              &quot;{req.notes}&quot;
-                            </div>
-                          )}
-                        </td>
-                        <td style={tdStyle}>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              padding: '3px 8px',
-                              fontSize: 10,
-                              fontWeight: 700,
-                              textTransform: 'uppercase',
-                              borderRadius: 4,
-                              background: isApproved ? '#EAF3EF' : isRejected ? '#FDF1F0' : '#FEF7EC',
-                              color: isApproved ? '#2D6E5D' : isRejected ? '#A83B38' : '#9E6C1B',
-                              border: isApproved ? '1px solid #C7E4D8' : isRejected ? '1px solid #F5C6CB' : '1px solid #F5DEB3',
-                            }}
-                          >
-                            {req.status}
-                          </span>
-                        </td>
-                        <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          {isPending ? (
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                              <button
-                                onClick={() => onApproveLinkRequest && onApproveLinkRequest(req.id)}
-                                style={{
-                                  padding: '5px 12px',
-                                  fontSize: 11.5,
-                                  fontWeight: 700,
-                                  background: '#2D2C2A',
-                                  color: '#FFFFFF',
-                                  border: 'none',
-                                  borderRadius: 5,
-                                  cursor: 'pointer',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                }}
-                              >
-                                <Check size={12} /> Approve &amp; Link
-                              </button>
-                              <button
-                                onClick={() => onRejectLinkRequest && onRejectLinkRequest(req.id)}
-                                style={{
-                                  padding: '5px 9px',
-                                  fontSize: 11.5,
-                                  fontWeight: 600,
-                                  background: '#FDF1F0',
-                                  color: '#A83B38',
-                                  border: '1px solid #F5C6CB',
-                                  borderRadius: 5,
-                                  cursor: 'pointer',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                }}
-                              >
-                                <X size={12} /> Reject
-                              </button>
-                            </div>
-                          ) : (
-                            <span style={{ fontSize: 11.5, fontWeight: 600, color: isApproved ? '#2D6E5D' : '#A83B38', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                              {isApproved ? (<><Check size={12} /> Linked to Parent</>) : 'Rejected'}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   // ─── TAB 5: HOLISTIC HUB ────────────────────────────────────────────────────
   const renderHub = () => (
@@ -1811,12 +1212,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     { id: 'overview', label: 'OVERVIEW' },
     { id: 'delegation', label: 'SPECIAL ACCESS & ROLES' },
     { id: 'directory', label: 'USER DIRECTORY', count: profiles.length },
-    {
-      id: 'link_requests',
-      label: 'PARENT LINK REQUESTS',
-      count: pendingLinkRequests.length,
-      isAlert: pendingLinkRequests.length > 0,
-    },
     { id: 'classes', label: 'CLASSES & SECTIONS', count: activeClassList.length },
     { id: 'assessments', label: 'EXAM TERMS & MARKS' },
     { id: 'hub', label: 'HOLISTIC HUB', count: hubActivities.length },
@@ -1953,7 +1348,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 case 'overview': return <LayoutDashboard size={16} />;
                 case 'delegation': return <ShieldCheck size={16} />;
                 case 'directory': return <Users size={16} />;
-                case 'link_requests': return <UserCheck size={16} />;
                 case 'classes': return <BookOpen size={16} />;
                 case 'assessments': return <FileSpreadsheet size={16} />;
                 case 'hub': return <Award size={16} />;
@@ -2152,7 +1546,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 />
               )}
               {activeTab === 'directory' && renderUserDirectory()}
-              {activeTab === 'link_requests' && renderLinkRequests()}
               {activeTab === 'classes' && renderClasses()}
               {activeTab === 'assessments' && (
                 <AdminAssessmentTermsView

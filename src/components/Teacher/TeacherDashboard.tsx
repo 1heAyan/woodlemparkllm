@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Users, Award, BookOpen, UserCheck, MessageSquare, LayoutDashboard, Calendar, Settings, LifeBuoy, LogOut, Megaphone, FileText, Pin, PinOff, SlidersHorizontal, Check, Video, Link2, X, Plus, Edit3 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Users, Award, BookOpen, UserCheck, MessageSquare, LayoutDashboard, Calendar, Settings, LifeBuoy, LogOut, Megaphone, FileText, Pin, PinOff, SlidersHorizontal, Check, Video, Link2, X, Plus, Edit3, KeyRound, Copy, Share2, RotateCcw } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import {
@@ -32,6 +32,12 @@ import { openFileInNewTab, downloadFile, formatShortFileName } from '@/lib/fileH
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import { isHodUser, isCoordinatorUser, loadSpecialRoleAssignments, ACADEMIC_DEPARTMENTS } from '@/lib/specialRolesHelper';
 import { computeExecutiveAnalytics } from '@/lib/analyticsHelper';
+import {
+  getOrGenerateStudentParentCode,
+  buildWhatsAppShareUrl,
+  persistStudentParentCode,
+  generateParentLinkCode,
+} from '@/lib/parentCodeHelper';
 import {
   KpiSparklineCard,
   MatrixTrendChart,
@@ -165,8 +171,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [selectedReviewTest, setSelectedReviewTest] = useState<TestItem | null>(null);
   const [selectedGradeAssignment, setSelectedGradeAssignment] = useState<AssignmentItem | null>(null);
   const [isMarkEntryOpen, setIsMarkEntryOpen] = useState(false);
-  // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub'
-  const [activeNavMode, setActiveNavMode] = useState<'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub'>('class');
+  // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'homeroom_codes' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub'
+  const [activeNavMode, setActiveNavMode] = useState<'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'homeroom_codes' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub'>('class');
 
   const [specialAssignments, setSpecialAssignments] = useState<SpecialRoleAssignment[]>([]);
   useEffect(() => {
@@ -435,6 +441,58 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       return g === homeroomGrade && (!homeroomSection || s === homeroomSection);
     });
   }, [profiles, homeroomGrade, homeroomSection]);
+
+  // Homeroom Parent Access Codes State
+  const [codeSearchQuery, setCodeSearchQuery] = useState('');
+  const [codeFilter, setCodeFilter] = useState<'all' | 'linked' | 'unlinked'>('all');
+  const [copiedStudentId, setCopiedStudentId] = useState<string | null>(null);
+  const [isRegeneratingCodeId, setIsRegeneratingCodeId] = useState<string | null>(null);
+
+  const filteredHomeroomCodesStudents = useMemo(() => {
+    return homeroomStudents.filter((st) => {
+      const q = codeSearchQuery.trim().toLowerCase();
+      const matchesSearch =
+        !q ||
+        st.name.toLowerCase().includes(q) ||
+        (st.admission_number && st.admission_number.toLowerCase().includes(q)) ||
+        (st.email && st.email.toLowerCase().includes(q)) ||
+        (st.user_code && st.user_code.toLowerCase().includes(q));
+
+      if (!matchesSearch) return false;
+
+      const isLinked = profiles.some(
+        (p) => p.role === 'parent' && (p.linked_student_ids || []).includes(st.id)
+      );
+
+      if (codeFilter === 'linked') return isLinked;
+      if (codeFilter === 'unlinked') return !isLinked;
+      return true;
+    });
+  }, [homeroomStudents, codeSearchQuery, codeFilter, profiles]);
+
+  const handleCopyParentCode = (studentId: string, code: string) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(code);
+      setCopiedStudentId(studentId);
+      setTimeout(() => setCopiedStudentId(null), 2500);
+    }
+  };
+
+  const handleRegenerateParentCode = async (st: UserProfile) => {
+    if (!window.confirm(`Generate a new Parent Link Code for ${st.name}? Any previously shared code will no longer work.`)) {
+      return;
+    }
+    setIsRegeneratingCodeId(st.id);
+    try {
+      const newCode = generateParentLinkCode(st.id);
+      await persistStudentParentCode(st.id, newCode);
+      if (onRefreshData) onRefreshData();
+    } catch (err) {
+      console.error('Failed to regenerate parent code:', err);
+    } finally {
+      setIsRegeneratingCodeId(null);
+    }
+  };
 
   // Synthetic class_id for the homeroom (used to tag resources/broadcasts sent to the whole class)
   const homeroomClassId = useMemo(() => `homeroom-${homeroomGrade}-${homeroomSection}`, [homeroomGrade, homeroomSection]);
@@ -710,6 +768,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       // Primary isolation: if teacher_id is stamped, must match this teacher
       if (t.teacher_id && currentUser?.id && t.teacher_id !== currentUser.id) return false;
       if (!t.class_name || t.class_name === 'All Classes' || t.class_name === 'General') return true;
+
+      // Check target_sections array
+      if (t.target_sections && t.target_sections.length > 0) {
+        const classKey = (activeClassObj.class_name || '').replace(/grade\s*/gi, '').trim();
+        if (t.target_sections.some((sec) => sec.replace(/grade\s*/gi, '').trim() === classKey)) {
+          return true;
+        }
+      }
+
       return t.class_name.includes(activeClassObj.class_name) || t.class_name.includes(activeClassObj.name);
     });
   }, [tests, activeClassObj, currentUser]);
@@ -882,7 +949,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const markedCount = presentCount + authCount + unauthCount;
   const attendanceRate = markedCount > 0 ? Math.round((presentCount / markedCount) * 100) : 0;
 
-  let reportText = `Daily Homeroom Attendance Report — Woodlem Park School\nDate: ${selectedDate}\nHomeroom: ${homeroomLabel}\nClass Teacher: ${currentUser.name}\n\n`;
+  let reportText = `Daily Classroom Attendance Report — Woodlem Park School\nDate: ${selectedDate}\nClassroom: ${homeroomLabel}\nClass Teacher: ${currentUser.name}\n\n`;
   reportText += `Total Enrolled: ${homeroomStudents.length}\nMarked Present: ${presentCount} (${attendanceRate}%)\nPermit Leave (PL): ${authCount}\nAbsences (A): ${unauthCount}\n`;
   if (authNames.length > 0) {
     reportText += `\nPermit Leaves (PL):\n` + authNames.map((n) => `- ${n}`).join('\n') + '\n';
@@ -1375,6 +1442,25 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             </button>
             {sidebar.isCollapsed && (
               <div className="sidebar-tooltip">Class Resources & Circulars</div>
+            )}
+          </div>
+
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`nav-item ${activeNavMode === 'homeroom_codes' && !isMarkEntryOpen ? 'active' : ''}`}
+              onClick={() => {
+                setIsMarkEntryOpen(false);
+                setActiveNavMode('homeroom_codes');
+                sidebar.handleNavClick();
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <KeyRound size={15} className="icon" style={{ color: activeNavMode === 'homeroom_codes' && !isMarkEntryOpen ? '#2D6E5D' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text" style={{ flex: 1 }}>Parent Access Codes</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">Parent Access Codes</div>
             )}
           </div>
 
@@ -2997,7 +3083,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                     <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', textTransform: 'uppercase' }}>
-                      Homeroom Register
+                      Classroom Register
                     </span>
                     <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                       {homeroomLabel}
@@ -3239,7 +3325,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                   {st.name}
                                 </td>
                                 <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: 11.5, color: '#55534E' }}>
-                                  {st.admission_number || st.user_code || '—'}
+                                  <div>{st.admission_number || st.user_code || '—'}</div>
+                                  <div style={{ fontSize: 10, color: '#2D6E5D', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <KeyRound size={10} />
+                                    <span>{getOrGenerateStudentParentCode(st)}</span>
+                                  </div>
                                 </td>
 
                                 {/* Quick Single-Key Input (P / A / L) with instant focus-next */}
@@ -3459,7 +3549,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   {/* Homeroom Historical Analytics KPI Cards */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
                     <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 16px' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Homeroom Avg Rate</div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Classroom Avg Rate</div>
                       <div style={{ fontSize: 24, fontWeight: 700, color: homeroomHistoryAnalytics.averageHomeroomRate >= 85 ? '#2C6E6A' : '#D9534F', marginTop: 4 }}>
                         {homeroomHistoryAnalytics.averageHomeroomRate}%
                       </div>
@@ -3483,7 +3573,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </div>
 
                     <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 16px' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total Homeroom Students</div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total Classroom Students</div>
                       <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--neutral-dark)', marginTop: 4 }}>
                         {homeroomStudents.length}
                       </div>
@@ -3527,7 +3617,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       >
                         <div>
                           <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>
-                            Monthly Homeroom Attendance Matrix ({matrixMonth})
+                            Monthly Classroom Attendance Matrix ({matrixMonth})
                           </h4>
                           <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
                             Legend: <strong style={{ color: '#2D6E5D' }}>P</strong> = Present (Green), <strong style={{ color: '#92400E' }}>PL</strong> = Permit Leave (Amber), <strong style={{ color: '#DC2626' }}>A</strong> = Absent (Red)
@@ -4081,7 +4171,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#FDFCFB' }}>
                   <div>
                     <h4 style={{ fontSize: 13.5, fontWeight: 700, margin: 0 }}>
-                      Homeroom Student Awards Registry ({filteredAwards.length} Published)
+                      Classroom Student Awards Registry ({filteredAwards.length} Published)
                     </h4>
                     <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
                       Certified achievements, academic distinctions, and student portfolio uploads.
@@ -4382,7 +4472,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       </div>
                       <div>
                         <h4 style={{ fontSize: 15, fontWeight: 800, margin: 0, color: 'var(--neutral-dark)' }}>
-                          Post Homeroom Circular or Notice
+                          Post Classroom Circular or Notice
                         </h4>
                         <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2 }}>
                           Sent directly to all {homeroomStudents.length} students enrolled in {homeroomLabel}
@@ -4474,7 +4564,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           disabled={hrBcIsPosting}
                           style={{ padding: '9px 24px', fontSize: 13, fontWeight: 700 }}
                         >
-                          {hrBcIsPosting ? 'Publishing...' : 'Publish to Homeroom ↗'}
+                          {hrBcIsPosting ? 'Publishing...' : 'Publish to Classroom ↗'}
                         </button>
                       </div>
                     </form>
@@ -4484,7 +4574,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <h4 style={{ fontSize: 13, fontWeight: 800, margin: 0, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#2C6E6A' }}>
-                        Published Homeroom Circulars ({homeroomBroadcasts.length})
+                        Published Classroom Circulars ({homeroomBroadcasts.length})
                       </h4>
                     </div>
 
@@ -4618,7 +4708,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                         <div>
                           <h4 style={{ fontSize: 15, fontWeight: 800, margin: 0 }}>
-                            Upload Homeroom Resource or Form
+                            Upload Classroom Resource or Form
                           </h4>
                           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
                             PDFs, permission slips, timetables, and class guides shared directly with {homeroomLabel}
@@ -4889,6 +4979,375 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+          </>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════════ */}
+        {/* VIEW 4B: HOMEROOM PARENT ACCESS & VERIFICATION CODES                  */}
+        {/* ══════════════════════════════════════════════════════════════════════ */}
+        {activeNavMode === 'homeroom_codes' && (
+          <>
+            <header className="content-header">
+              <div className="header-top" style={{ alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', textTransform: 'uppercase' }}>
+                      Class Teacher Portal
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                      {homeroomLabel}
+                    </span>
+                  </div>
+                  <h1 className="page-title" style={{ margin: 0 }}>
+                    Parent Access &amp; Verification Codes
+                  </h1>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Search student or admission no..."
+                      value={codeSearchQuery}
+                      onChange={(e) => setCodeSearchQuery(e.target.value)}
+                      style={{ width: 240, paddingLeft: 32, fontSize: 12.5 }}
+                    />
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#9CA3AF"
+                      strokeWidth="2"
+                      style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }}
+                    >
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </header>
+
+            <div className="dashboard-content" style={{ padding: '24px 32px' }}>
+              {/* Instructions banner */}
+              <div
+                style={{
+                  padding: '16px 20px',
+                  borderRadius: 12,
+                  background: '#F0F9F7',
+                  border: '1px solid #C7E4D8',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 14,
+                  marginBottom: 24,
+                }}
+              >
+                <div
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 8,
+                    background: '#2D6E5D',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <KeyRound size={18} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 700, color: '#20554E', margin: '0 0 4px' }}>
+                    Classroom Parent Verification System
+                  </h3>
+                  <p style={{ fontSize: 12.5, color: '#2D6E5D', margin: 0, lineHeight: 1.5 }}>
+                    Each student has a unique 6-digit access code. When parents register on the portal, they will enter this code along with the student&apos;s email and admission number. Click <strong>WhatsApp</strong> to instantly share the student&apos;s code and registration link with guardians.
+                  </p>
+                </div>
+              </div>
+
+              {/* Summary KPI Cards */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                  gap: 16,
+                  marginBottom: 24,
+                }}
+              >
+                <div
+                  style={{
+                    background: '#FFFFFF',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 12,
+                    padding: '16px 20px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                    Total Classroom Students
+                  </div>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--neutral-dark)', marginTop: 4 }}>
+                    {homeroomStudents.length}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#6B7280', marginTop: 2 }}>
+                    Enrolled in {homeroomLabel}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#FFFFFF',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 12,
+                    padding: '16px 20px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#059669', textTransform: 'uppercase' }}>
+                    Parents Registered &amp; Linked
+                  </div>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: '#059669', marginTop: 4 }}>
+                    {homeroomStudents.filter(st => profiles.some(p => p.role === 'parent' && (p.linked_student_ids || []).includes(st.id))).length}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#059669', marginTop: 2 }}>
+                    Verified guardian access
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#FFFFFF',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 12,
+                    padding: '16px 20px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#D97706', textTransform: 'uppercase' }}>
+                    Pending Parent Signups
+                  </div>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: '#D97706', marginTop: 4 }}>
+                    {homeroomStudents.filter(st => !profiles.some(p => p.role === 'parent' && (p.linked_student_ids || []).includes(st.id))).length}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#D97706', marginTop: 2 }}>
+                    Code ready to be shared
+                  </div>
+                </div>
+              </div>
+
+              {/* Table of students & codes */}
+              <div
+                style={{
+                  background: '#FFFFFF',
+                  borderRadius: 12,
+                  border: '1px solid var(--border-color)',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.02)',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '16px 20px',
+                    borderBottom: '1px solid var(--border-color)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: 12,
+                  }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                    Student Roster &amp; Verification Codes ({filteredHomeroomCodesStudents.length})
+                  </div>
+                  
+                  {/* Status filter selector using standard Woodlem SegmentedControl */}
+                  <SegmentedControl
+                    value={codeFilter}
+                    onChange={(val) => setCodeFilter(val as any)}
+                    options={[
+                      { value: 'all', label: 'All Students' },
+                      { value: 'unlinked', label: 'Pending Signup' },
+                      { value: 'linked', label: 'Linked Parents' },
+                    ]}
+                    height={32}
+                    textTransform="none"
+                  />
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ background: '#F8FAFC', borderBottom: '1px solid var(--border-color)' }}>
+                        <th style={{ padding: '12px 18px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                          #
+                        </th>
+                        <th style={{ padding: '12px 18px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                          Student Name
+                        </th>
+                        <th style={{ padding: '12px 18px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                          Admission No / Email
+                        </th>
+                        <th style={{ padding: '12px 18px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                          Parent Link Code
+                        </th>
+                        <th style={{ padding: '12px 18px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                          Linked Parent Status
+                        </th>
+                        <th style={{ padding: '12px 18px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'right' }}>
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredHomeroomCodesStudents.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                            No students match the current search or filter.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredHomeroomCodesStudents.map((st, idx) => {
+                          const code = getOrGenerateStudentParentCode(st);
+                          const parents = profiles.filter(
+                            (p) => p.role === 'parent' && (p.linked_student_ids || []).includes(st.id)
+                          );
+                          const isLinked = parents.length > 0;
+                          const waUrl = buildWhatsAppShareUrl(st, code);
+                          const isCopied = copiedStudentId === st.id;
+
+                          return (
+                            <tr
+                              key={st.id}
+                              style={{
+                                borderBottom: '1px solid var(--border-color)',
+                                transition: 'background 0.15s ease',
+                              }}
+                            >
+                              <td style={{ padding: '14px 18px', fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                {idx + 1}
+                              </td>
+                              <td style={{ padding: '14px 18px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                  <div
+                                    style={{
+                                      width: 34,
+                                      height: 34,
+                                      borderRadius: '50%',
+                                      background: '#2D6E5D',
+                                      color: '#FFFFFF',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      fontSize: 13,
+                                      fontWeight: 700,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {st.name.charAt(0)}
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                      {st.name}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                      {st.grade || 'Grade 12'} · Section {st.class_letter || 'A'}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td style={{ padding: '14px 18px' }}>
+                                <div style={{ fontFamily: 'monospace', fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                  {st.admission_number || st.user_code || '—'}
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                  {st.email}
+                                </div>
+                              </td>
+                              <td style={{ padding: '14px 18px' }}>
+                                <div className="parent-code-badge">
+                                  <KeyRound size={13} />
+                                  <span>{code}</span>
+                                </div>
+                              </td>
+                              <td style={{ padding: '14px 18px' }}>
+                                {isLinked ? (
+                                  <div>
+                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 8px', borderRadius: 4, background: '#DCFCE7', color: '#15803D', fontSize: 11, fontWeight: 700 }}>
+                                      <Check size={12} /> Linked ({parents.length})
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 3 }}>
+                                      {parents.map((p) => p.name).join(', ')}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 8px', borderRadius: 4, background: '#FEF3C7', color: '#92400E', fontSize: 11, fontWeight: 700 }}>
+                                    ⏳ Pending Signup
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ padding: '14px 18px', textAlign: 'right' }}>
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyParentCode(st.id, code)}
+                                    className="btn-copy-code"
+                                    title="Copy Parent Code"
+                                  >
+                                    {isCopied ? (
+                                      <>
+                                        <Check size={13} color="#059669" />
+                                        <span style={{ color: '#059669', fontWeight: 700 }}>Copied!</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy size={13} />
+                                        <span>Copy</span>
+                                      </>
+                                    )}
+                                  </button>
+
+                                  <a
+                                    href={waUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="btn-whatsapp-share"
+                                    title="Share verification code with parent via WhatsApp"
+                                  >
+                                    <Share2 size={13} />
+                                    <span>WhatsApp</span>
+                                  </a>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRegenerateParentCode(st)}
+                                    disabled={isRegeneratingCodeId === st.id}
+                                    style={{
+                                      padding: '6px 8px',
+                                      borderRadius: 8,
+                                      border: '1px solid var(--border-color)',
+                                      background: '#FFFFFF',
+                                      color: 'var(--text-secondary)',
+                                      cursor: 'pointer',
+                                    }}
+                                    title="Regenerate Parent Code"
+                                  >
+                                    <RotateCcw size={13} className={isRegeneratingCodeId === st.id ? 'spin' : ''} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </>
         )}

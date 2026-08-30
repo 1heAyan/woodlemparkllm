@@ -36,6 +36,7 @@ export interface UserProfile {
   subject?: string | null;       // Teacher's subject (e.g. "English", "Math")
   assigned_class?: string | null; // Class teacher assignment (e.g. "10-D") or null
   linked_student_ids?: string[]; // For Parent: array of linked student IDs
+  parent_link_code?: string;   // For Student: Class teacher verified 6-digit access code (e.g. "PL-123456")
   temp_password?: string;        // Admin preset / assigned credential
   avatar_url?: string;           // Custom profile picture
   created_at?: string;
@@ -104,6 +105,8 @@ export interface TestItem {
   id: string;
   title: string;
   class_name?: string;
+  target_sections?: string[];
+  status?: 'draft' | 'published';
   teacher_id?: string;  // owner teacher — used to isolate tests per teacher
   created_at?: string;
   questions?: TestQuestion[];

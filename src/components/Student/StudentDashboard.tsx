@@ -452,8 +452,27 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   // Filter tests and assignments for the active subject class ONLY
   const myTests = useMemo(() => {
     if (!activeClassObj) return [];
-    return tests.filter((t) => isItemForActiveClass(t.class_name, t.title, t.teacher_id));
-  }, [tests, activeClassObj]);
+    const classGradeSec = (activeClassObj.class_name || '').toLowerCase().replace(/grade\s*/gi, '').trim();
+    const studentGrade = (currentStudent?.grade || '').replace(/[^0-9]/g, '');
+    const studentSec = (currentStudent?.class_letter || '').toLowerCase().trim();
+    const studentKey = `${studentGrade}-${studentSec}`;
+
+    return tests.filter((t) => {
+      // Hide drafts from students
+      if (t.status === 'draft') return false;
+
+      // Check target_sections array
+      if (t.target_sections && t.target_sections.length > 0) {
+        const matchesSec = t.target_sections.some((sec) => {
+          const cleanSec = sec.toLowerCase().replace(/grade\s*/gi, '').trim();
+          return cleanSec === classGradeSec || cleanSec === studentKey || cleanSec === studentSec;
+        });
+        if (matchesSec) return true;
+      }
+
+      return isItemForActiveClass(t.class_name, t.title, t.teacher_id);
+    });
+  }, [tests, activeClassObj, currentStudent]);
 
   const myAssignments = useMemo(() => {
     if (!activeClassObj) return [];

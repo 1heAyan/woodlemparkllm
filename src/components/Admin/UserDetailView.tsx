@@ -144,9 +144,9 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
 
 
 
-  // Duplicate admission/employee code detection ONLY within the same role
+  // Duplicate user code validation ONLY within the same role
   const duplicateCodeUser = useMemo(() => {
-    if (!user) return null;
+    if (!user || role === 'parent') return null;
     const cleanCode = sanitizeUserCode(userCode, email).toLowerCase();
     if (!cleanCode || cleanCode === '—' || cleanCode === '-' || cleanCode === 'null' || cleanCode === 'undefined') {
       return null;
@@ -213,7 +213,7 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
       return;
     }
 
-    if (duplicateCodeUser) {
+    if (role !== 'parent' && duplicateCodeUser) {
       alert(
         `Cannot save: Code "${userCode.trim()}" is already assigned to another ${role.toUpperCase()} account (${duplicateCodeUser.name}).`
       );
@@ -239,8 +239,8 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
         name: name.trim(),
         email: cleanEmail,
         role,
-        user_code: sanitizeUserCode(userCode.trim(), cleanEmail),
-        admission_number: sanitizeUserCode(userCode.trim(), cleanEmail),
+        user_code: role === 'parent' ? undefined : (sanitizeUserCode(userCode.trim(), cleanEmail) || undefined),
+        admission_number: role === 'parent' ? undefined : (sanitizeUserCode(userCode.trim(), cleanEmail) || undefined),
         temp_password: finalPassword,
         grade: finalGrade,
         class_letter: finalSection,
@@ -534,48 +534,51 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                 />
               </div>
 
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">
-                  {role === 'student'
-                    ? 'Student Admission Number'
-                    : role === 'teacher'
-                    ? 'Faculty Employee ID / Code'
-                    : 'User Reference Code'}
-                </label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={userCode}
-                  onChange={(e) => setUserCode(e.target.value)}
-                  placeholder={role === 'student' ? 'e.g. 2026' : 'e.g. 104'}
-                  style={{
-                    borderColor: duplicateCodeUser ? '#DC2626' : undefined,
-                    background: duplicateCodeUser ? '#FEF2F2' : undefined,
-                  }}
-                  required
-                />
-                {duplicateCodeUser && (
-                  <div
+              {/* User Code / Admission Number (Students & Teachers only, parents don't need admission code) */}
+              {role !== 'parent' && (
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">
+                    {role === 'student'
+                      ? 'Student Admission Number'
+                      : role === 'teacher'
+                      ? 'Faculty Employee ID / Code'
+                      : 'User Reference Code'}
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={userCode}
+                    onChange={(e) => setUserCode(e.target.value)}
+                    placeholder={role === 'student' ? 'e.g. 2026' : 'e.g. 104'}
                     style={{
-                      marginTop: 6,
-                      fontSize: 11.5,
-                      color: '#DC2626',
-                      background: '#FEF2F2',
-                      border: '1px solid #FECACA',
-                      padding: '6px 10px',
-                      borderRadius: 6,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
+                      borderColor: duplicateCodeUser ? '#DC2626' : undefined,
+                      background: duplicateCodeUser ? '#FEF2F2' : undefined,
                     }}
-                  >
-                    <AlertTriangle size={13} style={{ flexShrink: 0 }} />
-                    <span>
-                      <strong>Duplicate Code:</strong> Already assigned to <strong>{duplicateCodeUser.name}</strong> ({duplicateCodeUser.role.toUpperCase()}).
-                    </span>
-                  </div>
-                )}
-              </div>
+                    required
+                  />
+                  {duplicateCodeUser && (
+                    <div
+                      style={{
+                        marginTop: 6,
+                        fontSize: 11.5,
+                        color: '#DC2626',
+                        background: '#FEF2F2',
+                        border: '1px solid #FECACA',
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      <AlertTriangle size={13} style={{ flexShrink: 0 }} />
+                      <span>
+                        <strong>Duplicate Code:</strong> Already assigned to <strong>{duplicateCodeUser.name}</strong> ({duplicateCodeUser.role.toUpperCase()}).
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* CARD 2: Security & Login Password */}

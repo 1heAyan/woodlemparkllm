@@ -87,7 +87,7 @@ export const PortalNavigationProvider: React.FC<{
     if (role === 'student') {
       greeting += ` I can help you submit assignments, view study resources, check your syllabus checklist, track attendance, and navigate all your subject classrooms.`;
     } else if (role === 'teacher') {
-      greeting += ` I can guide you in posting class broadcasts, uploading learning materials, publishing tests, marking daily homeroom attendance, and grading assignments.`;
+      greeting += ` I can guide you in posting class broadcasts, uploading learning materials, publishing tests, marking daily classroom attendance, and grading assignments.`;
     } else if (role === 'admin') {
       greeting += ` I can help you manage user cohorts, reset student passwords, review clearance documents, inspect class rosters, and provision accounts.`;
     } else if (role === 'parent') {

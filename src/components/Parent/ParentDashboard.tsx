@@ -41,7 +41,6 @@ import {
   Achievement,
   ClassBroadcast,
   SubjectClass,
-  ParentStudentLinkRequest,
   LeaveRequest,
 } from '@/lib/supabaseClient';
 import { getIcon } from '../Icons';
@@ -68,7 +67,6 @@ interface ParentDashboardProps {
   leaveRequests?: LeaveRequest[];
   classBroadcasts?: ClassBroadcast[];
   subjectClasses?: SubjectClass[];
-  linkRequests?: ParentStudentLinkRequest[];
   onUploadDoc: (docType: string, fileName: string, studentId: string, fileDataUrl?: string) => void;
   onRemoveDoc: (docType: string, studentId: string) => void;
   onOpenVideoModal: (activity: HubActivity) => void;
@@ -121,7 +119,6 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   leaveRequests = [],
   classBroadcasts = [],
   subjectClasses = [],
-  linkRequests = [],
   onUploadDoc,
   onRemoveDoc,
   onOpenVideoModal,
@@ -191,6 +188,19 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
     setExpandedClassIds((prev) => ({ ...prev, [classId]: !prev[classId] }));
   };
 
+  const handleRequestLinkSubmit = async (data: {
+    studentId: string;
+    studentName: string;
+    studentAdmissionNumber: string;
+    studentGrade: string;
+    relationship: string;
+    notes?: string;
+  }) => {
+    await onRequestChildLink(data);
+    setSelectedChildId(data.studentId);
+    setIsRequestLinkModalOpen(false);
+  };
+
   // Sync selectedChildId when linkedStudents change
   useEffect(() => {
     if (linkedStudents.length > 0) {
@@ -249,15 +259,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
     return unsubscribe;
   }, [subscribeToNavigation]);
 
-  // Parent's pending link requests
-  const myPendingRequests = useMemo(() => {
-    if (!currentUser) return [];
-    return linkRequests.filter(
-      (r) =>
-        (r.parent_id === currentUser.id || r.parent_email?.toLowerCase() === currentUser.email?.toLowerCase()) &&
-        r.status === 'pending'
-    );
-  }, [linkRequests, currentUser]);
+
 
   // Attendance stats for active child
   const allAttendanceDates = Object.keys(attendance).sort().reverse();
@@ -1263,56 +1265,71 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
       {/* MAIN CONTENT AREA */}
       <main className="main-content">
-        {/* TOP CONTENT HEADER — GREEN PARENT PORTAL BRAND HEADER */}
-        <header style={{
-          background: 'linear-gradient(135deg, #1A4A3A 0%, #2D6E5D 60%, #3A8A72 100%)',
-          position: 'sticky',
-          top: 0,
-          zIndex: 4,
-          width: '100%',
-          boxSizing: 'border-box',
-          boxShadow: '0 2px 20px rgba(26,74,58,0.22)',
-        }}>
-          {/* Single unified row: badge + ward switcher + action buttons */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '14px 40px',
-            gap: 10,
-            flexWrap: 'wrap',
-          }} className="parent-header-row">
-
-            {/* LEFT: badge + optional ADM */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 1, minWidth: 0 }}>
-              <span style={{
-                fontSize: 10, fontWeight: 800, padding: '3px 9px', borderRadius: 4,
-                background: 'rgba(255,255,255,0.15)', color: '#FFFFFF',
-                border: '1px solid rgba(255,255,255,0.22)',
-                letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap',
-              }}>
-                {activeTab === 'progress' ? 'Academic'
-                  : activeTab === 'attendance' ? 'Attendance'
-                  : activeTab === 'broadcasts' ? 'Circulars'
-                  : activeTab === 'achievements' ? 'Honours'
-                  : activeTab === 'documents' ? 'Documents'
-                  : activeTab === 'hub' ? 'Hub'
-                  : activeTab === 'settings' ? 'Settings'
-                  : 'Support'}
-                {activeChild ? ` · G${activeChild.grade?.replace(/[^0-9]/g, '') || '12'}${activeChild.class_letter ? activeChild.class_letter : ''}` : ''}
-              </span>
-              {activeChild?.admission_number && (
-                <span className="parent-header-adm" style={{ fontSize: 10.5, fontFamily: 'monospace', color: 'rgba(255,255,255,0.55)', whiteSpace: 'nowrap' }}>
-                  ADM {activeChild.admission_number}
+        {/* TOP CONTENT HEADER — STANDARD CONSISTENT WOODLEM HEADER */}
+        <header className="content-header">
+          <div className="header-top" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', textTransform: 'uppercase' }}>
+                  Parent Portal
                 </span>
-              )}
+                {activeChild && (
+                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#FEF7EC', color: '#9E6C1B', border: '1px solid #F5DEB3', textTransform: 'uppercase' }}>
+                    Grade {activeChild.grade?.replace(/[^0-9]/g, '') || '12'}{activeChild.class_letter ? `-${activeChild.class_letter}` : ''}
+                  </span>
+                )}
+                {activeChild && (
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                    {activeChild.name}
+                  </span>
+                )}
+                {activeChild?.admission_number && (
+                  <span style={{ fontSize: 10.5, fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
+                    ADM {activeChild.admission_number}
+                  </span>
+                )}
+              </div>
+              <h1 className="page-title" style={{ margin: 0 }}>
+                {activeTab === 'progress'
+                  ? 'Academic Progress'
+                  : activeTab === 'attendance'
+                  ? 'Attendance & Leave Records'
+                  : activeTab === 'broadcasts'
+                  ? 'Classroom Notices & Circulars'
+                  : activeTab === 'achievements'
+                  ? 'Student Honours & Distinctions'
+                  : activeTab === 'documents'
+                  ? 'Clearance Documents'
+                  : activeTab === 'hub'
+                  ? 'Holistic Development Hub'
+                  : activeTab === 'settings'
+                  ? 'Settings & Passwords'
+                  : 'Help & Support'}
+              </h1>
+              <p className="page-subtitle" style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                {activeTab === 'progress'
+                  ? 'Live marks, syllabus coverage & assessments.'
+                  : activeTab === 'attendance'
+                  ? 'Daily roll-call & verified absence logs.'
+                  : activeTab === 'broadcasts'
+                  ? `Official notices from Class Teachers for Grade ${activeChild?.grade || '12'}.`
+                  : activeTab === 'achievements'
+                  ? 'Awards & milestones achieved by your ward.'
+                  : activeTab === 'documents'
+                  ? 'Required enrollment and clearance files.'
+                  : activeTab === 'hub'
+                  ? 'School events, masterclasses & co-curricular programs.'
+                  : activeTab === 'settings'
+                  ? 'Manage your account profile and password.'
+                  : 'Get in touch with Woodlem Park support.'}
+              </p>
             </div>
 
-            {/* RIGHT: ward switcher + action buttons */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {/* RIGHT ACTION BUTTONS & WARD SELECTOR */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {linkedStudents.length > 1 && (
-                <div className="hide-mobile" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span className="parent-header-ward-label" style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>Ward:</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', fontWeight: 600 }}>Ward:</span>
                   <CustomSelect
                     value={selectedChildId}
                     onChange={(val) => setSelectedChildId(val)}
@@ -1322,17 +1339,21 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                       sublabel: `Grade ${s.grade?.replace(/[^0-9]/g, '') || '12'}${s.class_letter ? `-${s.class_letter}` : ''}`,
                     }))}
                     buttonStyle={{
-                      background: 'rgba(255,255,255,0.12)',
-                      border: '1px solid rgba(255,255,255,0.28)',
-                      color: '#FFFFFF',
-                      fontSize: 12, fontWeight: 700,
-                      borderRadius: 6, padding: '4px 10px',
-                      minWidth: 100,
+                      height: 32,
+                      padding: '0 12px',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      borderRadius: 6,
+                      borderColor: 'var(--border-color)',
+                      background: '#FFFFFF',
+                      color: 'var(--neutral-dark)',
+                      minWidth: 140,
                     }}
                     menuStyle={{
-                      minWidth: 170, background: '#FFFFFF',
+                      minWidth: 200,
+                      background: '#FFFFFF',
                       border: '1px solid var(--border-color)',
-                      boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
                     }}
                   />
                 </div>
@@ -1343,111 +1364,55 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                   type="button"
                   onClick={() => setIsApplyLeaveModalOpen(true)}
                   style={{
-                    padding: '5px 12px', fontSize: 11.5, fontWeight: 600,
-                    display: 'inline-flex', alignItems: 'center', gap: 5,
-                    background: 'rgba(255,255,255,0.16)', border: '1px solid rgba(255,255,255,0.32)',
-                    color: '#FFFFFF', borderRadius: 6, cursor: 'pointer',
+                    height: 32,
+                    padding: '0 12px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    background: '#EAF3EF',
+                    border: '1px solid #C7E4D8',
+                    color: '#2D6E5D',
+                    borderRadius: 6,
+                    cursor: 'pointer',
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  <Calendar size={12} />
-                  <span className="parent-header-btn-label">Apply for Leave</span>
+                  <Calendar size={13} />
+                  Apply for Leave
                 </button>
               )}
 
-              {linkedStudents.length > 0 && activeTab === 'settings' && (
+              {activeTab === 'progress' && (
                 <button
                   type="button"
                   onClick={() => setIsRequestLinkModalOpen(true)}
                   style={{
-                    padding: '5px 10px', fontSize: 11.5, fontWeight: 600,
-                    display: 'inline-flex', alignItems: 'center', gap: 5,
-                    background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)',
-                    color: '#FFFFFF', borderRadius: 6, cursor: 'pointer',
+                    height: 32,
+                    padding: '0 14px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    background: '#2D2C2A',
+                    border: '1px solid #2D2C2A',
+                    color: '#FFFFFF',
+                    borderRadius: 6,
+                    cursor: 'pointer',
                     whiteSpace: 'nowrap',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                   }}
+                  title="Link another child or ward to your parent portal"
                 >
-                  <Plus size={12} />
-                  <span className="parent-header-btn-label">Add Child</span>
+                  <Plus size={13} strokeWidth={2.5} />
+                  <span>Add Child</span>
                 </button>
               )}
             </div>
           </div>
-
-          {/* Title block — sits below the row */}
-          <div style={{ padding: '0 40px 18px 40px' }} className="parent-header-title">
-            <h1 style={{
-              margin: 0, fontFamily: 'var(--font-display)',
-              fontSize: 24, fontWeight: 700,
-              color: '#FFFFFF', letterSpacing: '-0.02em',
-              lineHeight: 1.25,
-            }}>
-              {activeTab === 'progress'
-                ? activeChild ? `${activeChild.name}'s Academic Overview` : 'Academic Overview'
-                : activeTab === 'attendance'
-                ? 'Attendance & Leave Records'
-                : activeTab === 'broadcasts'
-                ? 'Classroom Notices & Circulars'
-                : activeTab === 'achievements'
-                ? 'Student Honors & Distinctions'
-                : activeTab === 'documents'
-                ? 'Mandatory Student Documents'
-                : activeTab === 'hub'
-                ? 'Holistic Development Hub'
-                : activeTab === 'settings'
-                ? 'Settings & Passwords'
-                : 'Help & Support'}
-            </h1>
-            <p className="parent-header-subtitle" style={{ margin: '4px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.65)', lineHeight: 1.4 }}>
-              {activeTab === 'progress'
-                ? `Live marks, syllabus coverage & assessments for ${activeChild?.name || 'your ward'}.`
-                : activeTab === 'attendance'
-                ? `Roll call logs & leave submissions for ${activeChild?.name || 'your ward'}.`
-                : activeTab === 'broadcasts'
-                ? `Official notices from Class Teachers for Grade ${activeChild?.grade || '12'}.`
-                : activeTab === 'achievements'
-                ? `Awards & milestones achieved by ${activeChild?.name || 'your ward'}.`
-                : activeTab === 'documents'
-                ? `Required enrollment files for ${activeChild?.name || 'your ward'}.`
-                : activeTab === 'hub'
-                ? 'School events, masterclasses & co-curricular programs.'
-                : activeTab === 'settings'
-                ? 'Manage your account profile and password.'
-                : 'Get in touch with Woodlem Park support.'}
-            </p>
-          </div>
         </header>
-
-        {/* NOTIFICATION BANNER: PENDING VERIFICATION REQUESTS */}
-        {myPendingRequests.length > 0 && (
-          <div className="parent-notification-banner">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: '#FDE68A', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Clock size={17} color="#D97706" />
-              </div>
-              <div>
-                <strong>Verification Pending Admin Review:</strong>{' '}
-                Link request for{' '}
-                <strong>{myPendingRequests.map((r) => `${r.student_name} (${r.student_admission_number})`).join(', ')}</strong>
-                {' '}is under review. Child data will become visible once approved.
-              </div>
-            </div>
-            <span
-              style={{
-                background: '#FDE68A',
-                color: '#92400E',
-                fontSize: 11,
-                fontWeight: 700,
-                padding: '4px 10px',
-                borderRadius: 12,
-                whiteSpace: 'nowrap',
-                border: '1px solid #F9C846',
-              }}
-            >
-              Awaiting Approval
-            </span>
-          </div>
-        )}
 
         {/* CONTENT BODY */}
         <div className="content-body" style={{ overflowX: 'hidden', maxWidth: '100%', boxSizing: 'border-box' }}>
@@ -1455,90 +1420,99 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           {!activeChild && activeTab !== 'settings' && activeTab !== 'support' && activeTab !== 'hub' && (
             <div
               style={{
-                background: 'linear-gradient(145deg, #FFFFFF 0%, #F8FFFE 100%)',
-                borderRadius: 16,
-                border: '1px solid #D4EDE9',
-                padding: '60px 40px',
+                background: 'var(--surface)',
+                borderRadius: 12,
+                border: '1px solid var(--border-color)',
+                padding: '48px 32px',
                 textAlign: 'center',
-                maxWidth: 580,
-                margin: '30px auto',
-                boxShadow: '0 4px 24px rgba(28,77,70,0.06)',
+                maxWidth: 540,
+                margin: '24px auto',
               }}
             >
               <div
                 style={{
-                  width: 72,
-                  height: 72,
-                  borderRadius: 20,
-                  background: 'linear-gradient(135deg, #EAF3F1 0%, #D4EDE9 100%)',
+                  width: 56,
+                  height: 56,
+                  borderRadius: 12,
+                  background: '#EAF3EF',
                   color: '#2C6E6A',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  margin: '0 auto 20px',
-                  boxShadow: '0 4px 12px rgba(44,110,106,0.15)',
+                  margin: '0 auto 16px',
                 }}
               >
-                <UserCheck size={34} />
+                <UserCheck size={28} />
               </div>
-              <h2 style={{ fontSize: 22, fontWeight: 800, color: '#0F3330', margin: '0 0 10px', letterSpacing: '-0.3px' }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--neutral-dark)', margin: '0 0 8px' }}>
                 Welcome to Woodlem Parent Portal
               </h2>
-              <p style={{ fontSize: 14, color: '#64748B', marginTop: 0, lineHeight: 1.65, maxWidth: 420, margin: '0 auto 24px' }}>
-                To view your child&apos;s grades, attendance records, class announcements, and document clearance, connect their account using their school <strong style={{ color: '#1C4D46' }}>Admission Number</strong>.
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 0, lineHeight: 1.5, maxWidth: 420, margin: '0 auto 20px' }}>
+                To view your child&apos;s grades, attendance records, circulars, and document clearance, connect their account using their school email &amp; Class Teacher Parent Link Code.
               </p>
               <button
                 onClick={() => setIsRequestLinkModalOpen(true)}
                 style={{
-                  padding: '12px 28px',
+                  padding: '10px 22px',
                   background: '#2D2C2A',
                   color: '#FFFFFF',
                   border: 'none',
-                  borderRadius: 10,
+                  borderRadius: 6,
                   fontWeight: 700,
-                  fontSize: 14,
+                  fontSize: 13,
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: 9,
-                  boxShadow: '0 4px 14px rgba(0,0,0,0.15)',
-                  transition: 'all 0.15s',
-                  letterSpacing: '0.01em',
+                  gap: 8,
                 }}
               >
-                <Plus size={17} />
+                <Plus size={15} />
                 Link Your Child Account
               </button>
-              <p style={{ fontSize: 11.5, color: '#94A3B8', marginTop: 16 }}>
-                Your request will be reviewed and approved by the School Administration office.
-              </p>
             </div>
           )}
 
-
           {/* VIEW 1: ACADEMIC PROGRESS */}
           {activeChild && activeTab === 'progress' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
               {/* TOP STATS CARDS */}
-              <div className="parent-stats-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                 {/* Attendance Rate Card */}
                 <div
-                  className="parent-stat-card"
                   style={{
-                    borderLeft: '4px solid #2C6E6A',
-                    background: 'linear-gradient(135deg, #FFFFFF 0%, #F0FAF8 100%)',
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 8,
+                    padding: '14px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
                   }}
                 >
-                  <div className="parent-stat-icon" style={{ background: 'rgba(44,110,106,0.12)' }}>
-                    <Calendar size={22} color="#2C6E6A" />
+                  <div
+                    style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 8,
+                      background: '#EAF3EF',
+                      color: '#2D6E5D',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Calendar size={20} />
                   </div>
                   <div>
-                    <div className="parent-stat-value" style={{ color: '#1C4D46' }}>{attendanceRate}%</div>
-                    <div className="parent-stat-label">
+                    <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--neutral-dark)', lineHeight: 1.1 }}>
+                      {attendanceRate}%
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 2 }}>
                       Attendance Rate
                     </div>
-                    <div style={{ fontSize: 11, color: '#64748B', marginTop: 3 }}>
+                    <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
                       {presentCount} present / {totalSessions} logged sessions
                     </div>
                   </div>
@@ -1546,27 +1520,46 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
                 {/* Absences Card */}
                 <div
-                  className="parent-stat-card"
                   style={{
-                    borderLeft: `4px solid ${absentCount > 5 ? '#DC2626' : absentCount > 2 ? '#D97706' : '#94A3B8'}`,
-                    background: absentCount > 5 ? 'linear-gradient(135deg, #FFFFFF 0%, #FFF5F5 100%)' : 'linear-gradient(135deg, #FFFFFF 0%, #FFFBF0 100%)',
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 8,
+                    padding: '14px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
                   }}
                 >
                   <div
-                    className="parent-stat-icon"
-                    style={{ background: absentCount > 5 ? 'rgba(220,38,38,0.1)' : 'rgba(217,119,6,0.1)' }}
+                    style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 8,
+                      background: absentCount > 5 ? '#FDF1F0' : absentCount > 2 ? '#FEF7EC' : '#F5F4F0',
+                      color: absentCount > 5 ? '#DC2626' : absentCount > 2 ? '#D97706' : '#7A7873',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
                   >
-                    <AlertTriangle size={22} color={absentCount > 5 ? '#DC2626' : '#D97706'} />
+                    <AlertTriangle size={20} />
                   </div>
                   <div>
                     <div
-                      className="parent-stat-value"
-                      style={{ color: absentCount > 5 ? '#DC2626' : absentCount > 2 ? '#D97706' : 'var(--neutral-dark)' }}
+                      style={{
+                        fontSize: 20,
+                        fontWeight: 800,
+                        color: absentCount > 5 ? '#DC2626' : absentCount > 2 ? '#D97706' : 'var(--neutral-dark)',
+                        lineHeight: 1.1,
+                      }}
                     >
                       {absentCount}
                     </div>
-                    <div className="parent-stat-label">Absences Recorded</div>
-                    <div style={{ fontSize: 11, color: '#64748B', marginTop: 3 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 2 }}>
+                      Absences Recorded
+                    </div>
+                    <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
                       {absentCount === 0 ? 'No absences — excellent!' : absentCount <= 2 ? 'Within acceptable range' : 'Please contact the school'}
                     </div>
                   </div>
@@ -2837,7 +2830,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           currentUser={currentUser}
           students={allStudentProfiles}
           onClose={() => setIsRequestLinkModalOpen(false)}
-          onSubmit={onRequestChildLink}
+          onSubmit={handleRequestLinkSubmit}
         />
       )}
 

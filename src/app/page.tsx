@@ -19,7 +19,6 @@ import {
   ClassResource,
   ClassBroadcast,
   ResourceType,
-  ParentStudentLinkRequest,
   LeaveRequest,
 } from '@/lib/supabaseClient';
 
@@ -49,6 +48,7 @@ import { AiChatbot } from '@/components/Shared/AiChatbot';
 import { PortalNavigationProvider } from '@/lib/PortalNavigationContext';
 import { getCachedPassword, resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
+import { generateParentLinkCode } from '@/lib/parentCodeHelper';
 
 function getCachedAvatar(id?: string, email?: string): string | undefined {
   if (typeof window === 'undefined') return undefined;
@@ -80,7 +80,6 @@ export default function WoodlemApp() {
   const [attendance, setAttendance] = useState<Record<string, Record<string, string>>>({});
   const [hubActivities, setHubActivities] = useState<HubActivity[]>([]);
   const [parentDocuments, setParentDocuments] = useState<ParentDocument[]>([]);
-  const [linkRequests, setLinkRequests] = useState<ParentStudentLinkRequest[]>([]);
   const [testResults, setTestResults] = useState<Record<string, TestResultRecord>>({});
   const [assignmentSubmissions, setAssignmentSubmissions] = useState<Record<string, AssignmentSubmissionRecord>>({});
   const [studentSyllabusProgress, setStudentSyllabusProgress] = useState<Record<string, boolean>>({});
@@ -125,7 +124,6 @@ export default function WoodlemApp() {
         testResultsRes,
         assignSubsRes,
         sylProgRes,
-        linkReqRes,
       ] = await Promise.all([
         supabase.from('profiles').select('*').limit(10000),
         supabase.from('tests').select('*').order('created_at', { ascending: false }).limit(10000),
@@ -141,7 +139,6 @@ export default function WoodlemApp() {
         supabase.from('test_results').select('*').limit(10000),
         supabase.from('assignment_submissions').select('*').limit(10000),
         supabase.from('student_syllabus_progress').select('*').limit(10000),
-        supabase.from('parent_student_link_requests').select('*').order('created_at', { ascending: false }).limit(10000),
       ]);
 
       // Extract all cloud-stored user avatars from Supabase
@@ -433,8 +430,6 @@ export default function WoodlemApp() {
         uploaded_at: d.uploaded_at,
       }));
       setParentDocuments(loadedParentDocs);
-
-      setLinkRequests(linkReqRes.data || []);
 
       // Pure Supabase state loading: 100% in sync with database
       setSubjectClasses(subClassRes.data || []);
@@ -776,20 +771,23 @@ export default function WoodlemApp() {
         return;
       }
 
-      // Strict duplicate code enforcement for newly provisioned accounts
-      const targetCode = (userData.admissionNumber || userData.userCode || '').trim().toLowerCase();
-      if (targetCode && targetCode !== '—' && targetCode !== '-' && targetCode !== 'null' && targetCode !== 'undefined') {
-        const duplicate = profiles.find(
-          (p) =>
-            p.email.toLowerCase() !== userData.email.trim().toLowerCase() &&
-            ((p.admission_number && p.admission_number.trim().toLowerCase() === targetCode) ||
-              (p.user_code && p.user_code.trim().toLowerCase() === targetCode))
-        );
-        if (duplicate) {
-          alert(
-            `Cannot create account: Code "${userData.admissionNumber || userData.userCode}" is already assigned to ${duplicate.name} (${duplicate.role.toUpperCase()}). Every user must have a unique code.`
+      // Strict duplicate code enforcement for newly provisioned accounts (students and faculty only)
+      if (userData.role !== 'parent') {
+        const targetCode = (userData.admissionNumber || userData.userCode || '').trim().toLowerCase();
+        if (targetCode && targetCode !== '—' && targetCode !== '-' && targetCode !== 'null' && targetCode !== 'undefined') {
+          const duplicate = profiles.find(
+            (p) =>
+              p.email.toLowerCase() !== userData.email.trim().toLowerCase() &&
+              p.role === userData.role &&
+              ((p.admission_number && p.admission_number.trim().toLowerCase() === targetCode) ||
+                (p.user_code && p.user_code.trim().toLowerCase() === targetCode))
           );
-          return;
+          if (duplicate) {
+            alert(
+              `Cannot create account: Code "${userData.admissionNumber || userData.userCode}" is already assigned to ${duplicate.name} (${duplicate.role.toUpperCase()}). Every user must have a unique code.`
+            );
+            return;
+          }
         }
       }
 
@@ -802,7 +800,7 @@ export default function WoodlemApp() {
 
       const profileId = createdAuthUserId || existingProf?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'usr_' + Date.now());
 
-      const cleanCode = sanitizeUserCode(userData.userCode || userData.admissionNumber, userData.email);
+      const cleanCode = userData.role === 'parent' ? null : (sanitizeUserCode(userData.userCode || userData.admissionNumber, userData.email) || null);
 
       const dbProfile: any = {
         id: profileId,
@@ -811,11 +809,14 @@ export default function WoodlemApp() {
         role: userData.role,
         user_code: cleanCode,
         admission_number: cleanCode,
-        grade: userData.grade || '',
-        class_letter: userData.classLetter || '',
+        grade: userData.role === 'student' ? (userData.grade || '') : '',
+        class_letter: userData.role === 'student' ? (userData.classLetter || '') : '',
         subject: userData.subject ?? null,
         assigned_class: userData.assignedClass ?? null,
       };
+      if (userData.role === 'student') {
+        dbProfile.parent_link_code = generateParentLinkCode(profileId, cleanCode);
+      }
       if (userData.linkedStudentIds && userData.linkedStudentIds.length > 0) {
         dbProfile.linked_student_ids = userData.linkedStudentIds;
       }
@@ -926,7 +927,7 @@ export default function WoodlemApp() {
             .map((p) => p.id);
         }
 
-        const cleanCode = sanitizeUserCode(u.userCode, finalEmail);
+        const cleanCode = u.role === 'parent' ? null : (sanitizeUserCode(u.userCode, finalEmail) || null);
 
         return {
           id: profileId,
@@ -935,7 +936,7 @@ export default function WoodlemApp() {
           role: u.role,
           user_code: cleanCode,
           admission_number: cleanCode,
-          grade: cleanGrade,
+          grade: u.role === 'student' ? cleanGrade : '',
           class_letter: u.role === 'student' ? cleanClass : '',
           subject: null,
           assigned_class: null,
@@ -1057,20 +1058,23 @@ export default function WoodlemApp() {
         return;
       }
 
-      // Strict duplicate code enforcement: Every user must have a unique admission/employee code
-      const targetCode = (updatedUser.admission_number || updatedUser.user_code || '').trim().toLowerCase();
-      if (targetCode && targetCode !== '—' && targetCode !== '-' && targetCode !== 'null' && targetCode !== 'undefined') {
-        const duplicate = profiles.find(
-          (p) =>
-            p.id !== profileId &&
-            p.email.toLowerCase() !== cleanEmail &&
-            p.email.toLowerCase() !== originalEmail &&
-            ((p.admission_number && p.admission_number.trim().toLowerCase() === targetCode) ||
-              (p.user_code && p.user_code.trim().toLowerCase() === targetCode))
-        );
-        if (duplicate) {
-          alert(`Cannot save: Code "${(updatedUser.admission_number || updatedUser.user_code || '').trim()}" is already assigned to ${duplicate.name} (${duplicate.role.toUpperCase()}). Every user must have a unique code.`);
-          return;
+      // Strict duplicate code enforcement for students and faculty only
+      if (updatedUser.role !== 'parent') {
+        const targetCode = (updatedUser.admission_number || updatedUser.user_code || '').trim().toLowerCase();
+        if (targetCode && targetCode !== '—' && targetCode !== '-' && targetCode !== 'null' && targetCode !== 'undefined') {
+          const duplicate = profiles.find(
+            (p) =>
+              p.id !== profileId &&
+              p.email.toLowerCase() !== cleanEmail &&
+              p.email.toLowerCase() !== originalEmail &&
+              p.role === updatedUser.role &&
+              ((p.admission_number && p.admission_number.trim().toLowerCase() === targetCode) ||
+                (p.user_code && p.user_code.trim().toLowerCase() === targetCode))
+          );
+          if (duplicate) {
+            alert(`Cannot save: Code "${(updatedUser.admission_number || updatedUser.user_code || '').trim()}" is already assigned to ${duplicate.name} (${duplicate.role.toUpperCase()}). Every user must have a unique code.`);
+            return;
+          }
         }
       }
 
@@ -1082,14 +1086,15 @@ export default function WoodlemApp() {
         name: updatedUser.name.trim(),
         email: cleanEmail,
         role: updatedUser.role,
-        user_code: updatedUser.user_code?.trim() || '',
-        admission_number: (updatedUser.admission_number || updatedUser.user_code || '').trim(),
+        user_code: updatedUser.role === 'parent' ? '' : (updatedUser.user_code?.trim() || ''),
+        admission_number: updatedUser.role === 'parent' ? '' : ((updatedUser.admission_number || updatedUser.user_code || '').trim()),
         temp_password: finalPassword,
-        grade: updatedUser.grade ?? '',
-        class_letter: updatedUser.class_letter ?? '',
+        grade: updatedUser.role === 'student' ? (updatedUser.grade ?? '') : '',
+        class_letter: updatedUser.role === 'student' ? (updatedUser.class_letter ?? '') : '',
         subject: updatedUser.subject ?? null,
         assigned_class: updatedUser.assigned_class ?? null,
         linked_student_ids: updatedUser.linked_student_ids ?? [],
+        parent_link_code: updatedUser.parent_link_code ?? undefined,
       };
 
       // 1. Optimistically update local profiles state immediately
@@ -1118,6 +1123,9 @@ export default function WoodlemApp() {
         assigned_class: updatedUser.assigned_class ?? null,
         linked_student_ids: updatedUser.linked_student_ids ?? [],
       };
+      if (updatedUser.parent_link_code) {
+        dbPayload.parent_link_code = updatedUser.parent_link_code.trim();
+      }
 
       // Execute safe multi-tier update verified with .select()
       let dbUpdated = false;
@@ -1273,6 +1281,8 @@ export default function WoodlemApp() {
       | {
           title: string;
           className?: string;
+          targetSections?: string[];
+          status?: 'draft' | 'published';
           durationMinutes?: number;
           questions?: TestQuestion[];
           mediaUrl?: string;
@@ -1284,6 +1294,10 @@ export default function WoodlemApp() {
       typeof data === 'object' && data.className
         ? data.className
         : targetClassForModal || '10-A';
+    const targetSections =
+      typeof data === 'object' && data.targetSections ? data.targetSections : undefined;
+    const status =
+      typeof data === 'object' && data.status ? data.status : 'published';
     const durationMinutes =
       typeof data === 'object' && data.durationMinutes ? data.durationMinutes : 30;
     const questions =
@@ -1294,6 +1308,8 @@ export default function WoodlemApp() {
       id: `test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title,
       class_name: className,
+      target_sections: targetSections,
+      status,
       teacher_id: currentUser?.id,
       duration_minutes: durationMinutes,
       questions,
@@ -2637,7 +2653,7 @@ export default function WoodlemApp() {
     }
   };
 
-  // 7b. Parent-Student Link Requests
+  // 7b. Parent-Student Link Requests (Teacher Verified & Instant Link)
   const handleCreateLinkRequest = async (data: {
     studentId: string;
     studentName: string;
@@ -2648,117 +2664,58 @@ export default function WoodlemApp() {
   }) => {
     if (!currentUser) return;
     try {
-      const { error } = await supabase.from('parent_student_link_requests').upsert(
-        [
-          {
-            parent_id: currentUser.id,
-            parent_name: currentUser.name,
-            parent_email: currentUser.email,
-            student_id: data.studentId,
-            student_name: data.studentName,
-            student_admission_number: data.studentAdmissionNumber,
-            student_grade: data.studentGrade,
-            relationship: data.relationship,
-            notes: data.notes || '',
-            status: 'pending',
-            updated_at: new Date().toISOString(),
-          },
-        ],
-        { onConflict: 'parent_id,student_id' }
-      );
+      // 1. Add student to parent's linked_student_ids
+      const currentLinks = currentUser.linked_student_ids || [];
+      const updatedLinks = currentLinks.includes(data.studentId)
+        ? currentLinks
+        : [...currentLinks, data.studentId];
 
-      if (error) {
-        console.warn('Supabase link request table notice:', error.message);
-        // Fallback: If table is not created in Supabase yet, save optimistic link request locally
-        const newLocalReq: ParentStudentLinkRequest = {
-          id: `req_${Date.now()}`,
-          parent_id: currentUser.id,
-          parent_name: currentUser.name,
-          parent_email: currentUser.email,
-          student_id: data.studentId,
-          student_name: data.studentName,
-          student_admission_number: data.studentAdmissionNumber,
-          student_grade: data.studentGrade,
-          relationship: data.relationship,
-          notes: data.notes || '',
-          status: 'pending',
-          created_at: new Date().toISOString(),
-        };
-        setLinkRequests((prev) => [newLocalReq, ...prev.filter((r) => r.student_id !== data.studentId)]);
+      const { error: profErr } = await supabase
+        .from('profiles')
+        .update({ linked_student_ids: updatedLinks })
+        .eq('id', currentUser.id);
+
+      if (profErr) {
+        console.warn('Parent profile link update notice:', profErr.message);
       }
 
-      alert(`Verification request submitted: Your link request for "${data.studentName}" (${data.studentAdmissionNumber}) has been submitted to the School Administration for review.`);
-      loadAllData();
-    } catch (err: any) {
-      console.error('Link request submit error:', err);
-      alert('Your verification request has been queued for School Administration review.');
-    }
-  };
+      // Update state immediately
+      setCurrentUser((prev) => (prev ? { ...prev, linked_student_ids: updatedLinks } : null));
+      setProfiles((prev) =>
+        prev.map((p) => (p.id === currentUser.id ? { ...p, linked_student_ids: updatedLinks } : p))
+      );
 
-  const handleApproveLinkRequest = async (requestId: string) => {
-    const req = linkRequests.find((r) => r.id === requestId);
-    if (!req) return;
-
-    try {
-      // 1. Mark request approved in Supabase (if table exists)
+      // 2. Record approved link request in parent_student_link_requests
       try {
-        await supabase
-          .from('parent_student_link_requests')
-          .update({ status: 'approved', updated_at: new Date().toISOString() })
-          .eq('id', requestId);
+        await supabase.from('parent_student_link_requests').upsert(
+          [
+            {
+              parent_id: currentUser.id,
+              parent_name: currentUser.name,
+              parent_email: currentUser.email,
+              student_id: data.studentId,
+              student_name: data.studentName,
+              student_admission_number: data.studentAdmissionNumber,
+              student_grade: data.studentGrade,
+              relationship: data.relationship,
+              notes: data.notes || 'Verified via Class Teacher Parent Link Code',
+              status: 'approved',
+              updated_at: new Date().toISOString(),
+            },
+          ],
+          { onConflict: 'parent_id,student_id' }
+        );
       } catch (e) {}
 
-      // 2. Add student_id to parent's linked_student_ids array
-      const parentProf = profiles.find(
-        (p) => p.id === req.parent_id || p.email?.toLowerCase() === req.parent_email?.toLowerCase()
-      );
-      if (parentProf) {
-        const currentLinks = parentProf.linked_student_ids || [];
-        if (!currentLinks.includes(req.student_id)) {
-          const updatedLinks = [...currentLinks, req.student_id];
-          await supabase
-            .from('profiles')
-            .update({ linked_student_ids: updatedLinks })
-            .eq('id', parentProf.id);
-
-          setProfiles((prev) =>
-            prev.map((p) => (p.id === parentProf.id ? { ...p, linked_student_ids: updatedLinks } : p))
-          );
-        }
-      }
-
-      setLinkRequests((prev) =>
-        prev.map((r) => (r.id === requestId ? { ...r, status: 'approved' } : r))
-      );
-
-      alert(`Approved: Student "${req.student_name}" is now linked to parent account "${req.parent_name}".`);
+      alert(`Success! "${data.studentName}" (${data.studentAdmissionNumber}) is now linked to your parent portal.`);
       loadAllData();
     } catch (err: any) {
-      console.error('Approve link error:', err);
-      alert('Unable to approve link request. Please try again.');
+      console.error('Link child error:', err);
+      alert('Unable to link child account. Please try again.');
     }
   };
 
-  const handleRejectLinkRequest = async (requestId: string) => {
-    try {
-      try {
-        await supabase
-          .from('parent_student_link_requests')
-          .update({ status: 'rejected', updated_at: new Date().toISOString() })
-          .eq('id', requestId);
-      } catch (e) {}
 
-      setLinkRequests((prev) =>
-        prev.map((r) => (r.id === requestId ? { ...r, status: 'rejected' } : r))
-      );
-
-      alert('The link request has been marked as rejected.');
-      loadAllData();
-    } catch (err: any) {
-      console.error('Reject link error:', err);
-      alert('Unable to update request status. Please try again.');
-    }
-  };
 
   // 7. Class Resources (Full-Page Inline - Pure Supabase)
   const handleCreateResource = async (resourceData: {
@@ -2956,7 +2913,7 @@ export default function WoodlemApp() {
       {!isMounted ? (
         <div style={{ minHeight: '100vh', width: '100vw', background: '#FAF9F6' }} />
       ) : currentUser === null ? (
-        <LoginView onLoginSuccess={handleLoginSuccess} />
+        <LoginView onLoginSuccess={handleLoginSuccess} profiles={profiles} />
       ) : currentUser.role === 'student' ? (
         <StudentDashboard
           currentStudent={currentUser}
@@ -3067,7 +3024,6 @@ export default function WoodlemApp() {
           parentDocuments={parentDocuments}
           hubActivities={hubActivities}
           subjectClasses={subjectClasses}
-          linkRequests={linkRequests}
           tests={tests}
           syllabus={syllabus}
           attendance={attendance}
@@ -3077,8 +3033,6 @@ export default function WoodlemApp() {
           onEditUser={(user) => setEditingUser(user)}
           onUpdateUser={handleUpdateUser}
           onDeleteUser={handleDeleteUser}
-          onApproveLinkRequest={handleApproveLinkRequest}
-          onRejectLinkRequest={handleRejectLinkRequest}
           onSignOut={handleSignOut}
           onRefreshData={loadAllData}
         />
@@ -3097,7 +3051,6 @@ export default function WoodlemApp() {
           leaveRequests={leaveRequests}
           classBroadcasts={classBroadcasts}
           subjectClasses={subjectClasses}
-          linkRequests={linkRequests}
           onUploadDoc={handleUploadParentDocument}
           onRemoveDoc={handleRemoveParentDocument}
           onOpenVideoModal={(act) => setSelectedVideoActivity(act)}
@@ -3125,7 +3078,6 @@ export default function WoodlemApp() {
         leaveRequests={leaveRequests}
         hubActivities={hubActivities}
         parentDocuments={parentDocuments}
-        linkRequests={linkRequests}
         testResults={testResults}
         assignmentSubmissions={assignmentSubmissions}
         studentSyllabusProgress={studentSyllabusProgress}
@@ -3161,6 +3113,9 @@ export default function WoodlemApp() {
       <CreateTestModal
         isOpen={isCreateTestOpen}
         activeClass={targetClassForModal}
+        subjectClasses={subjectClasses}
+        existingTests={tests}
+        currentUser={currentUser || undefined}
         onClose={() => setIsCreateTestOpen(false)}
         onSubmit={handleCreateTest}
       />

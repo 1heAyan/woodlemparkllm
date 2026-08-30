@@ -31,7 +31,7 @@ const FAQ_ITEMS = [
     category: 'Attendance & Records',
     question: 'How is student attendance recorded and calculated?',
     answer:
-      'Class teachers record homeroom attendance during morning registration. Attendance percentage is calculated in real-time and visible to students, parents, and school administrators.',
+      'Class teachers record classroom attendance during morning registration. Attendance percentage is calculated in real-time and visible to students, parents, and school administrators.',
   },
   {
     category: 'Parent Documents',

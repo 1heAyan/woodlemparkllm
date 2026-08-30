@@ -7,7 +7,8 @@ import { resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/pass
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import { isPrincipalUser } from '@/lib/specialRolesHelper';
 import { sanitizeUserCode } from '@/lib/userCodeHelper';
-import { Eye, EyeOff, Lock, FileText, CheckCircle2, Clock, AlertCircle, AlertTriangle, Crown } from 'lucide-react';
+import { Eye, EyeOff, Lock, FileText, CheckCircle2, Clock, AlertCircle, AlertTriangle, Crown, KeyRound, Copy, RotateCcw } from 'lucide-react';
+import { getOrGenerateStudentParentCode, generateParentLinkCode } from '@/lib/parentCodeHelper';
 
 const GRADES = ['9', '10', '11', '12'] as const;
 const SECTIONS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)); // A through Z
@@ -52,6 +53,9 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [parentLinkCode, setParentLinkCode] = useState('');
+  const [copiedCode, setCopiedCode] = useState(false);
 
   // Student & Teacher Grade & Section
   const [grade, setGrade] = useState<'9' | '10' | '11' | '12'>('12');
@@ -104,6 +108,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       setSection(classInfo.section);
       setIsClassTeacher(classInfo.isClassTeacher);
       setSubject(user.subject || 'English');
+      setParentLinkCode(user.parent_link_code || getOrGenerateStudentParentCode(user));
     }
   }, [user, subjectClasses]);
 
@@ -146,7 +151,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
 
   // Duplicate admission/user code detection ONLY within the same role
   const duplicateCodeUser = useMemo(() => {
-    if (!user) return null;
+    if (!user || role === 'parent') return null;
     const clean = sanitizeUserCode(userCode, email).toLowerCase();
     if (!clean || clean === '—' || clean === '-' || clean === 'null' || clean === 'undefined') {
       return null;
@@ -178,7 +183,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       return;
     }
 
-    if (duplicateCodeUser) {
+    if (role !== 'parent' && duplicateCodeUser) {
       alert(`Cannot save: Code "${userCode.trim()}" is already assigned to another ${role.toUpperCase()} account (${duplicateCodeUser.name}).`);
       return;
     }
@@ -212,14 +217,15 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
         name: name.trim(),
         email: cleanEmail,
         role,
-        user_code: sanitizeUserCode(userCode.trim(), cleanEmail),
-        admission_number: sanitizeUserCode(userCode.trim(), cleanEmail),
+        user_code: role === 'parent' ? undefined : (sanitizeUserCode(userCode.trim(), cleanEmail) || undefined),
+        admission_number: role === 'parent' ? undefined : (sanitizeUserCode(userCode.trim(), cleanEmail) || undefined),
         temp_password: finalPassword,
         grade: finalGrade,
         class_letter: finalSection,
         subject: role === 'teacher' ? subject : null,
         assigned_class: assignedClassStr,
         linked_student_ids: role === 'parent' ? selectedStudentIds : user.linked_student_ids,
+        parent_link_code: role === 'student' ? (parentLinkCode.trim() || undefined) : undefined,
       });
       onClose();
     } catch (err: any) {
@@ -303,45 +309,47 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
             />
           </div>
 
-          {/* User Code / Admission Number */}
-          <div className="form-group">
-            <label className="form-label">
-              {role === 'student'
-                ? 'Admission Number'
-                : role === 'teacher'
-                ? 'Employee Code'
-                : 'User Reference Code'}
-            </label>
-            <input
-              type="text"
-              className="form-input"
-              value={userCode}
-              onChange={(e) => setUserCode(e.target.value)}
-              style={{
-                borderColor: duplicateCodeUser ? '#DC2626' : undefined,
-                background: duplicateCodeUser ? '#FEF2F2' : undefined,
-              }}
-              required
-            />
-            {duplicateCodeUser && (
-              <div
+          {/* User Code / Admission Number (Students & Teachers only, parents don't need admission code) */}
+          {role !== 'parent' && (
+            <div className="form-group">
+              <label className="form-label">
+                {role === 'student'
+                  ? 'Admission Number'
+                  : role === 'teacher'
+                  ? 'Employee Code'
+                  : 'User Reference Code'}
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                value={userCode}
+                onChange={(e) => setUserCode(e.target.value)}
                 style={{
-                  marginTop: 6,
-                  fontSize: 11.5,
-                  color: '#DC2626',
-                  background: '#FEF2F2',
-                  border: '1px solid #FECACA',
-                  padding: '6px 10px',
-                  borderRadius: 6,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
+                  borderColor: duplicateCodeUser ? '#DC2626' : undefined,
+                  background: duplicateCodeUser ? '#FEF2F2' : undefined,
                 }}
-              >
-                <span>⚠️ <strong>Conflict:</strong> This code is already in use by <strong>{duplicateCodeUser.name}</strong> ({duplicateCodeUser.role.toUpperCase()}).</span>
-              </div>
-            )}
-          </div>
+                required
+              />
+              {duplicateCodeUser && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11.5,
+                    color: '#DC2626',
+                    background: '#FEF2F2',
+                    border: '1px solid #FECACA',
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <span>⚠️ <strong>Conflict:</strong> This code is already in use by <strong>{duplicateCodeUser.name}</strong> ({duplicateCodeUser.role.toUpperCase()}).</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── PASSWORD MANAGEMENT SECTION ── */}
           <div
@@ -511,6 +519,67 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
               >
                 Assigned Cohort: <strong>Grade {grade}-{section}</strong>
               </div>
+
+              {/* Student Parent Link Code Field */}
+              <div className="form-group" style={{ marginTop: 14, marginBottom: 0 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+                  <KeyRound size={13} color="#2D6E5D" />
+                  Parent Verification Code (6-Digit Link Code)
+                </label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={parentLinkCode}
+                    onChange={(e) => setParentLinkCode(e.target.value.toUpperCase())}
+                    style={{
+                      fontFamily: 'monospace',
+                      fontWeight: 700,
+                      letterSpacing: '0.08em',
+                      color: '#2D6E5D',
+                      background: '#F0F9F7',
+                      border: '1.5px solid #2D6E5D',
+                    }}
+                    placeholder="e.g. PL-748921"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (navigator.clipboard) {
+                        navigator.clipboard.writeText(parentLinkCode);
+                        setCopiedCode(true);
+                        setTimeout(() => setCopiedCode(false), 2000);
+                      }
+                    }}
+                    className="btn-copy-code"
+                    style={{ padding: '8px 12px' }}
+                    title="Copy Code"
+                  >
+                    {copiedCode ? <CheckCircle2 size={15} color="#059669" /> : <Copy size={15} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newCode = generateParentLinkCode(user?.id);
+                      setParentLinkCode(newCode);
+                    }}
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      border: '1px solid var(--border-color)',
+                      background: '#FFFFFF',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                    }}
+                    title="Generate New Code"
+                  >
+                    <RotateCcw size={15} />
+                  </button>
+                </div>
+                <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                  Parents will enter this code when registering or linking this student account.
+                </p>
+              </div>
             </div>
           )}
 
@@ -574,7 +643,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                     onChange={(e) => setIsClassTeacher(e.target.checked)}
                     style={{ width: 16, height: 16, accentColor: '#2D2C2A', cursor: 'pointer' }}
                   />
-                  <span>Designate as Homeroom Class Teacher</span>
+                  <span>Designate as Class Teacher</span>
                 </label>
 
                 {isClassTeacher && (

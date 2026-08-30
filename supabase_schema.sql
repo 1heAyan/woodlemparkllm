@@ -48,6 +48,7 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS special_role TEXT DEFAULT '
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS department TEXT DEFAULT '';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS managed_grades TEXT[] DEFAULT '{}'::TEXT[];
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS special_permissions TEXT[] DEFAULT '{}'::TEXT[];
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS parent_link_code TEXT DEFAULT '';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_protected_executive BOOLEAN DEFAULT FALSE;
 
 -- Seed default Admin and Principal accounts

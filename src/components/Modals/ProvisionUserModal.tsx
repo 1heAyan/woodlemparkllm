@@ -98,6 +98,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
 
   // Duplicate admission/user code detection ONLY within the same role
   const duplicateCodeUser = useMemo(() => {
+    if (role === 'parent') return null;
     const clean = sanitizeUserCode(admissionNumber).toLowerCase();
     if (!clean || clean === '—' || clean === '-' || clean === 'null' || clean === 'undefined') {
       return null;
@@ -125,7 +126,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
       return;
     }
 
-    if (duplicateCodeUser) {
+    if (role !== 'parent' && duplicateCodeUser) {
       alert(`Cannot create account: Code "${admissionNumber.trim()}" is already assigned to another ${role.toUpperCase()} account (${duplicateCodeUser.name}).`);
       return;
     }
@@ -143,9 +144,9 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
     }
 
     const rawUserTypedCode = admissionNumber.trim();
-    const cleanUserCode = rawUserTypedCode
+    const cleanUserCode = role === 'parent' ? undefined : (rawUserTypedCode
       ? rawUserTypedCode.replace(/^(WPS|PRN|ADM|PAR|EMP)[-_ ]*/i, '').trim()
-      : (cleanPrefix.match(/\d+/) ? cleanPrefix.match(/\d+/)![0] : cleanPrefix);
+      : (cleanPrefix.match(/\d+/) ? cleanPrefix.match(/\d+/)![0] : cleanPrefix));
 
     const assignedClassStr = role === 'teacher' && isClassTeacher ? `${grade}-${section}` : null;
     const finalGrade = role === 'student' ? grade : (role === 'teacher' && isClassTeacher ? grade : undefined);
@@ -272,41 +273,43 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
             </p>
           </div>
 
-          {/* Admission Number */}
-          <div className="form-group">
-            <label className="form-label">
-              {role === 'student' ? 'Admission Number' : role === 'teacher' ? 'Employee Code' : 'User Reference ID'}
-            </label>
-            <input
-              type="text"
-              className="form-input"
-              placeholder={role === 'student' ? 'e.g. 104829' : 'e.g. 204'}
-              value={admissionNumber}
-              onChange={(e) => setAdmissionNumber(e.target.value)}
-              style={{
-                borderColor: duplicateCodeUser ? '#DC2626' : undefined,
-                background: duplicateCodeUser ? '#FEF2F2' : undefined,
-              }}
-            />
-            {duplicateCodeUser && (
-              <div
+          {/* Admission Number (Students & Teachers only, parents don't need admission code) */}
+          {role !== 'parent' && (
+            <div className="form-group">
+              <label className="form-label">
+                {role === 'student' ? 'Admission Number' : role === 'teacher' ? 'Employee Code' : 'User Reference ID'}
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder={role === 'student' ? 'e.g. 104829' : 'e.g. 204'}
+                value={admissionNumber}
+                onChange={(e) => setAdmissionNumber(e.target.value)}
                 style={{
-                  marginTop: 6,
-                  fontSize: 11.5,
-                  color: '#DC2626',
-                  background: '#FEF2F2',
-                  border: '1px solid #FECACA',
-                  padding: '6px 10px',
-                  borderRadius: 6,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
+                  borderColor: duplicateCodeUser ? '#DC2626' : undefined,
+                  background: duplicateCodeUser ? '#FEF2F2' : undefined,
                 }}
-              >
-                <span>⚠️ <strong>Conflict:</strong> This code is already in use by <strong>{duplicateCodeUser.name}</strong> ({duplicateCodeUser.role.toUpperCase()}).</span>
-              </div>
-            )}
-          </div>
+              />
+              {duplicateCodeUser && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11.5,
+                    color: '#DC2626',
+                    background: '#FEF2F2',
+                    border: '1px solid #FECACA',
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <span>⚠️ <strong>Conflict:</strong> This code is already in use by <strong>{duplicateCodeUser.name}</strong> ({duplicateCodeUser.role.toUpperCase()}).</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── STUDENT COHORT FIELDS ── */}
           {role === 'student' && (
@@ -404,13 +407,13 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
                     onChange={(e) => setIsClassTeacher(e.target.checked)}
                     style={{ width: 18, height: 18, accentColor: '#2C6E6A', cursor: 'pointer' }}
                   />
-                  <span>Assign as Homeroom Class Teacher</span>
+                  <span>Assign as Class Teacher</span>
                 </label>
 
                 {isClassTeacher && (
                   <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12, padding: '12px', background: '#FFFFFF', borderRadius: 8, border: '1px solid #E2E8F0' }}>
                     <div>
-                      <label className="form-label" style={{ fontSize: 12 }}>Homeroom Grade</label>
+                      <label className="form-label" style={{ fontSize: 12 }}>Classroom Grade</label>
                       <div style={{ display: 'flex', gap: 6 }}>
                         {GRADES.map((g) => (
                           <button
@@ -436,7 +439,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
                     </div>
 
                     <div>
-                      <label className="form-label" style={{ fontSize: 12 }}>Homeroom Section (A–Z)</label>
+                      <label className="form-label" style={{ fontSize: 12 }}>Classroom Section (A–Z)</label>
                       <CustomSelect
                         value={section}
                         onChange={(val) => setSection(val)}

@@ -53,7 +53,6 @@ interface AiChatbotProps {
   leaveRequests?: LeaveRequest[];
   hubActivities?: HubActivity[];
   parentDocuments?: ParentDocument[];
-  linkRequests?: any[];
   testResults?: Record<string, TestResultRecord>;
   assignmentSubmissions?: Record<string, AssignmentSubmissionRecord>;
   studentSyllabusProgress?: Record<string, boolean>;
@@ -849,7 +848,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
       // Local intelligent response with portal grounding
       const fallbackReply = isGuest
         ? `I can help you sign in or tell you about Woodlem Park School.\n\n- **To Log In**: Select your role tab (Student, Teacher, Admin, or Parent) at the top of the login card and enter your registered email/admission number and password.\n- **Default Password**: Newly provisioned accounts use **\`woodlem123\`**.\n- **IT Helpdesk**: For login support, email \`it-helpdesk@woodlempark.ae\`.`
-        : `I can guide you across your subject classes, homeroom attendance, assignments, and account settings.\n\n[[nav:class:tasks|Tasks & Assessments ↗]] [[nav:class:resources|Learning Resources ↗]] [[nav:view:settings|Settings & Passwords ↗]]`;
+        : `I can guide you across your subject classes, classroom attendance, assignments, and account settings.\n\n[[nav:class:tasks|Tasks & Assessments ↗]] [[nav:class:resources|Learning Resources ↗]] [[nav:view:settings|Settings & Passwords ↗]]`;
       setMessages((prev) => [
         ...prev,
         {
@@ -1123,11 +1122,11 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                     <>
                       <button
                         type="button"
-                        onClick={() => handleSendMessage('Who is absent today in my homeroom?')}
+                        onClick={() => handleSendMessage('Who is absent today in my classroom?')}
                         className="woodlem-ai-suggestion-btn"
                       >
                         <span className="woodlem-ai-sugg-icon">📋</span>
-                        <span>Check homeroom attendance</span>
+                        <span>Check classroom attendance</span>
                       </button>
                       <button
                         type="button"
@@ -1139,11 +1138,11 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleSendMessage('Who is enrolled in my homeroom?')}
+                        onClick={() => handleSendMessage('Who is enrolled in my classroom?')}
                         className="woodlem-ai-suggestion-btn"
                       >
                         <span className="woodlem-ai-sugg-icon">👥</span>
-                        <span>View homeroom students list</span>
+                        <span>View classroom students list</span>
                       </button>
                     </>
                   ) : role === 'admin' ? (
