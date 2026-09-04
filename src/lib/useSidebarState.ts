@@ -1,112 +1,72 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
-export type SidebarMode = 'auto-hide' | 'expanded';
+export type SidebarMode = 'expanded' | 'collapsed';
 
-const STORAGE_KEY = 'woodlem_sidebar_mode';
-const HOVER_EXPAND_DELAY_MS = 1200; // 1.2s deliberate hover delay to prevent sudden/accidental expansion
+export function useSidebarState(
+  userKey?: string | boolean,
+  defaultCollapsed: boolean = false
+) {
+  // Determine personalized storage key per user
+  const sanitizedKey = typeof userKey === 'string' && userKey.trim() !== '' && userKey !== 'auto-hide' && userKey !== 'expanded' && userKey !== 'collapsed'
+    ? `woodlem_sidebar_collapsed_${userKey.trim()}`
+    : 'woodlem_sidebar_collapsed_default';
 
-export function useSidebarState(defaultMode: SidebarMode = 'auto-hide') {
-  const [sidebarMode, setSidebarModeState] = useState<SidebarMode>(defaultMode);
-  const [isHovered, setIsHovered] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(defaultCollapsed);
   const [isMounted, setIsMounted] = useState(false);
-  const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
+  const currentKeyRef = useRef(sanitizedKey);
+  currentKeyRef.current = sanitizedKey;
 
-  const leaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const enterTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Initialize from localStorage on mount
+  // Load and synchronize personalized preference from localStorage
   useEffect(() => {
     setIsMounted(true);
     try {
-      const saved = localStorage.getItem(STORAGE_KEY) as SidebarMode | null;
-      if (saved && (saved === 'auto-hide' || saved === 'expanded')) {
-        setSidebarModeState(saved);
+      const saved = localStorage.getItem(sanitizedKey);
+      if (saved !== null) {
+        setIsCollapsed(saved === 'true');
+      } else {
+        setIsCollapsed(defaultCollapsed);
       }
+    } catch (e) {}
+  }, [sanitizedKey, defaultCollapsed]);
+
+  const toggleCollapse = useCallback(() => {
+    setIsCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(currentKeyRef.current, String(next));
+      } catch (e) {}
+      return next;
+    });
+  }, []);
+
+  const setCollapsed = useCallback((collapsed: boolean) => {
+    setIsCollapsed(collapsed);
+    try {
+      localStorage.setItem(currentKeyRef.current, String(collapsed));
     } catch (e) {}
   }, []);
 
-  // Show subtle toast feedback on double-click toggle
-  const showFeedback = useCallback((msg: string) => {
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    setFeedbackToast(msg);
-    toastTimeoutRef.current = setTimeout(() => {
-      setFeedbackToast(null);
-    }, 2400);
-  }, []);
+  const isExpanded = !isCollapsed;
+  const sidebarMode: SidebarMode = isCollapsed ? 'collapsed' : 'expanded';
 
-  // Double click toggles between Pinned (Always expanded) and Auto-hide (Hover)
-  const togglePin = useCallback(() => {
-    setSidebarModeState((prev) => {
-      const next: SidebarMode = prev === 'expanded' ? 'auto-hide' : 'expanded';
-      try {
-        localStorage.setItem(STORAGE_KEY, next);
-      } catch (e) {}
-      showFeedback(next === 'expanded' ? 'Sidebar Pinned (Always Open)' : 'Auto-Hide (Hover ~1.2s to open)');
-      return next;
-    });
-    setIsHovered(false);
-  }, [showFeedback]);
-
-  // Mouse enter handler: only opens after hovering for 1.2s
-  const handleMouseEnter = useCallback(() => {
-    if (leaveTimeoutRef.current) {
-      clearTimeout(leaveTimeoutRef.current);
-      leaveTimeoutRef.current = null;
-    }
-    if (sidebarMode === 'auto-hide') {
-      enterTimeoutRef.current = setTimeout(() => {
-        setIsHovered(true);
-      }, HOVER_EXPAND_DELAY_MS);
-    }
-  }, [sidebarMode]);
-
-  // Mouse leave handler: smooth collapse
-  const handleMouseLeave = useCallback(() => {
-    if (enterTimeoutRef.current) {
-      clearTimeout(enterTimeoutRef.current);
-      enterTimeoutRef.current = null;
-    }
-    if (sidebarMode === 'auto-hide') {
-      leaveTimeoutRef.current = setTimeout(() => {
-        setIsHovered(false);
-      }, 200);
-    }
-  }, [sidebarMode]);
-
-  // When clicking a navigation item, retract if in auto-hide mode
-  const handleNavClick = useCallback(() => {
-    if (sidebarMode === 'auto-hide') {
-      if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
-      if (enterTimeoutRef.current) clearTimeout(enterTimeoutRef.current);
-      setIsHovered(false);
-    }
-  }, [sidebarMode]);
-
-  // Compute effective expanded / collapsed state
-  const isExpanded = sidebarMode === 'expanded' || (sidebarMode === 'auto-hide' && isHovered);
-  const isCollapsed = !isExpanded;
-  const isPinned = sidebarMode === 'expanded';
-
-  // Cleanup timers on unmount
-  useEffect(() => {
-    return () => {
-      if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
-      if (enterTimeoutRef.current) clearTimeout(enterTimeoutRef.current);
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    };
-  }, []);
+  // Compatibility stubs
+  const togglePin = toggleCollapse;
+  const handleMouseEnter = () => {};
+  const handleMouseLeave = () => {};
+  const handleNavClick = () => {};
 
   return {
-    sidebarMode,
-    isExpanded,
     isCollapsed,
-    isHovered,
-    isPinned,
+    isExpanded,
+    sidebarMode,
     isMounted,
-    feedbackToast,
+    isPinned: !isCollapsed,
+    isHovered: false,
+    feedbackToast: null,
+    toggleCollapse,
+    setCollapsed,
     togglePin,
     handleMouseEnter,
     handleMouseLeave,

@@ -16,7 +16,7 @@ export function createIsolatedSupabaseClient() {
 }
 
 
-export type SpecialRoleType = 'principal' | 'hod' | 'coordinator' | 'dean' | 'custom' | 'none';
+export type SpecialRoleType = 'principal' | 'slt' | 'hod' | 'coordinator' | 'dean' | 'custom' | 'none';
 
 export interface UserProfile {
   id: string;

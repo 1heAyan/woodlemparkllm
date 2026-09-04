@@ -167,7 +167,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   onSignOut,
 }) => {
   const [isEditClassModalOpen, setIsEditClassModalOpen] = useState(false);
-  const sidebar = useSidebarState('auto-hide');
+  const sidebar = useSidebarState(currentUser?.id || currentUser?.email || 'teacher');
   const [selectedReviewTest, setSelectedReviewTest] = useState<TestItem | null>(null);
   const [selectedGradeAssignment, setSelectedGradeAssignment] = useState<AssignmentItem | null>(null);
   const [isMarkEntryOpen, setIsMarkEntryOpen] = useState(false);
@@ -339,20 +339,22 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   // Filter co-curricular hub activities created/published by this teacher
   const myHubActivities = useMemo(() => {
-    return hubActivities.filter((act) => {
-      if (!act.created_by) return false;
-      const creator = act.created_by.toLowerCase().trim();
-      const myId = (currentUser.id || '').toLowerCase().trim();
-      const myName = (currentUser.name || '').toLowerCase().trim();
-      const myEmail = (currentUser.email || '').toLowerCase().trim();
-      return (
-        creator === myId ||
-        creator === myName ||
-        creator === myEmail ||
-        (myName && (creator.includes(myName) || myName.includes(creator))) ||
-        (currentUser.role === 'admin')
-      );
-    });
+    return hubActivities
+      .filter((act) => !String(act.title || '').startsWith('__') && act.type !== 'system_config' && act.id !== 'special_roles_master_v1')
+      .filter((act) => {
+        if (!act.created_by) return false;
+        const creator = act.created_by.toLowerCase().trim();
+        const myId = (currentUser.id || '').toLowerCase().trim();
+        const myName = (currentUser.name || '').toLowerCase().trim();
+        const myEmail = (currentUser.email || '').toLowerCase().trim();
+        return (
+          creator === myId ||
+          creator === myName ||
+          creator === myEmail ||
+          (myName && (creator.includes(myName) || myName.includes(creator))) ||
+          (currentUser.role === 'admin')
+        );
+      });
   }, [hubActivities, currentUser.id, currentUser.name, currentUser.email, currentUser.role]);
 
   // Portal Navigation & AI Copilot Integration
@@ -430,17 +432,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   );
   const homeroomGrade = homeroomClassInfo.grade;
   const homeroomSection = homeroomClassInfo.section;
-  const homeroomLabel = `Grade ${homeroomGrade}-${homeroomSection}`;
+  const homeroomLabel = homeroomClassInfo.isClassTeacher && homeroomClassInfo.classLabel ? homeroomClassInfo.classLabel : `Grade ${homeroomGrade}-${homeroomSection}`;
 
-  // Homeroom students
+  // Homeroom students (strictly empty if not assigned as Class Teacher)
   const homeroomStudents = useMemo(() => {
+    if (!homeroomClassInfo.isClassTeacher) return [];
     return profiles.filter((p) => {
       if (p.role !== 'student') return false;
       const g = (p.grade || '').replace(/[^0-9]/g, '');
       const s = (p.class_letter || '').toUpperCase().trim();
       return g === homeroomGrade && (!homeroomSection || s === homeroomSection);
     });
-  }, [profiles, homeroomGrade, homeroomSection]);
+  }, [profiles, homeroomClassInfo.isClassTeacher, homeroomGrade, homeroomSection]);
 
   // Homeroom Parent Access Codes State
   const [codeSearchQuery, setCodeSearchQuery] = useState('');
@@ -511,6 +514,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         return new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime();
       }),
     [classBroadcasts, homeroomClassId]
+  );
+
+  const renderHomeroomNotice = () => (
+    <div style={{ padding: '60px 24px', textAlign: 'center', background: '#FFFFFF', borderRadius: 8, border: '1px solid var(--border-color)', margin: '24px' }}>
+      <div style={{ width: 52, height: 52, borderRadius: 14, background: '#F5F4F0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#8C8983', marginBottom: 14 }}>
+        <UserCheck size={26} />
+      </div>
+      <h2 style={{ fontSize: 17, fontWeight: 700, color: 'var(--neutral-dark)', margin: '0 0 6px' }}>
+        Homeroom Class Not Assigned
+      </h2>
+      <p style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 500, margin: '0 auto 18px', lineHeight: 1.5 }}>
+        You are currently registered as <strong>{currentUser.subject || 'Subject Faculty'}</strong>. Homeroom attendance roll call, student achievement records, and parent access codes become active when Administration assigns a homeroom section to your account.
+      </p>
+    </div>
   );
 
   // Homeroom resource uploader state
@@ -1209,12 +1226,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   return (
     <div className="app-viewport">
       {/* REDESIGNED SIDEBAR */}
-      <aside
-        className={`sidebar ${sidebar.isCollapsed ? 'collapsed' : ''} ${sidebar.isHovered && sidebar.sidebarMode === 'auto-hide' ? 'auto-hide-hovered' : ''}`}
-        onMouseEnter={sidebar.handleMouseEnter}
-        onMouseLeave={sidebar.handleMouseLeave}
-        onDoubleClick={sidebar.togglePin}
-      >
+      <aside className={`sidebar ${sidebar.isCollapsed ? 'collapsed' : ''}`}>
         {/* LOGO */}
         <div style={{ padding: sidebar.isCollapsed ? '16px 0 0 0' : '16px 16px 0 16px', flexShrink: 0, overflow: 'hidden' }}>
           <WoodlemLogo collapsed={sidebar.isCollapsed} />
@@ -1241,7 +1253,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         {sidebar.isCollapsed ? (
           <div style={{ padding: '12px 0 6px', display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
             <div
-              title={`${currentUser.name} • ${currentUser.subject || 'Faculty'} • ${homeroomLabel}`}
+              title={`${currentUser.name} • ${currentUser.subject || 'Faculty'}${homeroomClassInfo.isClassTeacher ? ` • ${homeroomLabel}` : ''}`}
               style={{
                 width: 36,
                 height: 36,
@@ -1335,7 +1347,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 </span>
               </div>
               <div style={{ fontSize: 10.5, color: '#7A7873', fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {homeroomLabel} [Class Teacher]
+                {homeroomClassInfo.isClassTeacher ? `${homeroomLabel} [Class Teacher]` : 'Subject Faculty'}
               </div>
             </div>
           </div>
@@ -1600,6 +1612,26 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           </div>
 
           <div className="sidebar-tooltip-wrapper">
+            <button
+              className="logout-btn-clean"
+              onClick={sidebar.toggleCollapse}
+              title={sidebar.isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                {sidebar.isCollapsed ? (
+                  <ChevronRight size={15} className="icon" style={{ flexShrink: 0 }} />
+                ) : (
+                  <ChevronLeft size={15} className="icon" style={{ flexShrink: 0 }} />
+                )}
+                <span className="sidebar-text">Collapse Sidebar</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">Expand Sidebar</div>
+            )}
+          </div>
+
+          <div className="sidebar-tooltip-wrapper">
             <button className="logout-btn-clean" onClick={onSignOut}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
                 <LogOut size={15} className="icon" style={{ flexShrink: 0 }} />
@@ -1611,13 +1643,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             )}
           </div>
         </div>
-
-        {/* DOUBLE CLICK MODE FEEDBACK TOAST */}
-        {sidebar.feedbackToast && (
-          <div className="sidebar-feedback-toast">
-            {sidebar.feedbackToast}
-          </div>
-        )}
       </aside>
 
       {/* MAIN CONTENT VIEWPORT */}
@@ -3077,6 +3102,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
         {/* VIEW 2: HOMEROOM ATTENDANCE & ROLL CALL (WITH RAPID DAILY ROLL CALL & MONTHLY MATRIX) */}
         {activeNavMode === 'homeroom_attendance' && (
+          !homeroomClassInfo.isClassTeacher ? (
+            renderHomeroomNotice()
+          ) : (
           <>
             <header className="content-header">
               <div className="header-top" style={{ alignItems: 'flex-start' }}>
@@ -4130,9 +4158,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               )}
             </div>
           </>
+          )
         )}
         {/* VIEW 3: HOMEROOM STUDENT ACHIEVEMENTS */}
         {activeNavMode === 'homeroom_awards' && (
+          !homeroomClassInfo.isClassTeacher ? (
+            renderHomeroomNotice()
+          ) : (
           <>
             <header className="content-header">
               <div className="header-top">
@@ -4308,9 +4340,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               </div>
             </div>
           </>
+          )
         )}
         {/* VIEW 3.5: HOMEROOM CLASS RESOURCES & CIRCULARS */}
         {activeNavMode === 'homeroom_resources' && (
+          !homeroomClassInfo.isClassTeacher ? (
+            renderHomeroomNotice()
+          ) : (
           <>
             {/* Executive Hero Banner */}
             <header
@@ -4981,12 +5017,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               )}
             </div>
           </>
+          )
         )}
 
         {/* ══════════════════════════════════════════════════════════════════════ */}
         {/* VIEW 4B: HOMEROOM PARENT ACCESS & VERIFICATION CODES                  */}
         {/* ══════════════════════════════════════════════════════════════════════ */}
         {activeNavMode === 'homeroom_codes' && (
+          !homeroomClassInfo.isClassTeacher ? (
+            renderHomeroomNotice()
+          ) : (
           <>
             <header className="content-header">
               <div className="header-top" style={{ alignItems: 'flex-start' }}>
@@ -5350,6 +5390,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               </div>
             </div>
           </>
+          )
         )}
 
         {/* ══════════════════════════════════════════════════════════════════════ */}
@@ -5605,31 +5646,27 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
               <KpiSparklineCard
                 label="DEPARTMENT AVERAGE"
-                value={`${departmentAnalytics.overallAverageScore}%`}
+                value={departmentAnalytics.overallAverageScore > 0 ? `${departmentAnalytics.overallAverageScore}%` : '—'}
                 subValue="Mean Score"
-                growthText="+2.1% vs target"
-                sparklineData={[40, 55, 60, 75, 70, 85, 80]}
+                growthText={departmentAnalytics.overallAverageScore > 0 ? `Based on ${departmentAnalytics.totalEnrollment} assessed students` : 'No assessment data yet'}
               />
               <KpiSparklineCard
                 label="SYLLABUS PACE"
-                value={`${departmentAnalytics.overallSyllabusProgress}%`}
+                value={departmentAnalytics.overallSyllabusProgress > 0 ? `${departmentAnalytics.overallSyllabusProgress}%` : '—'}
                 subValue="Completed"
-                growthText="+4.8% on schedule"
-                sparklineData={[50, 60, 65, 70, 75, 80, 85]}
+                growthText={departmentAnalytics.overallSyllabusProgress > 0 ? 'Topics marked complete' : 'No syllabus data yet'}
               />
               <KpiSparklineCard
                 label="DEPARTMENT CLASSES"
                 value={departmentClassrooms.length}
                 subValue="Cohorts"
-                growthText="100% active"
-                sparklineData={[30, 40, 50, 60, 70, 80, 90]}
+                growthText={departmentClassrooms.length > 0 ? `${departmentClassrooms.length} active class${departmentClassrooms.length !== 1 ? 'es' : ''}` : 'No classes assigned yet'}
               />
               <KpiSparklineCard
                 label="ASSESSED STUDENTS"
                 value={departmentAnalytics.totalEnrollment}
                 subValue="Students"
-                growthText="Discipline cohort"
-                sparklineData={[60, 70, 65, 80, 75, 90, 88]}
+                growthText={departmentAnalytics.totalEnrollment > 0 ? 'With recorded results' : 'No results recorded yet'}
               />
             </div>
 

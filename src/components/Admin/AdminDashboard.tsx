@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, SlidersHorizontal, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
-import { UserProfile, ParentDocument, HubActivity, SubjectClass, TestItem, SyllabusTerm } from '@/lib/supabaseClient';
+import { supabase, UserProfile, ParentDocument, HubActivity, SubjectClass, TestItem, SyllabusTerm } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { SettingsView } from '@/components/Shared/SettingsView';
@@ -15,8 +15,8 @@ import { AdminAssessmentTermsView } from '@/components/Admin/AdminAssessmentTerm
 import { formatShortFileName, openFileInNewTab, downloadFile } from '@/lib/fileHelper';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
-import { isPrincipalUser } from '@/lib/specialRolesHelper';
-import { sanitizeUserCode } from '@/lib/userCodeHelper';
+import { isPrincipalUser, isSltUser } from '@/lib/specialRolesHelper';
+import { sanitizeUserCode, normalizeAdmissionNumber, normalizeStudentName, isMatchingStudent } from '@/lib/userCodeHelper';
 import { computeExecutiveAnalytics } from '@/lib/analyticsHelper';
 import {
   ScoreDistributionChart,
@@ -28,6 +28,7 @@ import {
 } from '@/components/UI/AnalyticsCharts';
 import { MarkEntryModal } from '../Modals/MarkEntryModal';
 import { TestResultRecord } from '../Modals/ReviewTestResultsModal';
+import { MergeDuplicatesModal, DuplicateGroup } from '../Modals/MergeDuplicatesModal';
 
 interface AdminDashboardProps {
   currentUser: UserProfile;
@@ -72,20 +73,153 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onRefreshData,
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
-  const [roleFilter, setRoleFilter] = useState<'all' | 'student' | 'teacher' | 'parent' | 'admin'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'student' | 'teacher' | 'parent' | 'admin' | 'principal'>('all');
   const [classFilter, setClassFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClassInspect, setSelectedClassInspect] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserProfile | null>(null);
   const [activeMarkEntryClass, setActiveMarkEntryClass] = useState<SubjectClass | null>(null);
-  const sidebar = useSidebarState('auto-hide');
+  const sidebar = useSidebarState(currentUser?.id || currentUser?.email || 'admin');
 
   const handleInitiateEditUser = (u: UserProfile) => {
     setSelectedUserForEdit(u);
   };
 
   const [overviewGradeFilter, setOverviewGradeFilter] = useState<string>('all');
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [isMerging, setIsMerging] = useState(false);
+
+  // Intelligent Duplicate Detection for existing student accounts in the database
+  const duplicateGroups = useMemo<DuplicateGroup[]>(() => {
+    const studentProfiles = profiles.filter((p) => p.role === 'student');
+    const groupsMap = new Map<string, UserProfile[]>();
+
+    studentProfiles.forEach((p) => {
+      const normName = normalizeStudentName(p.name);
+      const gradeClean = (p.grade || '').replace(/[^0-9]/g, '') || '10';
+      if (!normName) return;
+      const key = `${normName}_${gradeClean}`;
+      const arr = groupsMap.get(key) || [];
+      arr.push(p);
+      groupsMap.set(key, arr);
+    });
+
+    const result: DuplicateGroup[] = [];
+    groupsMap.forEach((group, key) => {
+      if (group.length > 1) {
+        // Sort to determine genuine primary profile:
+        // Prefer profiles with real admission numbers (not fake sequential 11xx numbers unless all are)
+        const sorted = [...group].sort((a, b) => {
+          const aCode = sanitizeUserCode(a.admission_number || a.user_code, a.email);
+          const bCode = sanitizeUserCode(b.admission_number || b.user_code, b.email);
+
+          const aIsFakeSeq = /^11[0-9]{2}$/.test(aCode) && !a.email.includes(aCode);
+          const bIsFakeSeq = /^11[0-9]{2}$/.test(bCode) && !b.email.includes(bCode);
+          if (aIsFakeSeq && !bIsFakeSeq) return 1;
+          if (!aIsFakeSeq && bIsFakeSeq) return -1;
+
+          return (a.created_at || '').localeCompare(b.created_at || '');
+        });
+
+        const primaryProfile = sorted[0];
+        const duplicateProfiles = sorted.slice(1);
+        result.push({
+          key,
+          studentName: primaryProfile.name,
+          grade: primaryProfile.grade || '10',
+          classLetter: primaryProfile.class_letter || undefined,
+          primaryProfile,
+          duplicateProfiles,
+        });
+      }
+    });
+
+    return result;
+  }, [profiles]);
+
+  const handleMergeGroup = async (group: DuplicateGroup) => {
+    try {
+      setIsMerging(true);
+      const primaryId = group.primaryProfile.id;
+      const dupIds = group.duplicateProfiles.map((p) => p.id);
+
+      // 1. Re-link subject classes
+      for (const sc of subjectClasses) {
+        const enrolled = sc.enrolled_student_ids || [];
+        const hasDup = dupIds.some((dId) => enrolled.includes(dId));
+        if (hasDup) {
+          const updatedEnrolled = Array.from(
+            new Set(
+              enrolled.map((id) => (dupIds.includes(id) ? primaryId : id))
+            )
+          );
+          await supabase
+            .from('subject_classes')
+            .update({ enrolled_student_ids: updatedEnrolled })
+            .eq('id', sc.id);
+        }
+      }
+
+      // 2. Delete redundant duplicate profiles
+      for (const dup of group.duplicateProfiles) {
+        onDeleteUser(dup.id);
+      }
+
+      if (onRefreshData) onRefreshData();
+    } catch (err: any) {
+      console.error('Merge error:', err);
+      alert('Error merging duplicate accounts.');
+    } finally {
+      setIsMerging(false);
+    }
+  };
+
+  const handleMergeAllDuplicates = async () => {
+    if (
+      !confirm(
+        `Are you sure you want to merge all ${duplicateGroups.length} duplicate student group(s)? Genuine admission numbers and all class enrollments will be preserved.`
+      )
+    ) {
+      return;
+    }
+    try {
+      setIsMerging(true);
+      for (const group of duplicateGroups) {
+        const primaryId = group.primaryProfile.id;
+        const dupIds = group.duplicateProfiles.map((p) => p.id);
+
+        for (const sc of subjectClasses) {
+          const enrolled = sc.enrolled_student_ids || [];
+          const hasDup = dupIds.some((dId) => enrolled.includes(dId));
+          if (hasDup) {
+            const updatedEnrolled = Array.from(
+              new Set(
+                enrolled.map((id) => (dupIds.includes(id) ? primaryId : id))
+              )
+            );
+            await supabase
+              .from('subject_classes')
+              .update({ enrolled_student_ids: updatedEnrolled })
+              .eq('id', sc.id);
+          }
+        }
+
+        for (const dup of group.duplicateProfiles) {
+          onDeleteUser(dup.id);
+        }
+      }
+
+      setIsMergeModalOpen(false);
+      alert(`Successfully merged all ${duplicateGroups.length} duplicate student accounts!`);
+      if (onRefreshData) onRefreshData();
+    } catch (err: any) {
+      console.error('Bulk merge error:', err);
+      alert('Error during duplicate merge.');
+    } finally {
+      setIsMerging(false);
+    }
+  };
 
   const overviewAnalytics = useMemo(() => {
     return computeExecutiveAnalytics({
@@ -98,6 +232,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       selectedGradeFilter: overviewGradeFilter,
     });
   }, [profiles, subjectClasses, tests, syllabus, attendance, testResults, overviewGradeFilter]);
+
+  const displayHubActivities = useMemo(() => {
+    return (hubActivities || []).filter(
+      (act) => !String(act.title || '').startsWith('__') && act.type !== 'system_config' && act.id !== 'special_roles_master_v1'
+    );
+  }, [hubActivities]);
 
   // Portal Navigation & AI Copilot Integration
   const { isAiPanelOpen, toggleAiPanel, subscribeToNavigation } = usePortalNavigation();
@@ -178,7 +318,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const filteredProfiles = useMemo(() => {
     return profiles.filter((p) => {
       // Role filter
-      if (roleFilter !== 'all' && p.role !== roleFilter) return false;
+      if (roleFilter !== 'all') {
+        if (roleFilter === 'principal') {
+          const isExec = p.role === 'principal' || isPrincipalUser(p) || isSltUser(p) || p.special_role === 'slt';
+          if (!isExec) return false;
+        } else if (roleFilter === 'admin') {
+          if (p.role !== 'admin' || isPrincipalUser(p) || isSltUser(p)) return false;
+        } else if (p.role !== roleFilter) {
+          return false;
+        }
+      }
 
       // Class / Section filter
       if (classFilter !== 'all') {
@@ -232,6 +381,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const linked = profiles.filter((st) => (p.linked_student_ids || []).includes(st.id));
       if (linked.length === 0) return 'Parent (No Ward Linked)';
       return `Ward: ${linked.map((s) => `${s.name} (${s.grade ? `G${s.grade.replace(/[^0-9]/g, '')}-${s.class_letter || 'A'}` : 'Student'})`).join(', ')}`;
+    }
+    if (p.role === 'principal' || isPrincipalUser(p) || isSltUser(p) || p.special_role === 'slt') {
+      return p.designation || (isPrincipalUser(p) ? 'Principal & Executive Head' : 'Senior Leadership Team');
     }
     if (p.role === 'admin') return 'System Administrator';
     return 'General';
@@ -290,6 +442,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const rolePill = (role: string, userObj?: UserProfile) => {
+    if (userObj && (isSltUser(userObj) || userObj.special_role === 'slt')) {
+      return (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '1px 7px',
+            fontSize: 9.5,
+            fontWeight: 800,
+            letterSpacing: '0.04em',
+            textTransform: 'uppercase',
+            borderRadius: 4,
+            background: '#EAF3EF',
+            color: '#2C6E6A',
+            border: '1px solid #C7E4D8',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <Crown size={10} /> {userObj.designation || 'SLT'}
+        </span>
+      );
+    }
     if (userObj && isPrincipalUser(userObj)) {
       return (
         <span
@@ -511,7 +686,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <AtRiskHonorRollGrid
         distinctions={overviewAnalytics.distinctionStudents}
         atRisk={overviewAnalytics.atRiskStudents}
-        onSelectStudent={(id) => {
+        subjectClasses={subjectClasses}
+        profiles={profiles}
+        testResults={testResults}
+        tests={tests}
+        onOpenClassMarks={(className: string) => {
+          const matched = subjectClasses.find(
+            (sc) => (sc.name || sc.class_name || '') === className
+          );
+          if (matched) setActiveMarkEntryClass(matched);
+        }}
+        onSelectStudent={(id: string) => {
           const target = profiles.find((p) => p.id === id);
           if (target) setSelectedUserForEdit(target);
         }}
@@ -624,13 +809,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {/* Role selector pills */}
           <SegmentedControl
             value={roleFilter}
-            onChange={(r) => setRoleFilter(r)}
+            onChange={(r) => setRoleFilter(r as any)}
             options={[
               { value: 'all', label: 'All' },
               { value: 'student', label: 'Student' },
               { value: 'teacher', label: 'Teacher' },
               { value: 'parent', label: 'Parent' },
               { value: 'admin', label: 'Admin' },
+              { value: 'principal', label: 'Leadership' },
             ]}
             height={32}
             textTransform="uppercase"
@@ -730,6 +916,51 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
       </div>
 
+      {/* Duplicate Student Accounts Banner */}
+      {duplicateGroups.length > 0 && (
+        <div
+          style={{
+            padding: '11px 16px',
+            background: '#FEF3C7',
+            borderBottom: '1px solid #FDE68A',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 10,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 18 }}>⚠️</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#92400E' }}>
+                {duplicateGroups.length} Duplicate Student Group{duplicateGroups.length > 1 ? 's' : ''} Detected
+              </div>
+              <div style={{ fontSize: 11.5, color: '#B45309' }}>
+                Found accounts with conflicting or temporary 11xx numbers (e.g., {duplicateGroups.slice(0, 3).map((g) => g.studentName).join(', ')}{duplicateGroups.length > 3 ? '...' : ''}).
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsMergeModalOpen(true)}
+            style={{
+              padding: '6px 14px',
+              fontSize: 12,
+              fontWeight: 700,
+              background: '#92400E',
+              color: '#FFFFFF',
+              border: 'none',
+              borderRadius: 6,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Review & Clean Duplicates
+          </button>
+        </div>
+      )}
+
       {/* Directory Table */}
       <div style={{ overflowX: 'auto', maxHeight: 'calc(100vh - 180px)' }}>
         {filteredProfiles.length === 0 ? (
@@ -766,7 +997,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <td style={tdStyle}>{rolePill(p.role, p)}</td>
                   <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11.5 }}>{p.email}</td>
                   <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11, color: '#44423E' }}>
-                    {p.role === 'parent' ? '—' : (sanitizeUserCode(p.admission_number || p.user_code, p.email) || '—')}
+                    {p.role === 'parent' ? '—' : (sanitizeUserCode(p.admission_number || p.user_code, p.role === 'student' ? p.email : null) || p.user_code || p.admission_number || '—')}
                   </td>
                   <td style={{ ...tdStyle, fontSize: 11.5, color: '#4A4843' }}>
                     {formatUserAssignment(p)}
@@ -1151,13 +1382,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div>
           <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>Holistic Development Programs</span>
           <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 8 }}>
-            {hubActivities.length} published activities
+            {displayHubActivities.length} published activities
           </span>
         </div>
       </div>
 
       <div style={{ overflowX: 'auto' }}>
-        {hubActivities.length === 0 ? (
+        {displayHubActivities.length === 0 ? (
           <div style={{ padding: '36px 20px', textAlign: 'center' }}>
             <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>No activities published</div>
             <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>Extracurricular programs created by teachers will be listed here.</div>
@@ -1175,7 +1406,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </tr>
             </thead>
             <tbody>
-              {hubActivities.map((act, idx) => (
+              {displayHubActivities.map((act, idx) => (
                 <tr key={act.id} style={{ background: idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7' }}>
                   <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
                   <td style={{ ...tdStyle, fontWeight: 600 }}>{act.title}</td>
@@ -1214,7 +1445,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     { id: 'directory', label: 'USER DIRECTORY', count: profiles.length },
     { id: 'classes', label: 'CLASSES & SECTIONS', count: activeClassList.length },
     { id: 'assessments', label: 'EXAM TERMS & MARKS' },
-    { id: 'hub', label: 'HOLISTIC HUB', count: hubActivities.length },
+    { id: 'hub', label: 'HOLISTIC HUB', count: displayHubActivities.length },
     { id: 'settings', label: 'SETTINGS & PASSWORDS' },
     { id: 'support', label: 'HELP & SUPPORT' },
   ];
@@ -1232,14 +1463,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           flexDirection: 'column',
           height: '100%',
           flexShrink: 0,
-          transition: 'width 0.38s cubic-bezier(0.16, 1, 0.3, 1), min-width 0.38s cubic-bezier(0.16, 1, 0.3, 1)',
+          transition: 'width 0.28s cubic-bezier(0.16, 1, 0.3, 1), min-width 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
           overflow: 'hidden',
           position: 'relative',
           zIndex: 15,
         }}
-        onMouseEnter={sidebar.handleMouseEnter}
-        onMouseLeave={sidebar.handleMouseLeave}
-        onDoubleClick={sidebar.togglePin}
       >
         {/* LOGO */}
         <div style={{ padding: '16px 16px 0 16px', flexShrink: 0, overflow: 'hidden' }}>
@@ -1429,14 +1657,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           })}
         </nav>
 
-        {/* SIGN OUT FOOTER */}
+        {/* SIDEBAR FOOTER: TOGGLE & SIGN OUT */}
         <div style={{
           padding: sidebar.isCollapsed ? '8px 0 12px' : '8px 12px 16px',
           borderTop: '1px solid #E8E5DF',
           flexShrink: 0,
           display: 'flex',
-          justifyContent: sidebar.isCollapsed ? 'center' : 'stretch',
+          flexDirection: 'column',
+          alignItems: sidebar.isCollapsed ? 'center' : 'stretch',
+          gap: 6,
         }}>
+          <button
+            onClick={sidebar.toggleCollapse}
+            title={sidebar.isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+            style={{
+              width: sidebar.isCollapsed ? 40 : '100%',
+              height: sidebar.isCollapsed ? 36 : 'auto',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: sidebar.isCollapsed ? 'center' : 'flex-start',
+              gap: 8,
+              background: 'transparent',
+              border: 'none',
+              borderRadius: 7,
+              padding: sidebar.isCollapsed ? 0 : '7px 8px',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 600,
+              color: '#6B6963',
+              transition: 'background 0.15s ease',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = '#F3F2EF')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          >
+            {sidebar.isCollapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
+            {!sidebar.isCollapsed && <span>Collapse Sidebar</span>}
+          </button>
+
           <div style={{ position: 'relative', width: sidebar.isCollapsed ? 'auto' : '100%' }}>
             <button
               onClick={onSignOut}
@@ -1469,13 +1726,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             )}
           </div>
         </div>
-
-        {/* FEEDBACK TOAST */}
-        {sidebar.feedbackToast && (
-          <div className="sidebar-feedback-toast">
-            {sidebar.feedbackToast}
-          </div>
-        )}
       </aside>
 
       {/* MAIN VIEWPORT */}
@@ -1577,6 +1827,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           profiles={profiles}
         />
       )}
+
+      <MergeDuplicatesModal
+        isOpen={isMergeModalOpen}
+        onClose={() => setIsMergeModalOpen(false)}
+        duplicateGroups={duplicateGroups}
+        onMergeGroup={handleMergeGroup}
+        onMergeAll={handleMergeAllDuplicates}
+        isMerging={isMerging}
+      />
     </div>
   );
 };

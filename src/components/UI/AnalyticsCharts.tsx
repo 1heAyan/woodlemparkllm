@@ -738,11 +738,14 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
   const students = useMemo(() => profiles.filter((p) => p.role === 'student'), [profiles]);
   const teachers = useMemo(() => profiles.filter((p) => p.role === 'teacher'), [profiles]);
 
-  // Compute live marks registers based on real subject classes & active cohorts
   const registers = useMemo(() => {
     if (!subjectClasses || subjectClasses.length === 0) {
       return [];
     }
+
+    // Build a lookup: test_id -> TestItem for fast join
+    const testMap = new Map<string, TestItem>();
+    (tests || []).forEach((t) => testMap.set(t.id, t));
 
     return subjectClasses.map((sc, idx) => {
       const id = `#${String(idx + 1).padStart(5, '0')}`;
@@ -754,33 +757,40 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
       );
       const teacher = teacherObj ? teacherObj.name : sc.teacher_name || 'Faculty Member';
 
-      // Count enrolled students matching class_name or cohort
-      const cleanClassName = (sc.class_name || sc.name || '').replace(/^Grade\s*/i, '').trim();
-      const m = cleanClassName.match(/^(\d+)\s*[-:]?\s*([A-Z])/i) || cleanClassName.match(/^(\d+)\s+([A-Z])/i);
-
-      let enrolledCount = 0;
-      if (m) {
-        const [_, g, s] = m;
-        enrolledCount = students.filter((st) => {
-          const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
-          const cleanS = (st.class_letter || '').toUpperCase().trim();
-          return cleanG === g && cleanS === s.toUpperCase();
-        }).length;
-      } else {
-        enrolledCount = students.filter((st) => (st.grade || '').toLowerCase() === cleanClassName.toLowerCase()).length;
+      // Enrolled count: prefer enrolled_student_ids list, fall back to student grade/section matching
+      let enrolledCount = (sc.enrolled_student_ids || []).length;
+      if (enrolledCount === 0) {
+        const cleanClassName = (sc.class_name || sc.name || '').replace(/^Grade\s*/i, '').trim();
+        const m = cleanClassName.match(/^(\d+)\s*[-:]?\s*([A-Z])/i) || cleanClassName.match(/^(\d+)\s+([A-Z])/i);
+        if (m) {
+          const [_, g, s] = m;
+          enrolledCount = students.filter((st) => {
+            const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
+            const cleanS = (st.class_letter || '').toUpperCase().trim();
+            return cleanG === g && cleanS === s.toUpperCase();
+          }).length;
+        } else {
+          enrolledCount = students.filter((st) => (st.grade || '').toLowerCase() === cleanClassName.toLowerCase()).length;
+        }
       }
 
-      // Calculate class average from real test results if available
+      // Calculate class average from real test results:
+      // Join testResult -> TestItem -> match class_name or subject against SubjectClass
       const matchingTestResults = Object.values(testResults || {}).filter((tr: any) => {
-        return (
-          tr &&
-          (tr.class_name === sc.class_name ||
-            tr.class_name === sc.name ||
-            tr.subject === sc.subject)
-        );
+        if (!tr) return false;
+        // Try matching via test_id -> TestItem -> class_name
+        const testItem = testMap.get(tr.test_id);
+        if (testItem) {
+          if (testItem.class_name === sc.class_name || testItem.class_name === sc.name) return true;
+          // Also check target_sections
+          if ((testItem.target_sections || []).includes(sc.class_name)) return true;
+        }
+        // Also match if the student is enrolled in this class
+        if (tr.student_id && (sc.enrolled_student_ids || []).includes(tr.student_id)) return true;
+        return false;
       });
 
-      let mean = '—';
+      let mean = '\u2014';
       let status: 'Finalized' | 'Pending' | 'In Progress' = 'Pending';
 
       if (matchingTestResults.length > 0) {
@@ -790,7 +800,7 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
         if (scores.length > 0) {
           const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
           mean = `${avg.toFixed(1)}%`;
-          status = 'Finalized';
+          status = enrolledCount > 0 && scores.length < enrolledCount ? 'In Progress' : 'Finalized';
         }
       }
 
@@ -803,7 +813,8 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
         mean,
       };
     });
-  }, [subjectClasses, profiles, testResults, students, teachers]);
+  }, [subjectClasses, profiles, testResults, tests, students, teachers]);
+
 
   const filteredRegisters = useMemo(() => {
     if (!searchTerm.trim()) return registers;
@@ -982,8 +993,8 @@ export const AttendanceTrendChart: React.FC<any> = ({ data, overallRate }) => {
   return (
     <MatrixTrendChart
       data={[]}
-      overallAverage={overallRate || 94}
-      totalStudents={124}
+      overallAverage={overallRate || 0}
+      totalStudents={0}
       title="30-DAY ATTENDANCE TREND"
     />
   );
@@ -992,7 +1003,7 @@ export const AttendanceTrendChart: React.FC<any> = ({ data, overallRate }) => {
 export const SyllabusVelocityCard: React.FC<any> = ({ departments, overallProgress }) => {
   return (
     <PinBarBreakdownChart
-      data={[]}
+      data={departments || []}
       targetBenchmark={75}
     />
   );
@@ -1001,12 +1012,29 @@ export const SyllabusVelocityCard: React.FC<any> = ({ departments, overallProgre
 export const MarkComplianceDonut: React.FC<any> = ({ data, onOpenClassMarks }) => {
   return (
     <PinBarBreakdownChart
-      data={[]}
+      data={data || []}
       targetBenchmark={75}
     />
   );
 };
 
-export const AtRiskHonorRollGrid: React.FC<any> = ({ distinctions, atRisk, onSelectStudent }) => {
-  return <RecentRegistersTable />;
+export const AtRiskHonorRollGrid: React.FC<any> = ({
+  distinctions,
+  atRisk,
+  onSelectStudent,
+  subjectClasses,
+  profiles,
+  testResults,
+  tests,
+  onOpenClassMarks,
+}) => {
+  return (
+    <RecentRegistersTable
+      subjectClasses={subjectClasses}
+      profiles={profiles}
+      testResults={testResults}
+      tests={tests}
+      onOpenClassMarks={onOpenClassMarks}
+    />
+  );
 };

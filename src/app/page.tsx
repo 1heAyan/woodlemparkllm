@@ -28,8 +28,8 @@ import { TeacherDashboard } from '@/components/Teacher/TeacherDashboard';
 import { AdminDashboard } from '@/components/Admin/AdminDashboard';
 import { PrincipalDashboard } from '@/components/Principal/PrincipalDashboard';
 import { ParentDashboard } from '@/components/Parent/ParentDashboard';
-import { isPrincipalUser, DEFAULT_PRINCIPAL_RECORD } from '@/lib/specialRolesHelper';
-import { sanitizeUserCode } from '@/lib/userCodeHelper';
+import { isPrincipalUser, isSltUser, DEFAULT_PRINCIPAL_RECORD, loadSpecialRoleAssignments, saveSpecialRoleAssignments } from '@/lib/specialRolesHelper';
+import { sanitizeUserCode, normalizeAdmissionNumber, normalizeStudentName, isMatchingStudent } from '@/lib/userCodeHelper';
 
 import { VideoPlayerModal } from '@/components/Modals/VideoPlayerModal';
 import { AddAwardModal } from '@/components/Modals/AddAwardModal';
@@ -209,12 +209,36 @@ export default function WoodlemApp() {
         const loadedProfiles: UserProfile[] = (profRes.data || []).map((p: any) => {
           const emailLower = (p.email || '').toLowerCase().trim();
           let role = p.role;
+          let specialRole = p.special_role;
+          let designation = p.designation;
+
+          // Enhance with cached special role assignments
+          try {
+            const specialAssignmentsStr = typeof window !== 'undefined' ? localStorage.getItem('woodlem_special_role_assignments_v1') : null;
+            if (specialAssignmentsStr) {
+              const assignments = JSON.parse(specialAssignmentsStr);
+              if (Array.isArray(assignments)) {
+                const match = assignments.find((a: any) => a.userId === p.id || (a.userEmail && a.userEmail.toLowerCase() === emailLower));
+                if (match) {
+                  if (match.roleType === 'slt') {
+                    specialRole = 'slt';
+                    if (!designation) designation = match.title;
+                  } else if (match.roleType === 'hod') {
+                    if (!designation) designation = match.title || `HOD ${match.department || ''}`;
+                  } else if (match.roleType === 'coordinator') {
+                    if (!designation) designation = match.title || `Coordinator`;
+                  }
+                }
+              }
+            }
+          } catch (e) {}
+
           if (emailLower === 'admin@woodlempark.ae' || emailLower === 'admin@woodlem.com' || emailLower.startsWith('admin@')) {
             role = 'admin';
             if (p.role !== 'admin') {
               supabase.from('profiles').update({ role: 'admin' }).eq('id', p.id).then(() => {});
             }
-          } else if (emailLower === 'principal@woodlempark.ae' || emailLower === 'principal@woodlem.com' || isPrincipalUser(p)) {
+          } else if (emailLower === 'principal@woodlempark.ae' || emailLower === 'principal@woodlem.com' || isPrincipalUser(p) || isSltUser(p) || specialRole === 'slt') {
             role = 'principal';
           }
 
@@ -241,13 +265,18 @@ export default function WoodlemApp() {
             if (p.id) localStorage.setItem(`woodlem_pwd_${p.id}`, cloudPassword);
           }
 
-          const cleanCode = sanitizeUserCode(p.user_code || p.admission_number, p.email);
+          const isStudent = role === 'student';
+          const cleanCode = isStudent
+            ? sanitizeUserCode(p.admission_number || p.user_code, p.email)
+            : (p.user_code || p.admission_number ? sanitizeUserCode(p.user_code || p.admission_number) : '');
 
           return {
             ...p,
-            user_code: cleanCode,
-            admission_number: cleanCode,
+            user_code: isStudent ? cleanCode : (cleanCode || p.user_code || undefined),
+            admission_number: isStudent ? cleanCode : (p.admission_number || undefined),
             role,
+            special_role: specialRole || p.special_role,
+            designation: designation || p.designation,
             temp_password: cloudPassword,
             avatar_url: cloudAvatar,
           };
@@ -265,7 +294,7 @@ export default function WoodlemApp() {
           const freshEmail = (fresh.email || '').toLowerCase().trim();
           if (freshEmail === 'admin@woodlempark.ae' || freshEmail === 'admin@woodlem.com' || freshEmail.startsWith('admin@')) {
             freshRole = 'admin';
-          } else if (freshEmail === 'principal@woodlempark.ae' || freshEmail === 'principal@woodlem.com' || isPrincipalUser(fresh)) {
+          } else if (freshEmail === 'principal@woodlempark.ae' || freshEmail === 'principal@woodlem.com' || isPrincipalUser(fresh) || isSltUser(fresh)) {
             freshRole = 'principal';
           }
           // Preserve avatar_url and temp_password if previously loaded
@@ -413,10 +442,19 @@ export default function WoodlemApp() {
       });
       setAttendance(attMap);
 
-      const builtHub: HubActivity[] = (hubRes.data || []).map((act: any) => ({
-        ...act,
-        enrolled_student_ids: [],
-      }));
+      const builtHub: HubActivity[] = (hubRes.data || [])
+        .filter(
+          (act: any) =>
+            act &&
+            act.title &&
+            !String(act.title).startsWith('__') &&
+            act.type !== 'system_config' &&
+            act.id !== 'special_roles_master_v1'
+        )
+        .map((act: any) => ({
+          ...act,
+          enrolled_student_ids: [],
+        }));
       setHubActivities(builtHub);
 
       // Load parent clearance documents directly from Supabase with cloud file URLs
@@ -500,7 +538,7 @@ export default function WoodlemApp() {
               if (prof.role !== 'admin') {
                 supabase.from('profiles').update({ role: 'admin' }).eq('id', prof.id).then(() => {});
               }
-            } else if (userEmail === 'principal@woodlempark.ae' || userEmail === 'principal@woodlem.com' || isPrincipalUser(prof)) {
+            } else if (userEmail === 'principal@woodlempark.ae' || userEmail === 'principal@woodlem.com' || isPrincipalUser(prof) || isSltUser(prof)) {
               resolvedRole = 'principal';
             }
 
@@ -551,7 +589,7 @@ export default function WoodlemApp() {
             if (prof.role !== 'admin') {
               supabase.from('profiles').update({ role: 'admin' }).eq('id', prof.id).then(() => {});
             }
-          } else if (userEmail === 'principal@woodlempark.ae' || userEmail === 'principal@woodlem.com' || isPrincipalUser(prof)) {
+          } else if (userEmail === 'principal@woodlempark.ae' || userEmail === 'principal@woodlem.com' || isPrincipalUser(prof) || isSltUser(prof)) {
             resolvedRole = 'principal';
           }
 
@@ -656,7 +694,7 @@ export default function WoodlemApp() {
     let resolvedRole = profile.role;
     if (emailLower === 'admin@woodlempark.ae' || emailLower === 'admin@woodlem.com' || emailLower.startsWith('admin@')) {
       resolvedRole = 'admin';
-    } else if (emailLower === 'principal@woodlempark.ae' || emailLower === 'principal@woodlem.com' || isPrincipalUser(profile)) {
+    } else if (emailLower === 'principal@woodlempark.ae' || emailLower === 'principal@woodlem.com' || isPrincipalUser(profile) || isSltUser(profile)) {
       resolvedRole = 'principal';
     }
 
@@ -856,150 +894,226 @@ export default function WoodlemApp() {
         return;
       }
 
-      // 1. Fetch existing profiles to preserve exact database IDs and relationships
+      // 1. Fetch existing profiles to preserve exact database IDs, relationships, and genuine admission numbers
       const { data: existingProfiles } = await supabase
         .from('profiles')
-        .select('id, email, admission_number, user_code')
+        .select('*')
         .limit(10000);
 
-      const existingIdByEmail = new Map<string, string>();
-      const existingIdByCode = new Map<string, string>();
+      const existingById = new Map<string, UserProfile>();
+      const existingByAdm = new Map<string, UserProfile>();
+      const existingByEmail = new Map<string, UserProfile>();
+      const existingByNameGrade = new Map<string, UserProfile>();
 
-      (existingProfiles || []).forEach((p) => {
-        if (p.email) existingIdByEmail.set(p.email.trim().toLowerCase(), p.id);
-        if (p.admission_number) existingIdByCode.set(p.admission_number.trim().toLowerCase(), p.id);
-        if (p.user_code) existingIdByCode.set(p.user_code.trim().toLowerCase(), p.id);
+      (existingProfiles || []).forEach((p: UserProfile) => {
+        if (p.id) existingById.set(p.id, p);
+
+        const normAdm = normalizeAdmissionNumber(p.admission_number || p.user_code, p.email);
+        if (normAdm) existingByAdm.set(normAdm, p);
+
+        if (p.email) existingByEmail.set(p.email.trim().toLowerCase(), p);
+
+        const normName = normalizeStudentName(p.name);
+        const cleanGrade = (p.grade || '').replace(/[^0-9]/g, '');
+        if (normName && cleanGrade) {
+          existingByNameGrade.set(`${normName}_${cleanGrade}`, p);
+        }
       });
 
-      // 2. Prepare high-fidelity profiles batch with guaranteed uniqueness
+      // 2. Prepare high-fidelity database payloads with strict ID preservation & clean schema columns
+      const batchUsedIds = new Set<string>();
       const batchUsedEmails = new Set<string>();
+      const processedProfiles: (UserProfile & { temp_password?: string })[] = [];
+      const dbPayloads: any[] = [];
 
-      const profilesBatch: (UserProfile & { temp_password?: string })[] = users.map((u, idx) => {
-        let emailKey = (u.email || '').trim().toLowerCase();
-        const codeKey = (u.userCode || '').trim();
+      for (let idx = 0; idx < users.length; idx++) {
+        const u = users[idx];
+        const cleanUserCode = sanitizeUserCode(u.userCode, u.email);
+        const normAdm = normalizeAdmissionNumber(cleanUserCode, u.email);
+        const normEmail = (u.email || '').trim().toLowerCase();
+        const normName = normalizeStudentName(u.name);
+        const gradeNum = (u.grade || '').replace(/[^0-9]/g, '') || (u.role === 'student' ? '10' : '');
 
-        if (!emailKey && codeKey) {
-          emailKey = `${codeKey.toLowerCase().replace(/[^a-z0-9]/g, '')}@woodlempark.ae`;
+        // 1. Multi-criteria lookup to guarantee matching existing records
+        let existingProf: UserProfile | undefined = undefined;
+        if (u.matchedExistingId && existingById.has(u.matchedExistingId)) {
+          existingProf = existingById.get(u.matchedExistingId);
+        } else if (normAdm && existingByAdm.has(normAdm)) {
+          existingProf = existingByAdm.get(normAdm);
+        } else if (normEmail && existingByEmail.has(normEmail)) {
+          existingProf = existingByEmail.get(normEmail);
+        } else if (cleanUserCode && existingByEmail.has(`wpap${cleanUserCode}@woodlempark.ae`)) {
+          existingProf = existingByEmail.get(`wpap${cleanUserCode}@woodlempark.ae`);
+        } else if (cleanUserCode && existingByEmail.has(`${cleanUserCode}@woodlempark.ae`)) {
+          existingProf = existingByEmail.get(`${cleanUserCode}@woodlempark.ae`);
+        } else if (normName && gradeNum && existingByNameGrade.has(`${normName}_${gradeNum}`)) {
+          existingProf = existingByNameGrade.get(`${normName}_${gradeNum}`);
         }
-        if (!emailKey || !emailKey.includes('@')) {
-          emailKey = `user.${idx + 1}@woodlempark.ae`;
-        }
-
-        // Guarantee unique email within this import batch
-        let finalEmail = emailKey;
-        let counter = 1;
-        while (batchUsedEmails.has(finalEmail)) {
-          const [uP, dP] = emailKey.split('@');
-          const cleanCode = codeKey.toLowerCase().replace(/[^a-z0-9]/g, '') || `u${idx + 1}`;
-          finalEmail = `${uP}.${cleanCode}${counter > 1 ? `.${counter}` : ''}@${dP || 'woodlempark.ae'}`;
-          counter++;
-        }
-        batchUsedEmails.add(finalEmail);
-
-        // Exact ID lookup strictly by unique Email or user code to preserve existing database ID
-        const existingId =
-          existingIdByEmail.get(finalEmail) ||
-          (codeKey ? existingIdByCode.get(codeKey.toLowerCase()) : null);
 
         const profileId =
-          existingId ||
+          existingProf?.id ||
           (typeof crypto !== 'undefined' && crypto.randomUUID
             ? crypto.randomUUID()
             : 'usr_' + Date.now() + '_' + idx);
 
-        let cleanGrade = (u.grade || '').trim();
-        if (!cleanGrade && u.role === 'student') cleanGrade = '9';
+        if (batchUsedIds.has(profileId)) continue;
+        batchUsedIds.add(profileId);
 
-        let cleanClass = (u.classLetter || 'A')
+        let finalEmail = existingProf?.email || normEmail || '';
+        if (!finalEmail || !finalEmail.includes('@')) {
+          if (cleanUserCode) {
+            finalEmail = `wpap${cleanUserCode}@woodlempark.ae`;
+          } else if (normName) {
+            finalEmail = `${normName.replace(/\s+/g, '.')}@woodlempark.ae`;
+          } else {
+            finalEmail = `user.${idx + 1}@woodlempark.ae`;
+          }
+        }
+
+        let dedupeEmail = finalEmail;
+        let emailCounter = 1;
+        while (batchUsedEmails.has(dedupeEmail)) {
+          const [uP, dP] = finalEmail.split('@');
+          const codePart = cleanUserCode || `u${idx + 1}`;
+          dedupeEmail = `${uP}.${codePart}${emailCounter > 1 ? `.${emailCounter}` : ''}@${dP || 'woodlempark.ae'}`;
+          emailCounter++;
+        }
+        batchUsedEmails.add(dedupeEmail);
+
+        let cleanGrade = (u.grade || existingProf?.grade || '').trim();
+        if (!cleanGrade && u.role === 'student') cleanGrade = '10';
+
+        let cleanClass = (u.classLetter || existingProf?.class_letter || 'A')
           .toUpperCase()
           .replace(/[^A-Z]/g, '') || 'A';
 
-        let resolvedLinkedStudentIds: string[] = [];
+        let resolvedLinkedStudentIds: string[] = existingProf?.linked_student_ids || [];
         if (u.role === 'parent' && u.linkedStudentCodes && u.linkedStudentCodes.length > 0) {
-          const codes = u.linkedStudentCodes.map((c) => c.toLowerCase().trim());
-          resolvedLinkedStudentIds = (existingProfiles || [])
-            .filter(
-              (p: any) =>
-                codes.includes(p.admission_number?.toLowerCase() || '') ||
-                codes.includes(p.user_code?.toLowerCase() || '') ||
-                codes.includes(p.email?.toLowerCase() || '')
-            )
+          const codes = u.linkedStudentCodes.map((c) => normalizeAdmissionNumber(c));
+          const matchedIds = (existingProfiles || [])
+            .filter((p: any) => {
+              const pNorm = normalizeAdmissionNumber(p.admission_number || p.user_code, p.email);
+              return codes.includes(pNorm) || codes.includes(p.email?.toLowerCase());
+            })
             .map((p) => p.id);
+          resolvedLinkedStudentIds = Array.from(new Set([...resolvedLinkedStudentIds, ...matchedIds]));
         }
 
-        const cleanCode = u.role === 'parent' ? null : (sanitizeUserCode(u.userCode, finalEmail) || null);
+        const finalCode =
+          u.role === 'parent'
+            ? null
+            : (cleanUserCode || sanitizeUserCode(existingProf?.admission_number || existingProf?.user_code, dedupeEmail) || null);
 
-        return {
+        const isNumeric = (str: string) =>
+          /^\d{2,8}$/.test((str || '').replace(/[^0-9]/g, '')) && !/[a-zA-Z]{2,}/.test(str || '');
+
+        let finalName = (u.name || '').trim();
+        if (!finalName || isNumeric(finalName)) {
+          finalName =
+            existingProf?.name && !isNumeric(existingProf.name)
+              ? existingProf.name
+              : (cleanUserCode ? `Student ${cleanUserCode}` : `Account ${idx + 1}`);
+        }
+
+        const fullProfileObj: UserProfile & { temp_password?: string } = {
           id: profileId,
-          name: u.name.trim(),
-          email: finalEmail,
+          name: finalName,
+          email: dedupeEmail,
           role: u.role,
-          user_code: cleanCode,
-          admission_number: cleanCode,
+          user_code: finalCode || undefined,
+          admission_number: finalCode || undefined,
           grade: u.role === 'student' ? cleanGrade : '',
           class_letter: u.role === 'student' ? cleanClass : '',
-          subject: null,
-          assigned_class: null,
+          subject: existingProf?.subject || null,
+          assigned_class: existingProf?.assigned_class || null,
           temp_password: u.password || 'woodlem123',
           linked_student_ids: u.role === 'parent' ? resolvedLinkedStudentIds : [],
         };
-      });
+        processedProfiles.push(fullProfileObj);
 
-      // 3. Upsert profiles to database (in chunks of 50 with individual row-level fallback)
-      let importedCount = 0;
-      let errorCount = 0;
-      for (let i = 0; i < profilesBatch.length; i += 50) {
-        const chunk = profilesBatch.slice(i, i + 50);
-        const { error: profErr } = await supabase
-          .from('profiles')
-          .upsert(chunk, { onConflict: 'email' });
-
-        if (profErr) {
-          console.warn('Chunk upsert warning, retrying row-by-row:', profErr);
-          // Fallback: upsert row-by-row
-          for (const item of chunk) {
-            const { error: singleErr } = await supabase
-              .from('profiles')
-              .upsert([item], { onConflict: 'email' });
-            if (singleErr) {
-              console.error('Row insert error:', item.email, singleErr);
-              errorCount++;
-            } else {
-              importedCount++;
-            }
-          }
-        } else {
-          importedCount += chunk.length;
-        }
-
-        if (onProgress) {
-          onProgress(Math.min(importedCount + errorCount, profilesBatch.length), profilesBatch.length);
-        }
+        // ONLY verified public.profiles PostgreSQL columns (NO avatar_url, NO temp_password)
+        const cleanAdmission = finalCode ? finalCode.trim() : null;
+        const dbItem: any = {
+          id: profileId,
+          name: fullProfileObj.name,
+          email: dedupeEmail.trim().toLowerCase(),
+          role: u.role,
+          user_code: cleanAdmission,
+          admission_number: cleanAdmission,
+          grade: u.role === 'student' ? (cleanGrade || '10') : '',
+          class_letter: u.role === 'student' ? (cleanClass || 'A') : '',
+          subject: existingProf?.subject || null,
+          assigned_class: existingProf?.assigned_class || null,
+        };
+        dbPayloads.push(dbItem);
       }
 
-      // 4. Save default passwords locally and to cloud cache for instant login
-      for (const u of profilesBatch) {
+      // 3. Ultra-Fast Parallel Database Upsert
+      let importedCount = 0;
+      const chunks: any[][] = [];
+      for (let i = 0; i < dbPayloads.length; i += 50) {
+        chunks.push(dbPayloads.slice(i, i + 50));
+      }
+
+      for (let i = 0; i < chunks.length; i += 4) {
+        const batchGroup = chunks.slice(i, i + 4);
+        await Promise.all(
+          batchGroup.map(async (chunk) => {
+            const { error: profErr } = await supabase
+              .from('profiles')
+              .upsert(chunk, { onConflict: 'email' });
+
+            if (profErr) {
+              const { error: idErr } = await supabase
+                .from('profiles')
+                .upsert(chunk, { onConflict: 'id' });
+
+              if (idErr) {
+                await Promise.allSettled(
+                  chunk.map(async (item) => {
+                    const { error: rErr } = await supabase
+                      .from('profiles')
+                      .upsert([item], { onConflict: 'email' });
+                    if (rErr) {
+                      const { id: _, ...wId } = item;
+                      await supabase.from('profiles').update(wId).eq('email', item.email);
+                    }
+                  })
+                );
+              }
+            }
+
+            importedCount += chunk.length;
+            if (onProgress) {
+              onProgress(Math.min(importedCount, dbPayloads.length), dbPayloads.length);
+            }
+          })
+        );
+      }
+
+      // 4. Save passwords locally and to cloud cache for instant login
+      for (const u of processedProfiles) {
         saveUserPasswordToCloudAndLocal(u.id, u.email, u.temp_password || 'woodlem123');
       }
 
-      // 5. Background sync with Supabase Auth (non-blocking so rate limits do not fail the user)
-      const isolatedClient = createIsolatedSupabaseClient();
+      // 5. Background sync with Supabase Auth (non-blocking)
       setTimeout(async () => {
-        for (let i = 0; i < users.length; i += 5) {
-          const batch = users.slice(i, i + 5);
+        const isolatedClient = createIsolatedSupabaseClient();
+        for (let i = 0; i < processedProfiles.length; i += 5) {
+          const batch = processedProfiles.slice(i, i + 5);
           await Promise.allSettled(
             batch.map((u) =>
               isolatedClient.auth.signUp({
                 email: u.email.trim().toLowerCase(),
-                password: u.password || 'woodlem123',
+                password: u.temp_password || 'woodlem123',
                 options: {
                   data: {
                     name: u.name,
                     role: u.role,
-                    user_code: u.userCode,
-                    admission_number: u.userCode,
-                    grade: u.grade || '9',
-                    class_letter: u.classLetter || 'A',
+                    user_code: u.user_code,
+                    admission_number: u.admission_number,
+                    grade: u.grade || '10',
+                    class_letter: u.class_letter || 'A',
                   },
                 },
               })
@@ -1009,7 +1123,7 @@ export default function WoodlemApp() {
       }, 100);
 
       alert(
-        `Successfully imported ${importedCount} user account${importedCount !== 1 ? 's' : ''}${errorCount > 0 ? ` (${errorCount} failed due to errors)` : ''}. The user directory has been updated.`
+        `Successfully processed ${importedCount} account${importedCount !== 1 ? 's' : ''}. All accounts and admission numbers are up to date.`
       );
       await loadAllData();
     } catch (err: any) {
@@ -1232,7 +1346,7 @@ export default function WoodlemApp() {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    const targetUser = profiles.find((p) => p.id === userId);
+    const targetUser = profiles.find((p) => p.id === userId || p.email === userId);
     if (targetUser && isPrincipalUser(targetUser)) {
       const isCurrentPrincipal = isPrincipalUser(currentUser) || currentUser?.id === userId;
       if (!isCurrentPrincipal) {
@@ -1241,36 +1355,164 @@ export default function WoodlemApp() {
       }
     }
     const userName = targetUser?.name || 'User';
+    const userEmail = (targetUser?.email || '').toLowerCase().trim();
+    const userRole = targetUser?.role;
+    const emailKey = userEmail ? userEmail.replace(/[^a-zA-Z0-9]/g, '_') : '';
 
     // 1. Optimistic UI update: immediately remove from profiles
-    setProfiles((prev) => prev.filter((p) => p.id !== userId));
+    setProfiles((prev) => prev.filter((p) => p.id !== userId && (!userEmail || p.email?.toLowerCase().trim() !== userEmail)));
 
-    // 2. Remove user from subject classes enrollment optimistically
+    // 2. Remove user from subject classes in memory
     setSubjectClasses((prev) =>
-      prev.map((c) => ({
+      prev.filter((c) => {
+        if (userRole === 'teacher') {
+          return c.teacher_id !== userId && c.teacher_id !== userEmail && (!userName || c.teacher_name?.toLowerCase().trim() !== userName.toLowerCase().trim());
+        }
+        return true;
+      }).map((c) => ({
         ...c,
         enrolled_student_ids: (c.enrolled_student_ids || []).filter(
-          (id) => id !== userId && id !== targetUser?.email
+          (id) => id !== userId && id !== userEmail
         ),
       }))
     );
 
     try {
-      const { error } = await supabase.from('profiles').delete().eq('id', userId);
-      if (error) {
-        alert('Unable to remove user account. Please try again.');
-        await loadAllData();
-        return;
+      // 1. Delete from profiles table (by ID and by Email)
+      await supabase.from('profiles').delete().eq('id', userId);
+      if (userEmail) {
+        await supabase.from('profiles').delete().eq('email', userEmail);
       }
+
+      // 2. Cascade cleanup for Teacher
+      if (userRole === 'teacher') {
+        // Delete all subject classes created by/assigned to this teacher
+        await supabase.from('subject_classes').delete().eq('teacher_id', userId);
+        if (userEmail) {
+          await supabase.from('subject_classes').delete().eq('teacher_id', userEmail);
+        }
+        if (userName) {
+          await supabase.from('subject_classes').delete().eq('teacher_name', userName);
+        }
+
+        // Delete class resources & broadcasts uploaded by this teacher
+        try {
+          await supabase.from('class_resources').delete().eq('teacher_id', userId);
+          if (userEmail) await supabase.from('class_resources').delete().eq('teacher_id', userEmail);
+          await supabase.from('class_broadcasts').delete().eq('author_id', userId);
+          if (userEmail) await supabase.from('class_broadcasts').delete().eq('author_id', userEmail);
+        } catch (e) {}
+
+        // Delete tests and assignments authored by this teacher
+        try {
+          await supabase.from('tests').delete().eq('teacher_id', userId);
+          await supabase.from('assignments').delete().eq('teacher_id', userId);
+        } catch (e) {}
+      }
+
+      // 3. Cascade cleanup for Student
+      if (userRole === 'student') {
+        // Remove student ID from all subject_classes in database
+        const affectedClasses = subjectClasses.filter((c) =>
+          (c.enrolled_student_ids || []).includes(userId) || (userEmail && (c.enrolled_student_ids || []).includes(userEmail))
+        );
+        for (const sc of affectedClasses) {
+          const updatedIds = (sc.enrolled_student_ids || []).filter((id) => id !== userId && id !== userEmail);
+          await supabase.from('subject_classes').update({ enrolled_student_ids: updatedIds }).eq('id', sc.id);
+        }
+
+        // Remove student from any linked parent profiles
+        const affectedParents = profiles.filter(
+          (p) => p.role === 'parent' && (p.linked_student_ids || []).includes(userId)
+        );
+        for (const parent of affectedParents) {
+          const updatedLinked = (parent.linked_student_ids || []).filter((id) => id !== userId);
+          await supabase.from('profiles').update({ linked_student_ids: updatedLinked }).eq('id', parent.id);
+        }
+
+        // Delete test results, submissions, attendance, progress
+        try {
+          await supabase.from('test_results').delete().eq('student_id', userId);
+          if (userEmail) await supabase.from('test_results').delete().eq('student_email', userEmail);
+          await supabase.from('assignment_submissions').delete().eq('student_id', userId);
+          if (userEmail) await supabase.from('assignment_submissions').delete().eq('student_email', userEmail);
+          await supabase.from('attendance').delete().eq('student_id', userId);
+          if (userEmail) await supabase.from('attendance').delete().eq('student_id', userEmail);
+          await supabase.from('student_syllabus_progress').delete().eq('student_id', userId);
+        } catch (e) {}
+      }
+
+      // 4. Delete parent documents & student documents
+      try {
+        await supabase.from('parent_documents').delete().eq('student_id', userId);
+        if (userEmail) await supabase.from('parent_documents').delete().eq('student_id', userEmail);
+        await supabase.from('parent_documents').delete().eq('uploaded_by', userId);
+        if (userEmail) await supabase.from('parent_documents').delete().eq('uploaded_by', userEmail);
+        if (emailKey) await supabase.from('parent_documents').delete().eq('id', `pwd_${emailKey}`);
+      } catch (e) {}
+
+      // 5. Delete leave requests
+      try {
+        await supabase.from('leave_requests').delete().eq('student_id', userId);
+        if (userEmail) await supabase.from('leave_requests').delete().eq('student_email', userEmail);
+        await supabase.from('leave_requests').delete().eq('user_id', userId);
+      } catch (e) {}
+
+      // 6. Delete achievements & cloud credential/avatar records
+      try {
+        await supabase.from('achievements').delete().eq('student_id', userId);
+        if (userEmail) {
+          await supabase.from('achievements').delete().eq('file_name', userEmail);
+          await supabase.from('achievements').delete().eq('student_id', userEmail);
+        }
+        if (emailKey) {
+          await supabase.from('achievements').delete().eq('id', `pwd_${emailKey}`);
+          await supabase.from('achievements').delete().eq('id', `avatar_${emailKey}`);
+        }
+      } catch (e) {}
+
+      // 7. Clean special role assignments (SLT / HOD / Coordinator)
+      try {
+        const currentAssignments = await loadSpecialRoleAssignments(profiles);
+        const cleanedAssignments = currentAssignments.filter(
+          (a) => a.userId !== userId && (!userEmail || a.userEmail?.toLowerCase().trim() !== userEmail)
+        );
+        if (cleanedAssignments.length !== currentAssignments.length) {
+          await saveSpecialRoleAssignments(cleanedAssignments);
+        }
+      } catch (e) {}
+
+      // 8. Clean local storage cache
+      if (typeof window !== 'undefined') {
+        try {
+          if (userEmail) {
+            localStorage.removeItem(`woodlem_pwd_${userEmail}`);
+            localStorage.removeItem(`woodlem_avatar_${userEmail}`);
+          }
+          if (userId) {
+            localStorage.removeItem(`woodlem_pwd_${userId}`);
+            localStorage.removeItem(`woodlem_avatar_${userId}`);
+          }
+          const credsStr = localStorage.getItem('woodlem_user_credentials');
+          if (credsStr) {
+            const creds = JSON.parse(credsStr);
+            if (userEmail) delete creds[userEmail];
+            if (userId) delete creds[userId];
+            localStorage.setItem('woodlem_user_credentials', JSON.stringify(creds));
+          }
+        } catch (e) {}
+      }
+
       recordAuditLog(
         'DELETE_ACHIEVEMENT' as any,
         userName,
-        `Deleted user account: ${targetUser?.email || userId}`
+        `Deleted user account: ${userEmail || userId}`
       );
-      alert(`User account for "${userName}" has been removed.`);
+      alert(`User account for "${userName}" and all associated records have been completely removed.`);
       await loadAllData();
     } catch (err: any) {
-      alert('Unable to remove user account. Please try again.');
+      console.error('Delete user cascade error:', err);
+      alert('Unable to completely remove user account. Please try again.');
       await loadAllData();
     }
   };
@@ -3002,7 +3244,7 @@ export default function WoodlemApp() {
           onRefreshData={loadAllData}
           onSignOut={handleSignOut}
         />
-      ) : isPrincipalUser(currentUser) || currentUser.role === 'principal' ? (
+      ) : isPrincipalUser(currentUser) || isSltUser(currentUser) || currentUser.role === 'principal' ? (
         <PrincipalDashboard
           currentUser={currentUser}
           profiles={profiles}

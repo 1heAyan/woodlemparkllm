@@ -14,7 +14,7 @@ import { useSidebarState } from '@/lib/useSidebarState';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { computeExecutiveAnalytics } from '@/lib/analyticsHelper';
-import { ACADEMIC_DEPARTMENTS, DEFAULT_PRINCIPAL_RECORD } from '@/lib/specialRolesHelper';
+import { ACADEMIC_DEPARTMENTS, DEFAULT_PRINCIPAL_RECORD, isPrincipalUser, isSltUser } from '@/lib/specialRolesHelper';
 import {
   KpiSparklineCard,
   MatrixTrendChart,
@@ -42,8 +42,8 @@ import {
   Settings,
   LifeBuoy,
   LogOut,
-  Pin,
-  PinOff,
+  ChevronLeft,
+  ChevronRight,
   SlidersHorizontal,
   Crown,
   FileSpreadsheet,
@@ -100,8 +100,7 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
   const [facultySearch, setFacultySearch] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
   const [selectedClassForMarks, setSelectedClassForMarks] = useState<SubjectClass | null>(null);
-
-  const sidebar = useSidebarState('auto-hide');
+  const sidebar = useSidebarState(currentUser?.id || currentUser?.email || 'principal');
 
   // Compute live executive analytics
   const analytics = useMemo(() => {
@@ -170,17 +169,26 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
     document.body.removeChild(link);
   };
 
-  const navTabs: { id: PrincipalTab; label: string; count?: number }[] = [
-    { id: 'overview', label: 'EXECUTIVE OVERVIEW' },
-    { id: 'analytics', label: 'ACADEMIC ANALYTICS' },
-    { id: 'departments', label: 'DEPARTMENT OVERSIGHT' },
-    { id: 'classes', label: 'CLASSROOM MARK REGISTERS', count: subjectClasses.length },
-    { id: 'delegation', label: 'SPECIAL ROLES & ACCESS' },
-    { id: 'faculty', label: 'FACULTY DIRECTORY', count: facultyList.length },
-    { id: 'students', label: 'STUDENT DIRECTORY', count: studentList.length },
-    { id: 'settings', label: 'SECURITY & SETTINGS' },
-    { id: 'support', label: 'HELP & SUPPORT' },
-  ];
+  const isSlt = isSltUser(currentUser) || currentUser.special_role === 'slt';
+
+  const navTabs: { id: PrincipalTab; label: string; count?: number }[] = useMemo(() => {
+    const all: { id: PrincipalTab; label: string; count?: number }[] = [
+      { id: 'overview', label: 'EXECUTIVE OVERVIEW' },
+      { id: 'analytics', label: 'ACADEMIC ANALYTICS' },
+      { id: 'departments', label: 'DEPARTMENT OVERSIGHT' },
+      { id: 'classes', label: 'CLASSROOM MARK REGISTERS', count: subjectClasses.length },
+      { id: 'delegation', label: 'SPECIAL ROLES & ACCESS' },
+      { id: 'faculty', label: 'FACULTY DIRECTORY', count: facultyList.length },
+      { id: 'students', label: 'STUDENT DIRECTORY', count: studentList.length },
+      { id: 'settings', label: 'SECURITY & SETTINGS' },
+      { id: 'support', label: 'HELP & SUPPORT' },
+    ];
+    if (isSlt) {
+      // SLT members do not manage appointments (reserved for Principal)
+      return all.filter((t) => t.id !== 'delegation');
+    }
+    return all;
+  }, [isSlt, subjectClasses.length, facultyList.length, studentList.length]);
 
   const getNavIcon = (id: PrincipalTab) => {
     switch (id) {
@@ -209,14 +217,11 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
           flexDirection: 'column',
           height: '100%',
           flexShrink: 0,
-          transition: 'width 0.35s cubic-bezier(0.16, 1, 0.3, 1), min-width 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+          transition: 'width 0.28s cubic-bezier(0.16, 1, 0.3, 1), min-width 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
           overflow: 'hidden',
           position: 'relative',
           zIndex: 15,
         }}
-        onMouseEnter={sidebar.handleMouseEnter}
-        onMouseLeave={sidebar.handleMouseLeave}
-        onDoubleClick={sidebar.togglePin}
       >
         {/* Logo */}
         <div style={{ padding: '16px 16px 0 16px', flexShrink: 0, overflow: 'hidden' }}>
@@ -237,7 +242,7 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
               flexShrink: 0,
             }}
           >
-            Principal Executive Suite
+            {isSlt ? 'Executive Leadership Suite' : 'Principal Executive Suite'}
           </div>
         )}
 
@@ -245,14 +250,14 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
         {sidebar.isCollapsed ? (
           <div style={{ padding: '12px 0 6px', display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
             <div
-              title={`Principal • ${currentUser.name || 'Dr. Maya Patel'}`}
+              title={`${isSlt ? (currentUser.designation || 'SLT Member') : 'Principal'} • ${currentUser.name || 'Leadership'}`}
               style={{
                 width: 36,
                 height: 36,
                 borderRadius: 8,
-                background: '#FEF3C7',
-                color: '#92400E',
-                border: '1.5px solid #F59E0B',
+                background: isSlt ? '#EFF6FF' : '#FEF3C7',
+                color: isSlt ? '#1D4ED8' : '#92400E',
+                border: isSlt ? '1.5px solid #BFDBFE' : '1.5px solid #F59E0B',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -260,28 +265,32 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
                 fontWeight: 800,
               }}
             >
-              <Crown size={18} />
+              {isSlt ? <ShieldCheck size={18} /> : <Crown size={18} />}
             </div>
           </div>
         ) : (
           <div
             style={{
               margin: '12px 12px 0',
-              border: '1px solid #F5DEB3',
+              border: isSlt ? '1px solid #BFDBFE' : '1px solid #F5DEB3',
               borderRadius: 8,
               padding: '10px 12px',
-              background: '#FFFBEB',
+              background: isSlt ? '#EFF6FF' : '#FFFBEB',
               flexShrink: 0,
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-              <Crown size={14} style={{ color: '#D97706' }} />
+              {isSlt ? (
+                <ShieldCheck size={14} style={{ color: '#1D4ED8' }} />
+              ) : (
+                <Crown size={14} style={{ color: '#D97706' }} />
+              )}
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>
-                {currentUser.name || 'Dr. Maya Patel'}
+                {currentUser.name || 'Leadership'}
               </div>
             </div>
             <div style={{ fontSize: 11, color: '#6B6963', marginBottom: 8 }}>
-              {currentUser.email || 'principal@woodlempark.ae'}
+              {currentUser.email || 'leader@woodlempark.ae'}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span
@@ -289,15 +298,15 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
                   fontSize: 9.5,
                   fontWeight: 800,
                   letterSpacing: '0.04em',
-                  background: '#FEF3C7',
-                  color: '#92400E',
+                  background: isSlt ? '#DBEAFE' : '#FEF3C7',
+                  color: isSlt ? '#1E40AF' : '#92400E',
                   padding: '2px 7px',
                   borderRadius: 4,
-                  border: '1px solid #F59E0B',
+                  border: isSlt ? '1px solid #93C5FD' : '1px solid #F59E0B',
                   textTransform: 'uppercase',
                 }}
               >
-                Principal &amp; Head
+                {isSlt ? (currentUser.designation || 'Senior Leadership') : 'Principal & Head'}
               </span>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#2D8C5E' }}>Active</span>
             </div>
@@ -375,31 +384,36 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
         </nav>
 
         {/* Sidebar Footer */}
-        <div style={{ padding: '8px 12px 12px', borderTop: '1px solid var(--border-color)', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ padding: '8px 12px 12px', borderTop: '1px solid var(--border-color)', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
           <button
-            onClick={sidebar.togglePin}
+            onClick={sidebar.toggleCollapse}
+            title={sidebar.isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
             style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: sidebar.isCollapsed ? 'center' : 'flex-start',
               gap: 8,
-              padding: '6px 8px',
+              padding: '7px 8px',
               background: 'transparent',
               border: 'none',
               borderRadius: 6,
               color: 'var(--text-secondary)',
-              fontSize: 11,
+              fontSize: 11.5,
               fontWeight: 600,
               cursor: 'pointer',
               width: '100%',
+              transition: 'background 0.15s ease',
             }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = '#F3F2EF')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
           >
-            {sidebar.isPinned ? <PinOff size={14} /> : <Pin size={14} />}
-            {!sidebar.isCollapsed && <span>{sidebar.isPinned ? 'Auto-Hide Sidebar' : 'Pin Sidebar'}</span>}
+            {sidebar.isCollapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
+            {!sidebar.isCollapsed && <span>Collapse Sidebar</span>}
           </button>
 
           <button
             onClick={onSignOut}
+            title="Sign Out"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -452,10 +466,19 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)', fontFamily: 'var(--font-display)' }}>
-                  Woodlem Park Institutional Governance
+                  {isSltUser(currentUser) ? (currentUser.designation || 'Senior Leadership Team (SLT)') : 'Woodlem Park Institutional Governance'}
                 </span>
-                <span style={{ fontSize: 9.5, fontWeight: 800, padding: '2px 6px', borderRadius: 4, background: '#FEF3C7', color: '#92400E' }}>
-                  ROOT CONSOLE
+                <span
+                  style={{
+                    fontSize: 9.5,
+                    fontWeight: 800,
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    background: isSltUser(currentUser) ? '#EFF6FF' : '#FEF3C7',
+                    color: isSltUser(currentUser) ? '#1D4ED8' : '#92400E',
+                  }}
+                >
+                  {isSltUser(currentUser) ? 'SLT EXECUTIVE' : 'ROOT CONSOLE'}
                 </span>
               </div>
             </div>

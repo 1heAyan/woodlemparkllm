@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { UserProfile, SubjectClass } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { MultiSubjectSelect } from '@/components/UI/MultiSubjectSelect';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import { sanitizeUserCode } from '@/lib/userCodeHelper';
 import { AlertTriangle } from 'lucide-react';
@@ -19,6 +20,7 @@ const SUBJECTS = [
   'History',
   'Geography',
   'Computer Science',
+  'Artificial Intelligence',
   'Islamic Studies',
   'Physical Education',
   'Art & Design',
@@ -145,8 +147,8 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
 
     const rawUserTypedCode = admissionNumber.trim();
     const cleanUserCode = role === 'parent' ? undefined : (rawUserTypedCode
-      ? rawUserTypedCode.replace(/^(WPS|PRN|ADM|PAR|EMP)[-_ ]*/i, '').trim()
-      : (cleanPrefix.match(/\d+/) ? cleanPrefix.match(/\d+/)![0] : cleanPrefix));
+      ? rawUserTypedCode.replace(/^(WPS|PRN|ADM|PAR|EMP|WPAP)[-_ ]*/i, '').trim()
+      : (role === 'student' ? (sanitizeUserCode('', fullEmail) || undefined) : undefined));
 
     const assignedClassStr = role === 'teacher' && isClassTeacher ? `${grade}-${section}` : null;
     const finalGrade = role === 'student' ? grade : (role === 'teacher' && isClassTeacher ? grade : undefined);
@@ -389,12 +391,14 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
 
               {/* Subject */}
               <div className="form-group">
-                <label className="form-label">Teaching Discipline / Subject <span style={{ color: '#EF4444' }}>*</span></label>
-                <CustomSelect
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label className="form-label" style={{ margin: 0 }}>Teaching Discipline(s) / Subject(s) <span style={{ color: '#EF4444' }}>*</span></label>
+                  <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Select multiple or type to add</span>
+                </div>
+                <MultiSubjectSelect
                   value={subject}
-                  onChange={(val) => setSubject(val)}
-                  options={SUBJECTS}
-                  searchable={true}
+                  onChange={(valStr) => setSubject(valStr)}
+                  placeholder="Search subjects or type to add custom..."
                 />
               </div>
 

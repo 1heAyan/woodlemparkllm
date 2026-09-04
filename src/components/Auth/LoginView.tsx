@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase, UserProfile } from '@/lib/supabaseClient';
 import { resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
-import { isPrincipalUser, DEFAULT_PRINCIPAL_RECORD } from '@/lib/specialRolesHelper';
+import { isPrincipalUser, isSltUser, DEFAULT_PRINCIPAL_RECORD } from '@/lib/specialRolesHelper';
 import {
   matchStudentByEmailAndAdmission,
   verifyStudentParentCode,
@@ -85,23 +85,47 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
       let resolvedEmail = rawIdentifier.toLowerCase();
       let matchedProfile: UserProfile | null = null;
 
-      // 1. Resolve Profile from Supabase
+      // 1. Resolve Profile from Supabase & in-memory cache
       if (!rawIdentifier.includes('@')) {
         try {
           const { data: matchedProfiles } = await supabase
             .from('profiles')
             .select('*')
-            .or(`admission_number.ilike.${rawIdentifier},user_code.ilike.${rawIdentifier},admission_number.ilike.WPS-${rawIdentifier},admission_number.ilike.PRN-${rawIdentifier},admission_number.ilike.ADM-${rawIdentifier}`)
+            .or(`admission_number.ilike.${rawIdentifier},user_code.ilike.${rawIdentifier},admission_number.ilike.WPS-${rawIdentifier},admission_number.ilike.PRN-${rawIdentifier},admission_number.ilike.ADM-${rawIdentifier},user_code.ilike.SLT-${rawIdentifier},admission_number.ilike.SLT-${rawIdentifier},user_code.ilike.EMP-${rawIdentifier},user_code.ilike.TCH-${rawIdentifier}`)
             .limit(1);
 
           if (matchedProfiles && matchedProfiles.length > 0) {
             matchedProfile = matchedProfiles[0];
             resolvedEmail = (matchedProfile.email || '').toLowerCase();
-          } else {
-            throw new Error(`No account found with ID "${rawIdentifier}". Please check your credentials or enter your email address.`);
           }
         } catch (idErr: any) {
-          if (idErr?.message?.includes('No account found')) throw idErr;
+          console.warn('Database ID lookup notice:', idErr);
+        }
+
+        // Fallback: check in-memory profiles prop
+        if (!matchedProfile && profiles && profiles.length > 0) {
+          const clean = rawIdentifier.toUpperCase().trim();
+          const cleanDigits = clean.replace(/[^0-9]/g, '');
+          matchedProfile = profiles.find((p) => {
+            const pCode = (p.user_code || '').toUpperCase().trim();
+            const pAdm = (p.admission_number || '').toUpperCase().trim();
+            if (pCode === clean || pAdm === clean) return true;
+            if (pCode === `SLT-${clean}` || pAdm === `SLT-${clean}`) return true;
+            if (pCode === `WPS-${clean}` || pAdm === `WPS-${clean}`) return true;
+            if (pCode === `EMP-${clean}` || pAdm === `EMP-${clean}`) return true;
+            if (pCode === `TCH-${clean}` || pAdm === `TCH-${clean}`) return true;
+            if (pCode === `PRN-${clean}` || pAdm === `PRN-${clean}`) return true;
+            if (cleanDigits && (pCode.replace(/[^0-9]/g, '') === cleanDigits || pAdm.replace(/[^0-9]/g, '') === cleanDigits)) return true;
+            return false;
+          }) || null;
+
+          if (matchedProfile) {
+            resolvedEmail = (matchedProfile.email || '').toLowerCase();
+          }
+        }
+
+        if (!matchedProfile && !resolvedEmail.includes('@')) {
+          throw new Error(`No account found with ID "${rawIdentifier}". Please check your credentials or enter your email address.`);
         }
       } else {
         try {
@@ -115,6 +139,11 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
             matchedProfile = matchedByEmail;
           }
         } catch (profErr) {}
+
+        // Fallback check in-memory profiles
+        if (!matchedProfile && profiles && profiles.length > 0) {
+          matchedProfile = profiles.find((p) => (p.email || '').toLowerCase().trim() === resolvedEmail) || null;
+        }
       }
 
       // Root Admin special shortcut
@@ -176,7 +205,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
           let resolvedRole = matchedProfile.role;
           if (resolvedEmail === 'admin@woodlempark.ae' || resolvedEmail === 'admin@woodlem.com' || resolvedEmail.startsWith('admin@')) {
             resolvedRole = 'admin';
-          } else if (resolvedEmail === 'principal@woodlempark.ae' || resolvedEmail === 'principal@woodlem.com' || isPrincipalUser(matchedProfile)) {
+          } else if (resolvedEmail === 'principal@woodlempark.ae' || resolvedEmail === 'principal@woodlem.com' || isPrincipalUser(matchedProfile) || isSltUser(matchedProfile) || matchedProfile.special_role === 'slt') {
             resolvedRole = 'principal';
           }
           saveUserPasswordToCloudAndLocal(matchedProfile.id, resolvedEmail, password);
@@ -197,6 +226,11 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
         finalProfile = profByEmail;
       }
 
+      // Fallback check in-memory
+      if (!finalProfile && profiles && profiles.length > 0) {
+        finalProfile = profiles.find((p) => (p.email || '').toLowerCase().trim() === resolvedEmail) || null;
+      }
+
       if (!finalProfile) {
         throw new Error('Account profile not found. Please contact school administration.');
       }
@@ -204,7 +238,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
       let authRole = finalProfile.role;
       if (resolvedEmail === 'admin@woodlempark.ae' || resolvedEmail === 'admin@woodlem.com' || resolvedEmail.startsWith('admin@')) {
         authRole = 'admin';
-      } else if (resolvedEmail === 'principal@woodlempark.ae' || resolvedEmail === 'principal@woodlem.com' || isPrincipalUser(finalProfile)) {
+      } else if (resolvedEmail === 'principal@woodlempark.ae' || resolvedEmail === 'principal@woodlem.com' || isPrincipalUser(finalProfile) || isSltUser(finalProfile) || finalProfile.special_role === 'slt') {
         authRole = 'principal';
       }
 

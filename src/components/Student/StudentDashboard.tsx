@@ -130,8 +130,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [isApplyLeaveOpen, setIsApplyLeaveOpen] = useState(false);
   const [editingLeave, setEditingLeave] = useState<LeaveRequest | null>(null);
   const [attendanceSubTab, setAttendanceSubTab] = useState<'audit' | 'leaves'>('audit');
-  // Edge-style Sidebar State Controller
-  const sidebar = useSidebarState('auto-hide');
+  // Personalized Sidebar State Controller
+  const sidebar = useSidebarState(currentStudent?.id || currentStudent?.email || 'student');
 
   // Mobile Navigation & Drawer State
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
@@ -562,17 +562,19 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     // e.g. "12-C"
     const fullClass = gradeNum && letterStr ? `${gradeNum}-${letterStr}` : gradeNum;
 
-    const relevantActivities = hubActivities.filter((act) => {
-      const targets: string[] = act.target_grades || [];
-      // No restrictions → visible to all
-      if (targets.length === 0) return true;
-      return targets.some((t) => {
-        // Normalise: lowercase, strip spaces, strip "Grade" prefix
-        const norm = t.toLowerCase().replace(/\s+/g, '').replace(/^grade/, '');
-        // match full class "12-c" or just grade number "12"
-        return (fullClass && norm === fullClass.toLowerCase()) || (gradeNum && norm === gradeNum);
+    const relevantActivities = hubActivities
+      .filter((act) => !String(act.title || '').startsWith('__') && act.type !== 'system_config' && act.id !== 'special_roles_master_v1')
+      .filter((act) => {
+        const targets: string[] = act.target_grades || [];
+        // No restrictions → visible to all
+        if (targets.length === 0) return true;
+        return targets.some((t) => {
+          // Normalise: lowercase, strip spaces, strip "Grade" prefix
+          const norm = t.toLowerCase().replace(/\s+/g, '').replace(/^grade/, '');
+          // match full class "12-c" or just grade number "12"
+          return (fullClass && norm === fullClass.toLowerCase()) || (gradeNum && norm === gradeNum);
+        });
       });
-    });
 
     if (!hubFilter) return relevantActivities;
     return relevantActivities.filter((a) => a.type === hubFilter);
@@ -1071,13 +1073,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         </div>
       )}
 
-      {/* REDESIGNED SIDEBAR (Desktop >= 769px) */}
-      <aside
-        className={`sidebar ${sidebar.isCollapsed ? 'collapsed' : ''} ${sidebar.isHovered && sidebar.sidebarMode === 'auto-hide' ? 'auto-hide-hovered' : ''}`}
-        onMouseEnter={sidebar.handleMouseEnter}
-        onMouseLeave={sidebar.handleMouseLeave}
-        onDoubleClick={sidebar.togglePin}
-      >
+      <aside className={`sidebar ${sidebar.isCollapsed ? 'collapsed' : ''}`}>
         {/* LOGO */}
         <div style={{ padding: sidebar.isCollapsed ? '16px 0 0 0' : '16px 16px 0 16px', flexShrink: 0, overflow: 'hidden' }}>
           <WoodlemLogo collapsed={sidebar.isCollapsed} />
@@ -1332,6 +1328,27 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             {sidebar.isCollapsed && <div className="sidebar-tooltip">Help &amp; Support</div>}
           </div>
 
+          {/* TOGGLE COLLAPSE */}
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className="logout-btn-clean"
+              onClick={sidebar.toggleCollapse}
+              title={sidebar.isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                {sidebar.isCollapsed ? (
+                  <ChevronRight size={15} className="icon" style={{ flexShrink: 0 }} />
+                ) : (
+                  <ChevronLeft size={15} className="icon" style={{ flexShrink: 0 }} />
+                )}
+                <span className="sidebar-text">Collapse Sidebar</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">Expand Sidebar</div>
+            )}
+          </div>
+
           {/* SIGN OUT */}
           <div className="sidebar-tooltip-wrapper">
             <button className="logout-btn-clean" onClick={onSignOut}>
@@ -1343,13 +1360,6 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             {sidebar.isCollapsed && <div className="sidebar-tooltip">Sign Out</div>}
           </div>
         </div>
-
-        {/* DOUBLE CLICK MODE FEEDBACK TOAST */}
-        {sidebar.feedbackToast && (
-          <div className="sidebar-feedback-toast">
-            {sidebar.feedbackToast}
-          </div>
-        )}
       </aside>
 
       {/* MAIN VIEWPORT */}

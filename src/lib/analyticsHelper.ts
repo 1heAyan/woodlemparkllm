@@ -107,6 +107,8 @@ const DEFAULT_SUBJECT_COLORS: Record<string, string> = {
   Mathematics: '#7C5CBF',
   English: '#B37D4A',
   'Computer Science': '#0D9488',
+  'Artificial Intelligence': '#0284C7',
+  AI: '#0284C7',
   History: '#2B5B75',
   Geography: '#D97706',
   'Islamic Studies': '#059669',

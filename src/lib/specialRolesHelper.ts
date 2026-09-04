@@ -36,15 +36,26 @@ export const ACADEMIC_DEPARTMENTS: DepartmentDef[] = [
     defaultDescription: 'Core Mathematics, Advanced Calculus, and Applied Statistics programs.',
   },
   {
+    id: 'dept_english',
+    name: 'Department of English',
+    code: 'ENG',
+    subjects: ['English', 'English Core', 'English Literature', 'English Elective', 'Communicative English'],
+    color: '#1D4ED8',
+    bg: '#EFF6FF',
+    border: '#BFDBFE',
+    iconName: 'BookOpen',
+    defaultDescription: 'English Literature, Core English, and Advanced Language Arts.',
+  },
+  {
     id: 'dept_languages',
-    name: 'Department of English & Languages',
+    name: 'Department of Second Languages',
     code: 'LANG',
-    subjects: ['English', 'Arabic', 'French', 'Hindi', 'Islamic Studies'],
+    subjects: ['Arabic', 'French', 'Hindi', 'Islamic Studies', 'Malayalam', 'Urdu', 'Tamil', 'Moral Education', 'Special Arabic'],
     color: '#B37D4A',
     bg: '#FBF6F0',
     border: '#ECD8C3',
     iconName: 'BookOpen',
-    defaultDescription: 'English Literature, Second Languages, and Linguistics.',
+    defaultDescription: 'Arabic, French, Hindi, Islamic Studies, and regional linguistics.',
   },
   {
     id: 'dept_social_sci',
@@ -80,15 +91,26 @@ export const ACADEMIC_DEPARTMENTS: DepartmentDef[] = [
     defaultDescription: 'Financial Accounting, Corporate Strategy, and Commerce studies.',
   },
   {
-    id: 'dept_arts_pe',
-    name: 'Department of Arts, PE & Holistic Education',
-    code: 'ARTS',
-    subjects: ['Art & Design', 'Physical Education', 'Music', 'Drama'],
+    id: 'dept_pe',
+    name: 'Department of Physical Education',
+    code: 'PE',
+    subjects: ['Physical Education', 'Sports', 'Fitness', 'Yoga', 'Athletics', 'Games'],
     color: '#E11D48',
     bg: '#FFE4E6',
     border: '#FECDD3',
+    iconName: 'Activity',
+    defaultDescription: 'Physical Fitness, Sports leagues, Athletics, and Health & Physical Education.',
+  },
+  {
+    id: 'dept_arts',
+    name: 'Department of Arts',
+    code: 'ARTS',
+    subjects: ['Art & Design', 'Visual Arts', 'Fine Arts', 'Music', 'Drama', 'Dance', 'Performing Arts', 'Craft'],
+    color: '#8B5CF6',
+    bg: '#F5F3FF',
+    border: '#DDD6FE',
     iconName: 'Palette',
-    defaultDescription: 'Visual Arts, Physical Fitness, Sports leagues, and Performing Arts.',
+    defaultDescription: 'Visual Arts, Fine Arts, Music, Drama, Dance, and Performing Arts.',
   },
 ];
 
@@ -132,24 +154,105 @@ export const GRADE_STAGES: GradeStageDef[] = [
   },
 ];
 
+export interface SltRolePreset {
+  title: string;
+  code: string;
+  description: string;
+  defaultPermissions: {
+    canAuditMarks: boolean;
+    canVerifySyllabus: boolean;
+    canBroadcastDepartment: boolean;
+    canManageResources: boolean;
+    canViewAnalytics: boolean;
+    canApproveClearances: boolean;
+  };
+}
+
+export const SLT_ROLE_PRESETS: SltRolePreset[] = [
+  {
+    title: 'Vice Principal',
+    code: 'VP',
+    description: 'Executive second-in-command with institution-wide administrative, academic, and pastoral governance oversight.',
+    defaultPermissions: {
+      canAuditMarks: true,
+      canVerifySyllabus: true,
+      canBroadcastDepartment: true,
+      canManageResources: true,
+      canViewAnalytics: true,
+      canApproveClearances: true,
+    },
+  },
+  {
+    title: 'Head of Secondary School',
+    code: 'HOS',
+    description: 'Senior leader overseeing Secondary & Senior Secondary (Grades 9-12) academics, board preparedness, and faculty standards.',
+    defaultPermissions: {
+      canAuditMarks: true,
+      canVerifySyllabus: true,
+      canBroadcastDepartment: true,
+      canManageResources: true,
+      canViewAnalytics: true,
+      canApproveClearances: true,
+    },
+  },
+  {
+    title: 'Director of Academics & Curriculum',
+    code: 'DIR',
+    description: 'Senior executive spearheading curriculum pace, pedagogy innovation, and cross-department quality assurance.',
+    defaultPermissions: {
+      canAuditMarks: true,
+      canVerifySyllabus: true,
+      canBroadcastDepartment: true,
+      canManageResources: true,
+      canViewAnalytics: true,
+      canApproveClearances: true,
+    },
+  },
+  {
+    title: 'Dean of Student Affairs & Pastoral Care',
+    code: 'DEAN',
+    description: 'Senior leader directing student welfare, attendance compliance, parent clearances, and behavioral integrity.',
+    defaultPermissions: {
+      canAuditMarks: false,
+      canVerifySyllabus: false,
+      canBroadcastDepartment: true,
+      canManageResources: true,
+      canViewAnalytics: true,
+      canApproveClearances: true,
+    },
+  },
+];
+
 const LOCAL_STORAGE_SPECIAL_ROLES_KEY = 'woodlem_special_role_assignments_v1';
 
 // Check if user is the Principal
 export function isPrincipalUser(user: UserProfile | null | undefined): boolean {
   if (!user) return false;
-  if (user.role === 'principal') return true;
-  if (user.special_role === 'principal') return true;
-  if (user.is_protected_executive === true) return true;
   
+  // SLT members (Vice Principals, Deans, Academic Directors) are NOT the Principal
+  if ((user.special_role as string) === 'slt') return false;
+
   const designation = (user.designation || '').toLowerCase().trim();
-  if (designation.includes('principal') || designation.includes('head of school') || designation.includes('director of school')) {
-    return true;
+  if (
+    designation.includes('vice') ||
+    designation.includes('vp') ||
+    designation.includes('director of') ||
+    designation.includes('academic director') ||
+    designation.includes('dean') ||
+    designation.includes('head of secondary') ||
+    designation.includes('head of primary') ||
+    designation.includes('slt')
+  ) {
+    return false;
   }
 
   const email = (user.email || '').toLowerCase().trim();
-  if (email.startsWith('principal@') || email === 'principal@woodlem.com' || email === 'principal@woodlempark.ae') {
+  if (email === 'principal@woodlem.com' || email === 'principal@woodlempark.ae' || email.startsWith('principal@')) {
     return true;
   }
+
+  if (user.is_protected_executive === true && (user.special_role as string) !== 'slt') return true;
+  if (user.special_role === 'principal') return true;
 
   if (typeof window !== 'undefined') {
     try {
@@ -173,17 +276,74 @@ export function isPrincipalUser(user: UserProfile | null | undefined): boolean {
   }
 
   const name = (user.name || '').toLowerCase().trim();
-  if (name.includes('principal') && (user.role === 'admin' || user.role === 'teacher')) {
+  if (name.includes('principal') && !name.includes('vice') && (user.role === 'admin' || user.role === 'teacher' || user.role === 'principal')) {
+    return true;
+  }
+
+  if (user.role === 'principal' && (user.special_role as string) !== 'slt' && !designation.includes('vice')) {
     return true;
   }
 
   return false;
 }
 
+// Check if user is a member of the Senior Leadership Team (SLT)
+export function isSltUser(user: UserProfile | null | undefined): boolean {
+  if (!user) return false;
+  if (isPrincipalUser(user)) return false; // Principal is distinct from SLT
+  if ((user.special_role as string) === 'slt') return true;
+
+  const designation = (user.designation || '').toLowerCase().trim();
+  if (
+    designation.includes('vice principal') ||
+    designation.includes('vice-principal') ||
+    designation.includes('vp') ||
+    designation.includes('slt') ||
+    designation.includes('senior leadership') ||
+    designation.includes('head of secondary') ||
+    designation.includes('head of primary') ||
+    designation.includes('academic director') ||
+    designation.includes('director of academics') ||
+    designation.includes('dean of academics') ||
+    designation.includes('dean of student')
+  ) {
+    return true;
+  }
+
+  const email = (user.email || '').toLowerCase().trim();
+  if (email.startsWith('vp.') || email.startsWith('slt.') || email.includes('.slt@') || email.includes('viceprincipal')) {
+    return true;
+  }
+
+  if (typeof window !== 'undefined') {
+    try {
+      const cachedRoles = localStorage.getItem(LOCAL_STORAGE_SPECIAL_ROLES_KEY);
+      if (cachedRoles) {
+        const parsed = JSON.parse(cachedRoles);
+        if (Array.isArray(parsed)) {
+          const slt = parsed.find((a: any) => a.roleType === 'slt');
+          if (slt && (slt.userEmail?.toLowerCase() === email || slt.userId === user.id)) {
+            return true;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return false;
+}
+
+// Check if user has Executive Leadership Access (Principal OR SLT)
+export function isExecutiveLeadershipUser(user: UserProfile | null | undefined): boolean {
+  return isPrincipalUser(user) || isSltUser(user);
+}
+
 // Check if user is an HOD (Head of Department)
 export function isHodUser(user: UserProfile | null | undefined): boolean {
   if (!user) return false;
-  if (isPrincipalUser(user)) return false; // Principal is above HOD
+  if (isPrincipalUser(user) || isSltUser(user)) return false; // Principal & SLT are above HOD
   if (user.special_role === 'hod') return true;
   
   const designation = (user.designation || '').toLowerCase().trim();
@@ -193,7 +353,7 @@ export function isHodUser(user: UserProfile | null | undefined): boolean {
 // Check if user is a Section Coordinator
 export function isCoordinatorUser(user: UserProfile | null | undefined): boolean {
   if (!user) return false;
-  if (isPrincipalUser(user)) return false;
+  if (isPrincipalUser(user) || isSltUser(user)) return false;
   if (user.special_role === 'coordinator' || user.special_role === 'dean') return true;
   
   const designation = (user.designation || '').toLowerCase().trim();
@@ -217,6 +377,16 @@ export function getExecutiveRoleBadge(user: UserProfile | null | undefined): {
       badgeText: '#92400E',
       badgeBorder: '#F59E0B',
       isProtected: true,
+    };
+  }
+
+  if (isSltUser(user)) {
+    return {
+      label: user.designation || 'Senior Leadership Team (SLT)',
+      badgeBg: '#EFF6FF',
+      badgeText: '#1D4ED8',
+      badgeBorder: '#93C5FD',
+      isProtected: false,
     };
   }
 
@@ -403,9 +573,56 @@ export async function loadSpecialRoleAssignments(profiles?: UserProfile[]): Prom
             assignedBy: 'System Admin',
           });
         }
+      } else if (p.special_role === 'slt') {
+        const exists = list.some(
+          (a) => a.roleType === 'slt' && (a.userId === p.id || a.userEmail?.toLowerCase() === p.email?.toLowerCase())
+        );
+        if (!exists) {
+          list.push({
+            id: `slt_${p.id}`,
+            userId: p.id,
+            userName: p.name,
+            userEmail: p.email,
+            roleType: 'slt',
+            title: p.designation || 'Senior Leadership Team (SLT)',
+            permissions: {
+              canAuditMarks: true,
+              canVerifySyllabus: true,
+              canBroadcastDepartment: true,
+              canManageResources: true,
+              canViewAnalytics: true,
+              canApproveClearances: true,
+            },
+            assignedAt: new Date().toISOString(),
+            assignedBy: 'Principal',
+          });
+        }
       }
     });
   }
+
+  // Sanitize assignments to ensure non-Principal designations are categorized as SLT
+  list.forEach((a) => {
+    const email = (a.userEmail || '').toLowerCase().trim();
+    const title = (a.title || '').toLowerCase().trim();
+    if (
+      a.roleType === 'principal' &&
+      (title.includes('vice') ||
+        title.includes('head of') ||
+        title.includes('director of') ||
+        title.includes('dean') ||
+        title.includes('assessment') ||
+        title.includes('discipline') ||
+        title.includes('wellbeing') ||
+        email.startsWith('head.') ||
+        email.startsWith('vp.') ||
+        email.startsWith('headof') ||
+        email.includes('.assessment') ||
+        email.includes('.discipline'))
+    ) {
+      a.roleType = 'slt';
+    }
+  });
 
   // Update local cache
   if (typeof window !== 'undefined') {
@@ -413,7 +630,9 @@ export async function loadSpecialRoleAssignments(profiles?: UserProfile[]): Prom
   }
 
   // Ensure default Principal is always in assignments
-  const hasPrincipal = list.some((a) => a.roleType === 'principal' || a.userEmail?.toLowerCase() === 'principal@woodlempark.ae' || a.userEmail?.toLowerCase() === 'principal@woodlem.com');
+  const hasPrincipal = list.some(
+    (a) => a.roleType === 'principal' && (a.userEmail?.toLowerCase() === 'principal@woodlempark.ae' || a.userEmail?.toLowerCase() === 'principal@woodlem.com' || (!a.title?.toLowerCase().includes('head of') && !a.title?.toLowerCase().includes('vice')))
+  );
   if (!hasPrincipal) {
     list.unshift({
       id: 'assignment_principal_default',

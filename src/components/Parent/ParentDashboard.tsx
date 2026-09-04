@@ -237,7 +237,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   }, [activeChild?.id]);
 
   // Sidebar Controller
-  const sidebar = useSidebarState('auto-hide');
+  const sidebar = useSidebarState(currentUser?.id || currentUser?.email || 'parent');
   const { subscribeToNavigation } = usePortalNavigation();
 
   useEffect(() => {
@@ -441,14 +441,17 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
   // Filtered hub activities — only targeting the child's grade
   const childHubActivities = useMemo(() => {
-    if (!activeChild) return hubActivities;
+    const validActivities = hubActivities.filter(
+      (act) => !String(act.title || '').startsWith('__') && act.type !== 'system_config' && act.id !== 'special_roles_master_v1'
+    );
+    if (!activeChild) return validActivities;
     const rawGrade = String(activeChild.grade || '').trim();
     const letterStr = String(activeChild.class_letter || '').trim().toUpperCase();
     // Extract just the number e.g. "Grade 12 (CBSE)" → "12"
     const gradeNum = rawGrade.match(/\d+/)?.[0] || '';
     const fullClass = gradeNum && letterStr ? `${gradeNum}-${letterStr}` : gradeNum;
 
-    return hubActivities.filter((act) => {
+    return validActivities.filter((act) => {
       const targets = act.target_grades || [];
       if (targets.length === 0) return true;
       return targets.some((t) => {
@@ -935,15 +938,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
         </div>
       )}
 
-      {/* REDESIGNED PARENT SIDEBAR (Desktop >= 769px) */}
-      <aside
-        className={`sidebar ${sidebar.isCollapsed ? 'collapsed' : ''} ${
-          sidebar.isHovered && sidebar.sidebarMode === 'auto-hide' ? 'auto-hide-hovered' : ''
-        }`}
-        onMouseEnter={sidebar.handleMouseEnter}
-        onMouseLeave={sidebar.handleMouseLeave}
-        onDoubleClick={sidebar.togglePin}
-      >
+      <aside className={`sidebar ${sidebar.isCollapsed ? 'collapsed' : ''}`}>
         {/* LOGO */}
         <div style={{ padding: sidebar.isCollapsed ? '16px 0 0 0' : '16px 16px 0 16px', flexShrink: 0, overflow: 'hidden' }}>
           <WoodlemLogo collapsed={sidebar.isCollapsed} />
@@ -1248,6 +1243,26 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           </div>
 
           <div className="sidebar-tooltip-wrapper">
+            <button
+              className="logout-btn-clean"
+              onClick={sidebar.toggleCollapse}
+              title={sidebar.isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                {sidebar.isCollapsed ? (
+                  <ChevronRight size={15} className="icon" style={{ flexShrink: 0 }} />
+                ) : (
+                  <ChevronLeft size={15} className="icon" style={{ flexShrink: 0 }} />
+                )}
+                <span className="sidebar-text">Collapse Sidebar</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">Expand Sidebar</div>
+            )}
+          </div>
+
+          <div className="sidebar-tooltip-wrapper">
             <button className="logout-btn-clean" onClick={onSignOut}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
                 <LogOut size={15} className="icon" style={{ flexShrink: 0 }} />
@@ -1257,10 +1272,6 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             {sidebar.isCollapsed && <div className="sidebar-tooltip">Sign Out</div>}
           </div>
         </div>
-
-        {sidebar.feedbackToast && (
-          <div className="sidebar-feedback-toast">{sidebar.feedbackToast}</div>
-        )}
       </aside>
 
       {/* MAIN CONTENT AREA */}

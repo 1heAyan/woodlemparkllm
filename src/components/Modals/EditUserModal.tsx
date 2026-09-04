@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { UserProfile, ParentDocument, SubjectClass } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { MultiSubjectSelect } from '@/components/UI/MultiSubjectSelect';
 import { resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import { isPrincipalUser } from '@/lib/specialRolesHelper';
@@ -22,6 +23,7 @@ const SUBJECTS = [
   'History',
   'Geography',
   'Computer Science',
+  'Artificial Intelligence',
   'Islamic Studies',
   'Physical Education',
   'Art & Design',
@@ -609,12 +611,14 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
 
               {/* Subject */}
               <div className="form-group">
-                <label className="form-label">Subject Specialization</label>
-                <CustomSelect
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label className="form-label" style={{ margin: 0 }}>Subject Specialization(s)</label>
+                  <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Select multiple or type to add</span>
+                </div>
+                <MultiSubjectSelect
                   value={subject}
-                  onChange={(val) => setSubject(val)}
-                  options={SUBJECTS.map((s) => ({ value: s, label: s }))}
-                  searchable={true}
+                  onChange={(valStr) => setSubject(valStr)}
+                  placeholder="Search subjects or type to add custom..."
                 />
               </div>
 
