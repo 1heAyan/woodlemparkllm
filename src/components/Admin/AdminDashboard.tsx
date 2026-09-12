@@ -540,9 +540,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               Executive Control Console
             </h1>
           </div>
-          <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
-            Logged in as {currentUser.name || 'System Admin'} ({currentUser.email}) | Total {profiles.length} Accounts in System
-          </p>
+          
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -560,26 +558,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             height={32}
             textTransform="uppercase"
           />
-
-          <button
-            onClick={() => setActiveTab('delegation')}
-            style={{
-              padding: '6px 12px',
-              fontSize: 11.5,
-              fontWeight: 700,
-              color: '#2C6E6A',
-              background: '#EAF3EF',
-              border: '1px solid #C7E4D8',
-              borderRadius: 6,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
-          >
-            <ShieldCheck size={14} /> Roles &amp; HODs
-          </button>
-
 
           <button
             onClick={onOpenProvisionModal}
