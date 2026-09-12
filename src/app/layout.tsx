@@ -5,11 +5,7 @@ export const metadata: Metadata = {
   title: 'Woodlem Park | Next-Gen Portal',
   description: 'Woodlem Park School Portal — Student, Teacher, Admin and Parent dashboards with Holistic Development Hub.',
   icons: {
-    icon: [
-      { url: '/favicon.svg', type: 'image/svg+xml' },
-    ],
-    shortcut: '/favicon.svg',
-    apple: '/favicon.svg',
+    apple: '/iconwoodlem.png',
   },
 };
 
@@ -22,8 +18,9 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-        <link rel="apple-touch-icon" href="/favicon.svg" />
+        <link rel="icon" href="/iconwoodlem.png" type="image/png" media="(prefers-color-scheme: light)" />
+        <link rel="icon" href="/woodlemlogowithcandle.png" type="image/png" media="(prefers-color-scheme: dark)" />
+        <link rel="icon" href="/woodlemlogowithcandle.png" type="image/png" />
       </head>
       <body>{children}</body>
     </html>
