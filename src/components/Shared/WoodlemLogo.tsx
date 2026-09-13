@@ -92,7 +92,7 @@ export const WoodlemLogo: React.FC<WoodlemLogoProps> = ({ collapsed = false, cla
       }}
       title="Woodlem Park School"
     >
-      {/* Collapsed Emblem SVG */}
+      {/* Collapsed Emblem Image */}
       <div
         style={{
           position: 'absolute',
@@ -105,7 +105,16 @@ export const WoodlemLogo: React.FC<WoodlemLogoProps> = ({ collapsed = false, cla
           pointerEvents: collapsed ? 'auto' : 'none',
         }}
       >
-        <WoodlemEmblemSVG size={44} />
+        <img
+          src="/iconwoodlem.png"
+          alt="Woodlem Park School"
+          style={{
+            width: 44,
+            height: 44,
+            objectFit: 'contain',
+            display: 'block',
+          }}
+        />
       </div>
 
       {/* Expanded Full Logo */}
