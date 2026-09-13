@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, SlidersHorizontal, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import { supabase, UserProfile, ParentDocument, HubActivity, SubjectClass, TestItem, SyllabusTerm } from '@/lib/supabaseClient';
@@ -54,6 +55,57 @@ type AdminTab = 'overview' | 'delegation' | 'directory' | 'classes' | 'assessmen
 const VALID_GRADES = ['9', '10', '11', '12'] as const;
 const BASE_SECTIONS = ['A', 'B', 'C', 'D'] as const;
 
+// Styled tooltip that renders through a portal to document.body so it is never
+// clipped by table cells or scroll containers.
+const HoverTooltip: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => {
+  const [tip, setTip] = useState<{ top: number; left: number; below: boolean } | null>(null);
+
+  const showTip = (e: React.MouseEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const tipWidth = Math.min(260, Math.max(90, label.length * 6.4 + 20));
+    const below = r.bottom + 38 <= window.innerHeight;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - tipWidth - 8));
+    const top = below ? r.bottom + 8 : r.top - 8;
+    setTip({ top, left, below });
+  };
+
+  return (
+    <span
+      onMouseEnter={showTip}
+      onMouseLeave={() => setTip(null)}
+      style={{ display: 'inline-block', maxWidth: '100%' }}
+    >
+      {children}
+      {tip &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: tip.top,
+              left: tip.left,
+              maxWidth: 260,
+              transform: tip.below ? undefined : 'translateY(-100%)',
+              zIndex: 9999,
+              background: '#2D2C2A',
+              color: '#FFFFFF',
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '0.03em',
+              padding: '5px 10px',
+              borderRadius: 6,
+              boxShadow: '0 6px 16px rgba(0,0,0,0.22)',
+              pointerEvents: 'none',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {label}
+          </div>,
+          document.body
+        )}
+    </span>
+  );
+};
+
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   currentUser,
   profiles,
@@ -80,6 +132,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserProfile | null>(null);
   const [activeMarkEntryClass, setActiveMarkEntryClass] = useState<SubjectClass | null>(null);
+  const [dirScroll, setDirScroll] = useState<{ left: boolean; right: boolean }>({ left: false, right: false });
+  const dirScrollRef = useRef<HTMLDivElement | null>(null);
+
+  const handleDirScroll = useCallback((el: HTMLDivElement) => {
+    const { scrollLeft, scrollWidth, clientWidth } = el;
+    setDirScroll({
+      left: scrollLeft > 2,
+      right: scrollLeft < scrollWidth - clientWidth - 2,
+    });
+  }, []);
+
   const sidebar = useSidebarState(currentUser?.id || currentUser?.email || 'admin');
 
   const handleInitiateEditUser = (u: UserProfile) => {
@@ -358,6 +421,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
   }, [profiles, roleFilter, classFilter, searchQuery]);
 
+  useEffect(() => {
+    const el = dirScrollRef.current;
+    if (el && filteredProfiles.length > 0) handleDirScroll(el);
+    else setDirScroll({ left: false, right: false });
+  }, [handleDirScroll, filteredProfiles.length]);
+
 
 
   // Format student / teacher class & subject badge
@@ -442,50 +511,63 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const rolePill = (role: string, userObj?: UserProfile) => {
+    const pillBase: React.CSSProperties = {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 4,
+      padding: '1px 7px',
+      fontSize: 9.5,
+      fontWeight: 800,
+      letterSpacing: '0.04em',
+      textTransform: 'uppercase',
+      borderRadius: 4,
+      whiteSpace: 'nowrap',
+      maxWidth: '100%',
+      overflow: 'hidden',
+      boxSizing: 'border-box',
+    };
+    const pillText: React.CSSProperties = {
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      flex: '1 1 auto',
+      minWidth: 0,
+    };
+
     if (userObj && (isSltUser(userObj) || userObj.special_role === 'slt')) {
+      const label = userObj.designation || 'SLT';
       return (
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 4,
-            padding: '1px 7px',
-            fontSize: 9.5,
-            fontWeight: 800,
-            letterSpacing: '0.04em',
-            textTransform: 'uppercase',
-            borderRadius: 4,
-            background: '#EAF3EF',
-            color: '#2C6E6A',
-            border: '1px solid #C7E4D8',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <Crown size={10} /> {userObj.designation || 'SLT'}
-        </span>
+        <HoverTooltip label={label}>
+          <span
+            style={{
+              ...pillBase,
+              background: '#EAF3EF',
+              color: '#2C6E6A',
+              border: '1px solid #C7E4D8',
+            }}
+          >
+            <Crown size={10} style={{ flex: '0 0 auto' }} />
+            <span style={pillText}>{label}</span>
+          </span>
+        </HoverTooltip>
       );
     }
     if (userObj && isPrincipalUser(userObj)) {
+      const label = 'Principal';
       return (
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 4,
-            padding: '1px 7px',
-            fontSize: 9.5,
-            fontWeight: 800,
-            letterSpacing: '0.04em',
-            textTransform: 'uppercase',
-            borderRadius: 4,
-            background: '#FEF3C7',
-            color: '#92400E',
-            border: '1px solid #F59E0B',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <Crown size={10} /> Principal
-        </span>
+        <HoverTooltip label={label}>
+          <span
+            style={{
+              ...pillBase,
+              background: '#FEF3C7',
+              color: '#92400E',
+              border: '1px solid #F59E0B',
+            }}
+          >
+            <Crown size={10} style={{ flex: '0 0 auto' }} />
+            <span style={pillText}>{label}</span>
+          </span>
+        </HoverTooltip>
       );
     }
     const styleMap: Record<string, { bg: string; text: string; border: string }> = {
@@ -497,23 +579,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
     const s = styleMap[role] || { bg: '#F0EFEA', text: '#55534E', border: '#DDD' };
     return (
-      <span
-        style={{
-          display: 'inline-block',
-          padding: '1px 6px',
-          fontSize: 9.5,
-          fontWeight: 700,
-          letterSpacing: '0.04em',
-          textTransform: 'uppercase',
-          borderRadius: 4,
-          background: s.bg,
-          color: s.text,
-          border: `1px solid ${s.border}`,
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {role}
-      </span>
+      <HoverTooltip label={role}>
+        <span
+          style={{
+            ...pillBase,
+            fontWeight: 700,
+            background: s.bg,
+            color: s.text,
+            border: `1px solid ${s.border}`,
+          }}
+        >
+          <span style={pillText}>{role}</span>
+        </span>
+      </HoverTooltip>
     );
   };
 
@@ -962,116 +1040,178 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* Directory Table */}
-      <div style={{ overflowX: 'auto', maxHeight: 'calc(100vh - 180px)' }}>
-        {filteredProfiles.length === 0 ? (
-          <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>No user records matched your criteria</div>
-            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 4 }}>Try clearing active search or filters.</div>
-          </div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ ...thStyle, width: 32 }}>#</th>
-                <th style={thStyle}>Full Name</th>
-                <th style={thStyle}>Role</th>
-                <th style={thStyle}>Email Address</th>
-                <th style={thStyle}>Admission / Code</th>
-                <th style={thStyle}>Academic Mapping</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredProfiles.map((p, idx) => (
-                <tr
-                  key={p.id}
-                  style={{
-                    background: idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7',
-                    transition: 'background 0.08s',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#F2F1EC')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7')}
-                >
-                  <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
-                  <td style={{ ...tdStyle, fontWeight: 600, whiteSpace: 'nowrap' }}>{p.name}</td>
-                  <td style={tdStyle}>{rolePill(p.role, p)}</td>
-                  <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11.5 }}>{p.email}</td>
-                  <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11, color: '#44423E' }}>
-                    {p.role === 'parent' ? '—' : (sanitizeUserCode(p.admission_number || p.user_code, p.role === 'student' ? p.email : null) || p.user_code || p.admission_number || '—')}
-                  </td>
-                  <td style={{ ...tdStyle, fontSize: 11.5, color: '#4A4843' }}>
-                    {formatUserAssignment(p)}
-                  </td>
-                  <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <button
-                      onClick={() => handleInitiateEditUser(p)}
-                      style={{
-                        padding: '3px 10px',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 4,
-                        background: '#FFFFFF',
-                        color: 'var(--neutral-dark)',
-                        cursor: 'pointer',
-                        marginRight: 6,
-                      }}
-                    >
-                      Edit
-                    </button>
-                    {(() => {
-                      const isPrincipal = isPrincipalUser(p);
-                      if (isPrincipal) {
-                        return (
-                          <span
-                            title="The Principal account holds permanent root executive privileges and cannot be deleted."
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              padding: '2px 8px',
-                              fontSize: 10,
-                              fontWeight: 700,
-                              color: '#92400E',
-                              background: '#FEF3C7',
-                              border: '1px solid #F59E0B',
-                              borderRadius: 4,
-                            }}
-                          >
-                            <Lock size={10} /> Protected
-                          </span>
-                        );
-                      }
-                      if (p.role !== 'admin') {
-                        return (
-                          <button
-                            onClick={() => {
-                              if (confirm(`Are you sure you want to delete profile for "${p.name}"?`)) {
-                                onDeleteUser(p.id);
-                              }
-                            }}
-                            style={{
-                              padding: '3px 8px',
-                              fontSize: 11,
-                              fontWeight: 600,
-                              border: '1px solid #F5C6CB',
-                              borderRadius: 4,
-                              background: '#FDF1F0',
-                              color: '#A83B38',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Delete
-                          </button>
-                        );
-                      }
-                      return null;
-                    })()}
-                  </td>
+      <div style={{ position: 'relative' }}>
+        <div
+          ref={dirScrollRef}
+          onScroll={(e) => handleDirScroll(e.currentTarget)}
+          className="scroll-visible"
+          style={{ overflowX: 'auto', maxHeight: 'calc(100vh - 180px)' }}
+        >
+          {filteredProfiles.length === 0 ? (
+            <div style={{ padding: '40px 20px', textAlign: 'center' }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>No user records matched your criteria</div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 4 }}>Try clearing active search or filters.</div>
+            </div>
+          ) : (
+            <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thStyle, width: 180 }}>Full Name</th>
+                  <th style={{ ...thStyle, width: 108 }}>Role</th>
+                  <th style={{ ...thStyle, width: 200 }}>Email Address</th>
+                  <th style={{ ...thStyle, width: 104 }}>Admission / Code</th>
+                  <th style={{ ...thStyle, width: 128, textAlign: 'right' }}>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredProfiles.map((p, idx) => {
+                  const idCode = p.role === 'parent' ? '—' : (sanitizeUserCode(p.admission_number || p.user_code, p.role === 'student' ? p.email : null) || p.user_code || p.admission_number || '—');
+                  return (
+                    <tr
+                      key={p.id}
+                      style={{
+                        background: idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7',
+                        transition: 'background 0.08s',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = '#F2F1EC')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7')}
+                    >
+                      <td
+                        title={p.name}
+                        style={{ ...tdStyle, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      >
+                        {p.name}
+                      </td>
+                      <td style={{ ...tdStyle, overflow: 'hidden' }}>{rolePill(p.role, p)}</td>
+                      <td
+                        title={p.email}
+                        style={{
+                          ...tdStyle,
+                          color: 'var(--text-secondary)',
+                          fontSize: 11.5,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {p.email}
+                      </td>
+                      <td
+                        title={idCode}
+                        style={{
+                          ...tdStyle,
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          color: '#44423E',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {idCode}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button
+                          onClick={() => handleInitiateEditUser(p)}
+                          style={{
+                            padding: '3px 10px',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 4,
+                            background: '#FFFFFF',
+                            color: 'var(--neutral-dark)',
+                            cursor: 'pointer',
+                            marginRight: 6,
+                          }}
+                        >
+                          Edit
+                        </button>
+                        {(() => {
+                          const isPrincipal = isPrincipalUser(p);
+                          if (isPrincipal) {
+                            return (
+                              <span
+                                title="The Principal account holds permanent root executive privileges and cannot be deleted."
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  padding: '2px 8px',
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  color: '#92400E',
+                                  background: '#FEF3C7',
+                                  border: '1px solid #F59E0B',
+                                  borderRadius: 4,
+                                }}
+                              >
+                                <Lock size={10} /> Protected
+                              </span>
+                            );
+                          }
+                          if (p.role !== 'admin') {
+                            return (
+                              <button
+                                onClick={() => {
+                                  if (confirm(`Are you sure you want to delete profile for "${p.name}"?`)) {
+                                    onDeleteUser(p.id);
+                                  }
+                                }}
+                                style={{
+                                  padding: '3px 8px',
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  border: '1px solid #F5C6CB',
+                                  borderRadius: 4,
+                                  background: '#FDF1F0',
+                                  color: '#A83B38',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Delete
+                              </button>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Edge overflow fades — visible only while content is clipped horizontally */}
+        {dirScroll.left && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: 0,
+              width: 28,
+              pointerEvents: 'none',
+              zIndex: 5,
+              background: 'linear-gradient(to right, rgba(0,0,0,0.16), rgba(0,0,0,0.06), transparent)',
+            }}
+          />
+        )}
+        {dirScroll.right && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              right: 0,
+              width: 28,
+              pointerEvents: 'none',
+              zIndex: 5,
+              background: 'linear-gradient(to left, rgba(0,0,0,0.16), rgba(0,0,0,0.06), transparent)',
+            }}
+          />
         )}
       </div>
     </div>

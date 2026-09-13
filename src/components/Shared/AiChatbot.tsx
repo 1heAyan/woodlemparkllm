@@ -30,8 +30,6 @@ import {
   Check,
   ThumbsDown,
   RefreshCw,
-  Paperclip,
-  Plus,
   Wand2,
   Lightbulb,
   Compass,
@@ -1291,32 +1289,8 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                     className="woodlem-ai-main-input"
                   />
 
-                  {/* BOTTOM TOOLBAR ROW (Image 1 & 3: Model Pill + Attach + Send) */}
+                  {/* BOTTOM TOOLBAR ROW (Send) */}
                   <div className="woodlem-ai-composer-bottom-bar">
-                    <div className="woodlem-ai-bottom-left-controls">
-                      {/* MODEL SELECTOR PILL (Image 1 style) */}
-
-
-                      {/* ATTACHMENT / CONTEXT BUTTONS (Image 3) */}
-                      <button
-                        type="button"
-                        onClick={() => handleSendMessage('Summarize my current active subject tasks and schedule')}
-                        className="woodlem-ai-composer-icon-btn"
-                        title="Attach active page context"
-                      >
-                        <Paperclip size={13} />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleSendMessage('Give me a quick portal checklist for today')}
-                        className="woodlem-ai-composer-icon-btn"
-                        title="Add prompt preset"
-                      >
-                        <Plus size={13} />
-                      </button>
-                    </div>
-
                     {/* SEND BUTTON */}
                     <button
                       type="submit"
@@ -1992,17 +1966,10 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
         .woodlem-ai-composer-bottom-bar {
           display: flex;
           align-items: center;
-          justify-content: space-between;
+          justify-content: flex-end;
           padding-top: 3px;
         }
 
-        .woodlem-ai-bottom-left-controls {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        /* Model Selector Pill (Image 1 style: ✳️ Opus 4.5 | +) */
         .woodlem-ai-model-selector-wrap {
           position: relative;
         }
@@ -2081,25 +2048,6 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
         .woodlem-ai-item-sub {
           font-size: 10px;
           color: #64748B;
-        }
-
-        .woodlem-ai-composer-icon-btn {
-          width: 24px;
-          height: 24px;
-          border-radius: 6px;
-          border: 1px solid #E2E8F0;
-          background: #F8FAFC;
-          color: #64748B;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
-
-        .woodlem-ai-composer-icon-btn:hover {
-          background: #E2E8F0;
-          color: #0F172A;
         }
 
         /* Send button */
