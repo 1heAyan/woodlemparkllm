@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { CustomSelect } from '@/components/UI/CustomSelect';
+import { DateTimePicker } from '@/components/UI/DateTimePicker';
 import { TestQuestion } from '@/lib/supabaseClient';
-import { Paperclip, Image as ImageIcon, Check, X } from 'lucide-react';
+import { Paperclip, Image as ImageIcon, Check, X, Clock } from 'lucide-react';
 
 const ALL_SECTIONS = [
   '9-A', '9-B', '9-C', '9-D',
@@ -26,6 +27,8 @@ interface CreateTestModalProps {
     durationMinutes?: number;
     questions: TestQuestion[];
     mediaUrl?: string;
+    startTime?: string;
+    deadline?: string;
   }) => void;
 }
 
@@ -56,7 +59,10 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
 }) => {
   const [title, setTitle] = useState('');
   const [selectedClass, setSelectedClass] = useState(activeClass);
-  const [durationMinutes, setDurationMinutes] = useState(30);
+  const [durationMinutes, setDurationMinutes] = useState<number>(30);
+  const [durationInput, setDurationInput] = useState('30');
+  const [startTime, setStartTime] = useState('');
+  const [deadline, setDeadline] = useState('');
   const [mediaUrl, setMediaUrl] = useState('');
   const [questions, setQuestions] = useState<TestQuestion[]>([makeBlankMCQ(1)]);
   const mediaInputRef = useRef<HTMLInputElement>(null);
@@ -117,6 +123,37 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
       alert('Please enter a Class Test title.');
       return;
     }
+
+    // Validate duration (text input in minutes)
+    const parsedDuration = parseInt(durationInput.trim(), 10);
+    if (isNaN(parsedDuration) || parsedDuration <= 0) {
+      alert('Please enter a valid test duration in minutes (e.g. 30).');
+      return;
+    }
+
+    // Validate availability window: start + duration must fit before the deadline
+    const hasStart = !!startTime.trim();
+    const hasDeadline = !!deadline.trim();
+    if (hasStart || hasDeadline) {
+      if (!hasStart || !hasDeadline) {
+        alert('If you set an availability window, please provide both a Start Date/Time and a Deadline.');
+        return;
+      }
+      const startMs = new Date(startTime).getTime();
+      const deadlineMs = new Date(deadline).getTime();
+      if (isNaN(startMs) || isNaN(deadlineMs) || deadlineMs <= startMs) {
+        alert('The test deadline must be after the start date/time.');
+        return;
+      }
+      const windowMinutes = (deadlineMs - startMs) / 60000;
+      if (windowMinutes < parsedDuration) {
+        alert(
+          `The availability window (${Math.floor(windowMinutes)} min) must be at least as long as the test duration (${parsedDuration} min) so students can complete the test. Please extend the window or reduce the duration.`
+        );
+        return;
+      }
+    }
+
     for (let i = 0; i < questions.length; i++) {
       if (!questions[i].question.trim()) {
         alert(`Please enter question text for Question ${i + 1}.`);
@@ -143,12 +180,17 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
     onSubmit({
       title: title.trim(),
       className: activeClass || selectedClass,
-      durationMinutes,
+      durationMinutes: parsedDuration,
       questions: resolvedQuestions,
       mediaUrl: mediaUrl || undefined,
+      startTime: startTime ? new Date(startTime).toISOString() : undefined,
+      deadline: deadline ? new Date(deadline).toISOString() : undefined,
     });
     setTitle('');
     setMediaUrl('');
+    setDurationInput('30');
+    setStartTime('');
+    setDeadline('');
     setQuestions([makeBlankMCQ(1)]);
     onClose();
   };
@@ -245,19 +287,25 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
             )}
 
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Test Duration</label>
-              <CustomSelect
-                value={durationMinutes.toString()}
-                onChange={(val) => setDurationMinutes(parseInt(val, 10))}
-                options={[
-                  { value: '15', label: '15 Minutes' },
-                  { value: '30', label: '30 Minutes' },
-                  { value: '45', label: '45 Minutes' },
-                  { value: '60', label: '1 Hour' },
-                  { value: '90', label: '90 Minutes' },
-                  { value: '120', label: '2 Hours' },
-                ]}
+              <label className="form-label">Test Duration (Minutes)</label>
+              <input
+                type="number"
+                className="form-input"
+                min="1"
+                step="1"
+                placeholder="e.g. 30"
+                value={durationInput}
+                onChange={(e) => {
+                  setDurationInput(e.target.value);
+                  const v = parseInt(e.target.value, 10);
+                  if (!isNaN(v) && v > 0) setDurationMinutes(v);
+                }}
+                style={{ fontWeight: 700 }}
+                title="Enter the test duration in minutes (any value allowed)"
               />
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+                Students get {durationInput || '—'} {parseInt(durationInput, 10) === 1 ? 'minute' : 'minutes'} to complete the test.
+              </div>
             </div>
 
             <div
@@ -283,6 +331,129 @@ export const CreateTestModal: React.FC<CreateTestModalProps> = ({
                 {totalMarks} <span style={{ fontSize: 12, fontWeight: 600, color: '#2C6E6A' }}>Points</span>
               </div>
             </div>
+          </div>
+
+          {/* Availability Window */}
+          <div
+            style={{
+              background: '#FFFFFF',
+              border: '1px solid var(--border-color)',
+              borderRadius: 12,
+              padding: '18px 20px',
+              marginBottom: 18,
+              boxShadow: '0 2px 10px rgba(0,0,0,0.04)',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                marginBottom: 14,
+              }}
+            >
+              <div
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: 9,
+                  background: '#EAF3EF',
+                  color: '#2C6E6A',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Clock size={16} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: 'var(--neutral-dark)',
+                  }}
+                >
+                  Availability Window
+                  <span
+                    style={{
+                      marginLeft: 8,
+                      fontSize: 9.5,
+                      fontWeight: 800,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      padding: '2px 8px',
+                      borderRadius: 20,
+                      background: '#F3F4F6',
+                      color: '#6B7280',
+                      verticalAlign: 'middle',
+                    }}
+                  >
+                    Optional
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 1 }}>
+                  Students can only attempt the test between the start and deadline. Leave both empty to keep it always available.
+                </div>
+              </div>
+            </div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                gap: 16,
+              }}
+            >
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Test Opens</label>
+                <DateTimePicker
+                  value={startTime}
+                  onChange={setStartTime}
+                  max={deadline || undefined}
+                  placeholder="Pick a start date & time"
+                />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Deadline</label>
+                <DateTimePicker
+                  value={deadline}
+                  onChange={setDeadline}
+                  min={startTime || undefined}
+                  placeholder="Pick a deadline date & time"
+                />
+              </div>
+            </div>
+            {startTime && deadline &&
+              (() => {
+                const startMs = new Date(startTime).getTime();
+                const deadlineMs = new Date(deadline).getTime();
+                const windowMinutes = (deadlineMs - startMs) / 60000;
+                if (deadlineMs > startMs && windowMinutes < (durationMinutes || 0)) {
+                  return (
+                    <div style={{
+                      marginTop: 14,
+                      fontSize: 12,
+                      color: '#92400E',
+                      background: '#FFFBEB',
+                      border: '1px solid #FDE68A',
+                      borderRadius: 8,
+                      padding: '10px 14px',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 10,
+                      lineHeight: 1.45,
+                    }}>
+                      <span style={{ fontSize: 16, lineHeight: 1, marginTop: 1 }}>⚠️</span>
+                      <span>
+                        The availability window ({Math.floor(windowMinutes)} min) is shorter than the test duration ({durationMinutes} min). Students would not have enough time to finish — extend the window or reduce the duration.
+                      </span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
           </div>
 
           {/* Test Title */}

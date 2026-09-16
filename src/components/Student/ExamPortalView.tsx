@@ -257,6 +257,86 @@ export const ExamPortalView: React.FC<ExamPortalViewProps> = ({
 
   const watermarkText = `${student.name} · ${student.admission_number || student.user_code || student.email} · Woodlem Park School · ${new Date().toLocaleDateString()}`;
 
+  // ── AVAILABILITY WINDOW GATE ──
+  // A test with a start/deadline is only attemptable inside that window.
+  const timeGate = useMemo(() => {
+    const nowMs = Date.now();
+    if (!test.start_time && !test.deadline) return 'open' as const;
+    if (test.start_time && nowMs < new Date(test.start_time).getTime()) return 'coming_soon' as const;
+    if (test.deadline && nowMs > new Date(test.deadline).getTime()) return 'past_deadline' as const;
+    return 'open' as const;
+  }, [test.start_time, test.deadline]);
+
+  if (timeGate !== 'open') {
+    const isComingSoon = timeGate === 'coming_soon';
+    const targetTime = isComingSoon ? test.start_time : test.deadline;
+    const formattedTime = targetTime ? new Date(targetTime).toLocaleString() : '';
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 999999,
+          background: 'var(--neutral-bg)',
+          color: 'var(--neutral-dark)',
+          fontFamily: 'var(--font-label)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 24,
+        }}
+      >
+        <div
+          style={{
+            width: '100%',
+            maxWidth: 460,
+            background: '#FFFFFF',
+            border: '1px solid var(--border-color)',
+            borderRadius: 14,
+            padding: '32px 28px',
+            textAlign: 'center',
+            boxShadow: '0 12px 40px rgba(0,0,0,0.08)',
+          }}
+        >
+          <div
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: '50%',
+              background: isComingSoon ? '#EFF6FF' : '#FDF2F2',
+              color: isComingSoon ? '#1E40AF' : '#991B1B',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 18px',
+              fontSize: 30,
+              fontWeight: 800,
+            }}
+          >
+            {isComingSoon ? '⏳' : '⛔'}
+          </div>
+          <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>
+            {isComingSoon ? 'This Test Has Not Started Yet' : 'This Test Has Closed'}
+          </h2>
+          <p style={{ fontSize: 13.5, color: 'var(--text-secondary)', marginTop: 10, lineHeight: 1.5 }}>
+            {isComingSoon
+              ? `The test "${test.title}" is scheduled to open on ${formattedTime}. Please check back then — you will be able to attempt it from that moment onward.`
+              : `The deadline for "${test.title}" was ${formattedTime}. Submissions are no longer accepted. Please contact your teacher if you have any concerns.`}
+          </p>
+          <div style={{ marginTop: 22 }}>
+            <button
+              className="btn-primary"
+              onClick={onClose}
+              style={{ padding: '10px 28px', fontSize: 13, fontWeight: 700 }}
+            >
+              Back to Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
