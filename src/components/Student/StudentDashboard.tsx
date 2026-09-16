@@ -308,6 +308,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [activeTestModal, setActiveTestModal] = useState<TestItem | null>(null);
   const [activeSubmitModal, setActiveSubmitModal] = useState<AssignmentItem | null>(null);
   const [editingAchievement, setEditingAchievement] = useState<Achievement | null>(null);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(id); }, []);
 
   // Portal Navigation & AI Copilot Integration
   const { isAiPanelOpen, toggleAiPanel, subscribeToNavigation } = usePortalNavigation();
@@ -473,6 +475,19 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       return isItemForActiveClass(t.class_name, t.title, t.teacher_id);
     });
   }, [tests, activeClassObj, currentStudent]);
+
+  type TestTimeStatus = { status: 'open'; } | { status: 'coming_soon'; startsAt: string; } | { status: 'past_deadline'; endedAt: string; };
+
+  const getTestTimeStatus = (t: TestItem, nowMs: number): TestTimeStatus => {
+    if (!t.start_time && !t.deadline) return { status: 'open' };
+    if (t.start_time && nowMs < new Date(t.start_time).getTime()) {
+      return { status: 'coming_soon', startsAt: new Date(t.start_time).toLocaleString() };
+    }
+    if (t.deadline && nowMs > new Date(t.deadline).getTime()) {
+      return { status: 'past_deadline', endedAt: new Date(t.deadline).toLocaleString() };
+    }
+    return { status: 'open' };
+  };
 
   const myAssignments = useMemo(() => {
     if (!activeClassObj) return [];
@@ -1864,6 +1879,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                       myTests.map((test) => {
                         const result = testResults[`${test.id}_${currentStudent.id}`];
                         const isDone = !!result;
+                        const timeStatus = getTestTimeStatus(test, now);
                         return (
                           <div className="item-card" key={test.id} style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div className="item-info">
@@ -1881,13 +1897,27 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                               <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8' }}>
                                 Score: {result.score}%
                               </span>
+                            ) : timeStatus.status === 'coming_soon' ? (
+                              <span style={{ fontSize: 11, fontWeight: 700, padding: '6px 12px', borderRadius: 6, background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE', cursor: 'default', whiteSpace: 'nowrap' }}>
+                                Coming Soon
+                                <span style={{ display: 'block', fontSize: 10, fontWeight: 500, color: '#3B82F6', marginTop: 2 }}>
+                                  {timeStatus.startsAt}
+                                </span>
+                              </span>
+                            ) : timeStatus.status === 'past_deadline' ? (
+                              <span style={{ fontSize: 11, fontWeight: 700, padding: '6px 12px', borderRadius: 6, background: '#FDF2F2', color: '#991B1B', border: '1px solid #FECACA', cursor: 'default', whiteSpace: 'nowrap' }}>
+                                Past Deadline
+                                <span style={{ display: 'block', fontSize: 10, fontWeight: 500, color: '#DC2626', marginTop: 2 }}>
+                                  {timeStatus.endedAt}
+                                </span>
+                              </span>
                             ) : (
                               <button
                                 className="btn-primary"
                                 onClick={() => setActiveTestModal(test)}
                                 style={{ padding: '6px 14px', fontSize: 12 }}
                               >
-                                 Take Class Test
+                                Take Class Test
                               </button>
                             )}
                           </div>

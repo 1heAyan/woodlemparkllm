@@ -24,6 +24,46 @@ export const ActiveTestModal: React.FC<ActiveTestModalProps> = ({
 
   if (!isOpen || !test) return null;
 
+  // Availability window gate — test only attemptable inside its start/deadline window
+  const nowMs = Date.now();
+  const timeState =
+    test.start_time && nowMs < new Date(test.start_time).getTime()
+      ? 'coming_soon'
+      : test.deadline && nowMs > new Date(test.deadline).getTime()
+      ? 'past_deadline'
+      : 'open';
+  if (timeState !== 'open') {
+    const target = timeState === 'coming_soon' ? test.start_time : test.deadline;
+    const label = timeState === 'coming_soon' ? 'Test Not Started Yet' : 'Test Has Closed';
+    const detail =
+      timeState === 'coming_soon'
+        ? `This test opens on ${target ? new Date(target).toLocaleString() : 'a scheduled time'}. It will be available for attempts from that moment.`
+        : `The deadline for this test was ${target ? new Date(target).toLocaleString() : 'set'}. Submissions are no longer accepted.`;
+    return (
+      <div className="modal-overlay active" onClick={onClose}>
+        <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Class Test
+              </span>
+              <h2 className="modal-title" style={{ marginTop: 2 }}>{test.title}</h2>
+            </div>
+            <button type="button" className="close-modal" onClick={onClose}>&times;</button>
+          </div>
+          <div style={{ padding: '40px 32px', textAlign: 'center' }}>
+            <div style={{ fontSize: 40 }}>{timeState === 'coming_soon' ? '⏳' : '⛔'}</div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, margin: '12px 0 6px' }}>{label}</h3>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 380, margin: '0 auto 20px' }}>{detail}</p>
+            <button className="btn-primary" onClick={onClose} style={{ padding: '10px 24px' }}>
+              Back to Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const questions = test.questions || [];
   const answeredCount = Object.keys(selectedAnswers).length;
 

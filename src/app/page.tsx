@@ -313,6 +313,8 @@ export default function WoodlemApp() {
         let mediaUrl: string | undefined = t.media_url || undefined;
         let totalMarks: number | undefined = t.total_marks || undefined;
         let teacherId: string | undefined = t.teacher_id || undefined;
+        let startTime: string | undefined = t.start_time || undefined;
+        let deadline: string | undefined = t.deadline || undefined;
 
         if (t.subject && (t.subject.startsWith('{') || t.subject.startsWith('['))) {
           try {
@@ -321,6 +323,8 @@ export default function WoodlemApp() {
             if (parsed.duration_minutes !== undefined) durationMinutes = parsed.duration_minutes;
             if (parsed.media_url !== undefined) mediaUrl = parsed.media_url;
             if (parsed.total_marks !== undefined) totalMarks = parsed.total_marks;
+            if (parsed.start_time !== undefined) startTime = parsed.start_time;
+            if (parsed.deadline !== undefined) deadline = parsed.deadline;
             // Fallback: extract teacher_id from JSON blob if not a top-level column
             if (!teacherId && parsed.teacher_id) teacherId = parsed.teacher_id;
           } catch (e) {}
@@ -336,6 +340,8 @@ export default function WoodlemApp() {
           duration_minutes: durationMinutes,
           media_url: mediaUrl,
           total_marks: totalMarks,
+          start_time: startTime,
+          deadline,
         };
       });
 
@@ -1528,6 +1534,8 @@ export default function WoodlemApp() {
           durationMinutes?: number;
           questions?: TestQuestion[];
           mediaUrl?: string;
+          startTime?: string;
+          deadline?: string;
         }
       | string
   ) => {
@@ -1545,6 +1553,8 @@ export default function WoodlemApp() {
     const questions =
       typeof data === 'object' && data.questions ? data.questions : [];
     const mediaUrl = typeof data === 'object' ? data.mediaUrl : undefined;
+    const startTime = typeof data === 'object' ? data.startTime : undefined;
+    const deadline = typeof data === 'object' ? data.deadline : undefined;
 
     const newTest: TestItem = {
       id: `test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1557,6 +1567,8 @@ export default function WoodlemApp() {
       questions,
       media_url: mediaUrl,
       total_marks: questions.reduce((sum, q) => sum + (q.points || 1), 0),
+      start_time: startTime,
+      deadline,
     };
 
     const subjectJson = JSON.stringify({
@@ -1565,6 +1577,8 @@ export default function WoodlemApp() {
       media_url: mediaUrl,
       total_marks: newTest.total_marks,
       teacher_id: currentUser?.id,
+      start_time: startTime,
+      deadline,
     });
 
     // 1. Optimistically update local tests state immediately
@@ -1581,6 +1595,8 @@ export default function WoodlemApp() {
         class_name: newTest.class_name,
         questions: newTest.questions,
         duration_minutes: newTest.duration_minutes,
+        start_time: startTime || null,
+        deadline: deadline || null,
       };
       if (currentUser?.id) tier1Payload.teacher_id = currentUser.id;
 
@@ -1603,6 +1619,8 @@ export default function WoodlemApp() {
           class_name: newTest.class_name,
           questions: newTest.questions,
           duration_minutes: newTest.duration_minutes,
+          start_time: startTime || null,
+          deadline: deadline || null,
         };
         const { error: err2 } = await supabase.from('tests').insert([tier2Payload]);
         if (!err2) {

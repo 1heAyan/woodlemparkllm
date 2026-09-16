@@ -113,6 +113,8 @@ export interface TestItem {
   duration_minutes?: number;
   total_marks?: number;
   media_url?: string;   // optional header image/media for the test
+  start_time?: string;  // ISO timestamp — test becomes available for attempt from this moment
+  deadline?: string;    // ISO timestamp — after this the test is closed
 }
 
 export interface AssignmentItem {
