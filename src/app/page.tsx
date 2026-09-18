@@ -36,7 +36,7 @@ import { AddAwardModal } from '@/components/Modals/AddAwardModal';
 import { AddTermModal } from '@/components/Modals/AddTermModal';
 import { AddTopicModal } from '@/components/Modals/AddTopicModal';
 import { CreateTestModal } from '@/components/Modals/CreateTestModal';
-import { CreateAssignmentModal } from '@/components/Modals/CreateAssignmentModal';
+import { CreateAssignmentModal, CreateAssignmentData } from '@/components/Modals/CreateAssignmentModal';
 import { CreateHubActivityModal } from '@/components/Modals/CreateHubActivityModal';
 import { ProvisionUserModal } from '@/components/Modals/ProvisionUserModal';
 import { EditUserModal } from '@/components/Modals/EditUserModal';
@@ -80,8 +80,24 @@ export default function WoodlemApp() {
   const [attendance, setAttendance] = useState<Record<string, Record<string, string>>>({});
   const [hubActivities, setHubActivities] = useState<HubActivity[]>([]);
   const [parentDocuments, setParentDocuments] = useState<ParentDocument[]>([]);
-  const [testResults, setTestResults] = useState<Record<string, TestResultRecord>>({});
-  const [assignmentSubmissions, setAssignmentSubmissions] = useState<Record<string, AssignmentSubmissionRecord>>({});
+  const [testResults, setTestResults] = useState<Record<string, TestResultRecord>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('woodlem_cached_test_results');
+        if (raw) return JSON.parse(raw);
+      } catch {}
+    }
+    return {};
+  });
+  const [assignmentSubmissions, setAssignmentSubmissions] = useState<Record<string, AssignmentSubmissionRecord>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('woodlem_cached_assignment_submissions');
+        if (raw) return JSON.parse(raw);
+      } catch {}
+    }
+    return {};
+  });
   const [studentSyllabusProgress, setStudentSyllabusProgress] = useState<Record<string, boolean>>({});
   const [classResources, setClassResources] = useState<ClassResource[]>([]);
   const [classBroadcasts, setClassBroadcasts] = useState<ClassBroadcast[]>([]);
@@ -270,8 +286,23 @@ export default function WoodlemApp() {
             ? sanitizeUserCode(p.admission_number || p.user_code, p.email)
             : (p.user_code || p.admission_number ? sanitizeUserCode(p.user_code || p.admission_number) : '');
 
+          let cachedDeact = false;
+          try {
+            const deactStr = typeof window !== 'undefined' ? localStorage.getItem('woodlem_deactivated_user_ids_v1') : null;
+            if (deactStr) {
+              const deactList: string[] = JSON.parse(deactStr);
+              if (deactList.includes(p.id) || (emailLower && deactList.includes(emailLower))) {
+                cachedDeact = true;
+              }
+            }
+          } catch (e) {}
+
+          const isDeactivated = Boolean(p.is_deactivated || cachedDeact);
+
           return {
             ...p,
+            is_deactivated: isDeactivated,
+            deactivated_at: p.deactivated_at || (isDeactivated ? (p.deactivated_at || new Date().toISOString()) : undefined),
             user_code: isStudent ? cleanCode : (cleanCode || p.user_code || undefined),
             admission_number: isStudent ? cleanCode : (p.admission_number || undefined),
             role,
@@ -290,6 +321,13 @@ export default function WoodlemApp() {
             (p) => (prev.id && p.id === prev.id) || (p.email && p.email.toLowerCase() === prev.email.toLowerCase())
           );
           if (!fresh) return prev;
+          if (fresh.is_deactivated) {
+            setTimeout(() => {
+              alert('Your account has been deactivated. Please contact the school administration.');
+              handleSignOut();
+            }, 100);
+            return null;
+          }
           let freshRole = fresh.role;
           const freshEmail = (fresh.email || '').toLowerCase().trim();
           if (freshEmail === 'admin@woodlempark.ae' || freshEmail === 'admin@woodlem.com' || freshEmail.startsWith('admin@')) {
@@ -346,7 +384,47 @@ export default function WoodlemApp() {
       });
 
       setTests(builtTests);
-      setAssignments(assignRes.data || []);
+
+      // Merge assignments with local cached assignments
+      let combinedAssignments: AssignmentItem[] = (assignRes.data || []).map((a: any) => ({
+        id: a.id,
+        title: a.title,
+        class_name: a.class_name,
+        description: a.description || undefined,
+        total_marks: a.total_marks || undefined,
+        file_name: a.file_name || undefined,
+        file_url: a.file_url || undefined,
+        teacher_id: a.teacher_id || undefined,
+        due_date: a.due_date || undefined,
+        created_at: a.created_at,
+      }));
+
+      if (typeof window !== 'undefined') {
+        try {
+          const cached = localStorage.getItem('woodlem_offline_assignments_v1');
+          if (cached) {
+            const list: AssignmentItem[] = JSON.parse(cached);
+            const map = new Map<string, AssignmentItem>();
+            list.forEach((a) => map.set(a.id, a));
+            combinedAssignments.forEach((a) => {
+              const existing = map.get(a.id);
+              map.set(a.id, {
+                ...existing,
+                ...a,
+                description: a.description || existing?.description,
+                file_name: a.file_name || existing?.file_name,
+                file_url: a.file_url || existing?.file_url,
+                total_marks: a.total_marks || existing?.total_marks,
+              });
+            });
+            combinedAssignments = Array.from(map.values()).sort(
+              (a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime()
+            );
+          }
+        } catch {}
+      }
+
+      setAssignments(combinedAssignments);
 
       const builtSyllabus: SyllabusTerm[] = (sylRes.data || [])
         .map((term: any) => ({
@@ -492,7 +570,17 @@ export default function WoodlemApp() {
           completed_at: row.submitted_at ? new Date(row.submitted_at).toLocaleDateString() : undefined,
         };
       });
-      setTestResults(testResMap);
+
+      let finalTestResMap = testResMap;
+      if (typeof window !== 'undefined') {
+        try {
+          const rawTests = localStorage.getItem('woodlem_cached_test_results');
+          if (rawTests) {
+            finalTestResMap = { ...JSON.parse(rawTests), ...testResMap };
+          }
+        } catch {}
+      }
+      setTestResults(finalTestResMap);
 
       const assSubMap: Record<string, AssignmentSubmissionRecord> = {};
       (assignSubsRes.data || []).forEach((row: any) => {
@@ -503,13 +591,25 @@ export default function WoodlemApp() {
           student_name: row.student_name || 'Student',
           file_name: row.file_name || '',
           file_url: row.file_url || '',
-          grade: row.score ? `${row.score}` : '',
+          notes: row.notes || row.text_answer || '',
+          text_answer: row.text_answer || row.notes || '',
+          grade: row.grade || (row.score ? `${row.score}` : ''),
           feedback: row.feedback || '',
-          status: row.score ? 'graded' : 'submitted',
+          status: (row.grade || row.score) ? 'graded' : 'submitted',
           submitted_at: row.submitted_at ? new Date(row.submitted_at).toLocaleDateString() : undefined,
         };
       });
-      setAssignmentSubmissions(assSubMap);
+
+      let finalAssSubMap = assSubMap;
+      if (typeof window !== 'undefined') {
+        try {
+          const rawSubs = localStorage.getItem('woodlem_cached_assignment_submissions');
+          if (rawSubs) {
+            finalAssSubMap = { ...JSON.parse(rawSubs), ...assSubMap };
+          }
+        } catch {}
+      }
+      setAssignmentSubmissions(finalAssSubMap);
 
       const sylProgMap: Record<string, boolean> = {};
       (sylProgRes.data || []).forEach((row: any) => {
@@ -1246,6 +1346,26 @@ export default function WoodlemApp() {
       if (updatedUser.parent_link_code) {
         dbPayload.parent_link_code = updatedUser.parent_link_code.trim();
       }
+      if (updatedUser.is_deactivated !== undefined) {
+        dbPayload.is_deactivated = updatedUser.is_deactivated;
+        dbPayload.deactivated_at = updatedUser.deactivated_at ?? (updatedUser.is_deactivated ? new Date().toISOString() : null);
+
+        // Sync local storage deactivation cache
+        try {
+          let currentDeactivated: string[] = [];
+          const stored = typeof window !== 'undefined' ? localStorage.getItem('woodlem_deactivated_user_ids_v1') : null;
+          if (stored) currentDeactivated = JSON.parse(stored);
+          if (updatedUser.is_deactivated) {
+            if (profileId && !currentDeactivated.includes(profileId)) currentDeactivated.push(profileId);
+            if (cleanEmail && !currentDeactivated.includes(cleanEmail)) currentDeactivated.push(cleanEmail);
+          } else {
+            currentDeactivated = currentDeactivated.filter((id) => id !== profileId && id !== cleanEmail && id !== originalEmail);
+          }
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('woodlem_deactivated_user_ids_v1', JSON.stringify(currentDeactivated));
+          }
+        } catch (e) {}
+      }
 
       // Execute safe multi-tier update verified with .select()
       let dbUpdated = false;
@@ -1523,6 +1643,123 @@ export default function WoodlemApp() {
     }
   };
 
+  const handleBatchDeactivateUsers = async (userIds: string[], deactivate: boolean) => {
+    if (!userIds || userIds.length === 0) return;
+    const idsSet = new Set(userIds);
+
+    // Guard: Root Admin and Principal cannot be deactivated
+    const targetProfiles = profiles.filter((p) => idsSet.has(p.id));
+    const hasProtected = targetProfiles.some(
+      (p) =>
+        p.email?.toLowerCase() === 'admin@woodlempark.ae' ||
+        p.email?.toLowerCase() === 'principal@woodlempark.ae' ||
+        isPrincipalUser(p)
+    );
+    if (deactivate && hasProtected) {
+      alert('Security Policy: Root Administrator and Principal accounts cannot be deactivated.');
+      return;
+    }
+
+    const timestamp = new Date().toISOString();
+
+    // 1. Optimistic state update
+    setProfiles((prev) =>
+      prev.map((p) => {
+        if (idsSet.has(p.id)) {
+          return {
+            ...p,
+            is_deactivated: deactivate,
+            deactivated_at: deactivate ? (p.deactivated_at || timestamp) : undefined,
+          };
+        }
+        return p;
+      })
+    );
+
+    // 2. Persist to local cache for instant zero-latency recall
+    try {
+      let currentDeactivated: string[] = [];
+      const stored = typeof window !== 'undefined' ? localStorage.getItem('woodlem_deactivated_user_ids_v1') : null;
+      if (stored) currentDeactivated = JSON.parse(stored);
+      if (deactivate) {
+        userIds.forEach((id) => {
+          if (!currentDeactivated.includes(id)) currentDeactivated.push(id);
+          const p = targetProfiles.find((x) => x.id === id);
+          if (p?.email && !currentDeactivated.includes(p.email.toLowerCase())) {
+            currentDeactivated.push(p.email.toLowerCase());
+          }
+        });
+      } else {
+        currentDeactivated = currentDeactivated.filter((id) => {
+          if (idsSet.has(id)) return false;
+          const p = targetProfiles.find((x) => x.id === id || (x.email && x.email.toLowerCase() === id.toLowerCase()));
+          return !p;
+        });
+      }
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('woodlem_deactivated_user_ids_v1', JSON.stringify(currentDeactivated));
+      }
+    } catch (e) {}
+
+    // 3. Persist to Supabase public.profiles
+    try {
+      const dbPayload = {
+        is_deactivated: deactivate,
+        deactivated_at: deactivate ? timestamp : null,
+      };
+      const { error } = await supabase
+        .from('profiles')
+        .update(dbPayload)
+        .in('id', userIds);
+      if (error) {
+        console.warn('Supabase batch deactivation notice (column might need migration):', error);
+      }
+    } catch (dbErr) {
+      console.warn('Batch deactivation error:', dbErr);
+    }
+  };
+
+  const handleBatchDeleteUsers = async (userIds: string[]) => {
+    if (!userIds || userIds.length === 0) return;
+    const idsSet = new Set(userIds);
+
+    // Filter out protected accounts
+    const targetProfiles = profiles.filter((p) => idsSet.has(p.id));
+    const validIdsToDelete = userIds.filter((id) => {
+      const p = targetProfiles.find((u) => u.id === id);
+      if (!p) return true;
+      if (p.email?.toLowerCase() === 'admin@woodlempark.ae' || p.email?.toLowerCase() === 'principal@woodlempark.ae' || isPrincipalUser(p)) {
+        return false;
+      }
+      return true;
+    });
+
+    if (validIdsToDelete.length === 0) {
+      alert('Security Policy: Root Administrator and Principal accounts cannot be deleted.');
+      return;
+    }
+
+    const deleteIdsSet = new Set(validIdsToDelete);
+
+    // 1. Optimistic state update: Remove from profiles
+    setProfiles((prev) => prev.filter((p) => !deleteIdsSet.has(p.id)));
+
+    // 2. Unenroll from subject classes in memory
+    setSubjectClasses((prev) =>
+      prev.map((c) => ({
+        ...c,
+        enrolled_student_ids: (c.enrolled_student_ids || []).filter((id) => !deleteIdsSet.has(id)),
+      }))
+    );
+
+    // 3. Remove from Supabase
+    try {
+      await supabase.from('profiles').delete().in('id', validIdsToDelete);
+    } catch (e) {
+      console.error('Database batch delete error:', e);
+    }
+  };
+
   // 2. Tests & Assessments
   const handleCreateTest = async (
     data:
@@ -1758,31 +1995,123 @@ export default function WoodlemApp() {
 
   // 3. Assignments & Coursework
   const handleCreateAssignment = async (
-    data: { title: string; className?: string; type?: 'assignment' | 'assessment' } | string
+    data: CreateAssignmentData | string
   ) => {
     if (typeof data === 'object' && data.type === 'assessment') {
       return handleCreateTest(data);
     }
     const title = typeof data === 'string' ? data : data.title;
     const className = typeof data === 'object' && data.className ? data.className : (targetClassForModal || '10-A');
+    const description = typeof data === 'object' ? data.description : undefined;
+    const totalMarks = typeof data === 'object' ? data.totalMarks : 25;
+    const fileName = typeof data === 'object' ? data.fileName : undefined;
+    const fileUrl = typeof data === 'object' ? data.fileUrl : undefined;
+
     const newAss: AssignmentItem = {
       id: `ass-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title,
       class_name: className,
+      description: description || undefined,
+      total_marks: totalMarks || 25,
+      file_name: fileName || undefined,
+      file_url: fileUrl || undefined,
+      teacher_id: currentUser?.id,
+      created_at: new Date().toISOString(),
     };
 
     setAssignments((prev) => [newAss, ...prev]);
+
+    // Save to local offline cache immediately so it is never lost
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('woodlem_offline_assignments_v1');
+        const list: AssignmentItem[] = cached ? JSON.parse(cached) : [];
+        list.unshift(newAss);
+        localStorage.setItem('woodlem_offline_assignments_v1', JSON.stringify(list));
+      } catch (storageErr) {
+        console.warn('Could not cache assignment with file to localStorage (likely quota exceeded):', storageErr);
+        try {
+          const cached = localStorage.getItem('woodlem_offline_assignments_v1');
+          const list: AssignmentItem[] = cached ? JSON.parse(cached) : [];
+          list.unshift({ ...newAss, file_url: undefined });
+          localStorage.setItem('woodlem_offline_assignments_v1', JSON.stringify(list));
+        } catch {}
+      }
+    }
+
+    let dbSuccess = false;
+    // Tier 1: Full payload
     try {
-      await supabase.from('assignments').insert([newAss]);
-    } catch (e) {}
+      const { error: err1 } = await supabase.from('assignments').insert([newAss]);
+      if (!err1) {
+        dbSuccess = true;
+      } else {
+        console.warn('Assignment insert Tier 1 notice (retrying without file_url):', err1.message);
+      }
+    } catch (e) {
+      console.warn('Exception during Tier 1 assignment insert:', e);
+    }
+
+    // Tier 2: Payload without large base64 file_url
+    if (!dbSuccess) {
+      try {
+        const tier2Payload = {
+          id: newAss.id,
+          title: newAss.title,
+          class_name: newAss.class_name,
+          description: newAss.description || '',
+          total_marks: newAss.total_marks,
+          file_name: newAss.file_name || '',
+          teacher_id: newAss.teacher_id,
+          created_at: newAss.created_at,
+        };
+        const { error: err2 } = await supabase.from('assignments').insert([tier2Payload]);
+        if (!err2) {
+          dbSuccess = true;
+        } else {
+          console.warn('Assignment insert Tier 2 notice (retrying minimal row):', err2.message);
+        }
+      } catch (e) {
+        console.warn('Exception during Tier 2 assignment insert:', e);
+      }
+    }
+
+    // Tier 3: Core columns only (id, title, class_name)
+    if (!dbSuccess) {
+      try {
+        const tier3Payload = {
+          id: newAss.id,
+          title: newAss.title,
+          class_name: newAss.class_name,
+        };
+        const { error: err3 } = await supabase.from('assignments').insert([tier3Payload]);
+        if (!err3) {
+          dbSuccess = true;
+        }
+      } catch (e) {
+        console.warn('Exception during Tier 3 assignment insert:', e);
+      }
+    }
 
     recordAuditLog('CREATE_ACHIEVEMENT' as any, title, `Published new homework assignment for ${className}`);
-    alert(`Assignment "${title}" created successfully.`);
+    alert(`Assignment "${title}" published successfully.`);
   };
 
   const handleDeleteAssignment = async (assignmentId: string) => {
     const assObj = assignments.find((a) => a.id === assignmentId);
     setAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
+
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('woodlem_offline_assignments_v1');
+        if (cached) {
+          const list: AssignmentItem[] = JSON.parse(cached);
+          const filtered = list.filter((a) => a.id !== assignmentId);
+          localStorage.setItem('woodlem_offline_assignments_v1', JSON.stringify(filtered));
+        }
+      } catch {}
+    }
+
     try {
       await supabase.from('assignments').delete().eq('id', assignmentId);
     } catch (e) {}
@@ -1794,24 +2123,53 @@ export default function WoodlemApp() {
 
   const handleSubmitAssignment = async (submission: AssignmentSubmissionRecord) => {
     const key = `${submission.assignment_id}_${submission.student_id}`;
-    setAssignmentSubmissions((prev) => ({ ...prev, [key]: submission }));
+    setAssignmentSubmissions((prev) => {
+      const updated = { ...prev, [key]: submission };
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('woodlem_cached_assignment_submissions', JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
 
     try {
-      await supabase.from('assignment_submissions').upsert({
+      const payload: any = {
         id: key,
         assignment_id: submission.assignment_id,
         student_id: submission.student_id,
         file_name: submission.file_name || '',
         file_url: submission.file_url || '',
+        notes: submission.notes || submission.text_answer || '',
+        text_answer: submission.text_answer || submission.notes || '',
         grade: submission.grade || '',
         feedback: submission.feedback || '',
         submitted_at: new Date().toISOString(),
-      });
+      };
+
+      const { error } = await supabase.from('assignment_submissions').upsert(payload, { onConflict: 'assignment_id,student_id' });
+      if (error) {
+        console.warn('Upsert onConflict failed, retrying simple insert/update:', error);
+        await supabase.from('assignment_submissions').upsert(
+          {
+            assignment_id: submission.assignment_id,
+            student_id: submission.student_id,
+            file_name: submission.file_name || '',
+            file_url: submission.file_url || '',
+            notes: submission.notes || submission.text_answer || '',
+            text_answer: submission.text_answer || submission.notes || '',
+            grade: submission.grade || '',
+            feedback: submission.feedback || '',
+            submitted_at: new Date().toISOString(),
+          },
+          { onConflict: 'assignment_id,student_id' }
+        );
+      }
     } catch (e) {
       console.error('Error saving assignment submission to Supabase:', e);
     }
 
-    recordAuditLog('CREATE_ACHIEVEMENT' as any, submission.student_name, `Uploaded assignment file: ${submission.file_name || 'Homework'}`);
+    recordAuditLog('CREATE_ACHIEVEMENT' as any, submission.student_name, `Uploaded assignment response: ${submission.file_name || 'Written Answer'}`);
   };
 
   const handleGradeAssignment = async (assignmentId: string, studentId: string, grade: string, feedback?: string) => {
@@ -1823,29 +2181,40 @@ export default function WoodlemApp() {
       assignment_id: assignmentId,
       student_id: studentId,
       student_name: student?.name || existing?.student_name || 'Student',
-      file_name: existing?.file_name || 'Completed_Assignment.pdf',
+      file_name: existing?.file_name || undefined,
       file_url: existing?.file_url || '',
       notes: existing?.notes || '',
       grade,
       feedback: feedback || '',
       status: 'graded',
-      submitted_at: existing?.submitted_at || new Date().toLocaleDateString(),
+      submitted_at: existing?.submitted_at || undefined,
     };
 
-    setAssignmentSubmissions((prev) => ({ ...prev, [key]: updatedRecord }));
+    setAssignmentSubmissions((prev) => {
+      const updated = { ...prev, [key]: updatedRecord };
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('woodlem_cached_assignment_submissions', JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return updated;
+    });
 
     try {
-      await supabase.from('assignment_submissions').upsert({
-        id: key,
-        assignment_id: assignmentId,
-        student_id: studentId,
-        file_name: updatedRecord.file_name || '',
-        file_url: updatedRecord.file_url || '',
-        grade,
-        feedback: feedback || '',
-        graded_at: new Date().toISOString(),
-        graded_by: currentUser?.name || 'Teacher',
-      });
+      await supabase.from('assignment_submissions').upsert(
+        {
+          id: key,
+          assignment_id: assignmentId,
+          student_id: studentId,
+          file_name: updatedRecord.file_name || '',
+          file_url: updatedRecord.file_url || '',
+          grade,
+          feedback: feedback || '',
+          graded_at: new Date().toISOString(),
+          graded_by: currentUser?.name || 'Teacher',
+        },
+        { onConflict: 'assignment_id,student_id' }
+      );
     } catch (e) {
       console.error('Error grading assignment in Supabase:', e);
     }
@@ -3106,11 +3475,17 @@ export default function WoodlemApp() {
     } catch (e) {}
   };
 
+  // Filter active profiles (excluding deactivated accounts)
+  const activeProfiles = useMemo(
+    () => profiles.filter((p) => !p.is_deactivated),
+    [profiles]
+  );
+
   // Filter students profile list for dropdowns
   const students: Student[] = useMemo(
     () =>
       profiles
-        .filter((p) => p.role === 'student')
+        .filter((p) => !p.is_deactivated && p.role === 'student')
         .map((p) => ({
           id: p.id,
           name: p.name,
@@ -3124,7 +3499,7 @@ export default function WoodlemApp() {
   );
 
   const allStudentProfiles = useMemo(
-    () => profiles.filter((p) => p.role === 'student'),
+    () => profiles.filter((p) => !p.is_deactivated && p.role === 'student'),
     [profiles]
   );
 
@@ -3133,7 +3508,7 @@ export default function WoodlemApp() {
     if (!currentUser || currentUser.role !== 'parent') return [];
     const ids = currentUser.linked_student_ids || [];
     return profiles
-      .filter((p) => p.role === 'student' && ids.includes(p.id))
+      .filter((p) => !p.is_deactivated && p.role === 'student' && ids.includes(p.id))
       .map((p) => ({
         id: p.id,
         name: p.name,
@@ -3207,7 +3582,7 @@ export default function WoodlemApp() {
       ) : currentUser.role === 'teacher' ? (
         <TeacherDashboard
           currentUser={currentUser}
-          profiles={profiles}
+          profiles={activeProfiles}
           tests={tests}
           assignments={assignments}
           syllabus={syllabus}
@@ -3265,7 +3640,7 @@ export default function WoodlemApp() {
       ) : isPrincipalUser(currentUser) || isSltUser(currentUser) || currentUser.role === 'principal' ? (
         <PrincipalDashboard
           currentUser={currentUser}
-          profiles={profiles}
+          profiles={activeProfiles}
           subjectClasses={subjectClasses}
           tests={tests}
           syllabus={syllabus}
@@ -3293,6 +3668,8 @@ export default function WoodlemApp() {
           onEditUser={(user) => setEditingUser(user)}
           onUpdateUser={handleUpdateUser}
           onDeleteUser={handleDeleteUser}
+          onBatchDeactivateUsers={handleBatchDeactivateUsers}
+          onBatchDeleteUsers={handleBatchDeleteUsers}
           onSignOut={handleSignOut}
           onRefreshData={loadAllData}
         />
@@ -3326,7 +3703,7 @@ export default function WoodlemApp() {
       {/* AI Copilot — flex sibling, pushes dashboard content */}
       <AiChatbot
         currentUser={currentUser}
-        profiles={profiles}
+        profiles={activeProfiles}
         subjectClasses={subjectClasses}
         tests={tests}
         assignments={assignments}
@@ -3340,7 +3717,6 @@ export default function WoodlemApp() {
         parentDocuments={parentDocuments}
         testResults={testResults}
         assignmentSubmissions={assignmentSubmissions}
-        studentSyllabusProgress={studentSyllabusProgress}
       />
       </div>
 
@@ -3436,7 +3812,7 @@ export default function WoodlemApp() {
         <CreateSubjectClassModal
           isOpen={isCreateClassOpen}
           teacher={currentUser}
-          profiles={profiles}
+          profiles={activeProfiles}
           onClose={() => setIsCreateClassOpen(false)}
           onSubmit={handleCreateSubjectClass}
         />

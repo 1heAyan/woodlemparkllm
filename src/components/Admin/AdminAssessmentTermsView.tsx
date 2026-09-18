@@ -921,16 +921,16 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
                         style={{
                           fontSize: 11.5,
                           fontWeight: 600,
-                          padding: '3px 8px',
+                          padding: '3px 9px',
                           borderRadius: 4,
-                          background: currentGradeClasses.length > 0 ? 'var(--surface-variant)' : '#EAF3EF',
-                          color: currentGradeClasses.length > 0 ? 'var(--neutral-dark)' : '#265E5A',
-                          border: currentGradeClasses.length > 0 ? 'none' : '1px solid #C7E4D8',
+                          background: currentGradeClasses.length > 0 ? 'var(--surface-variant)' : '#F8F7F4',
+                          color: currentGradeClasses.length > 0 ? 'var(--neutral-dark)' : 'var(--text-secondary)',
+                          border: '1px solid var(--border-color)',
+                          display: 'inline-block',
+                          whiteSpace: 'nowrap',
                         }}
                       >
-                        {currentGradeClasses.length > 0
-                          ? `${currentGradeClasses.length} ${currentGradeClasses.length === 1 ? 'Class' : 'Classes'}`
-                          : '💾 Cloud Stored (0 Classes yet)'}
+                        {currentGradeClasses.length} {currentGradeClasses.length === 1 ? 'Class' : 'Classes'}
                       </span>
                     </td>
 
@@ -1251,27 +1251,6 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
                     </button>
                   ))}
                 </div>
-              </div>
-
-              <div
-                style={{
-                  fontSize: 11.5,
-                  color: '#265E5A',
-                  background: '#EAF3EF',
-                  border: '1px solid #C7E4D8',
-                  padding: '8px 12px',
-                  borderRadius: 6,
-                }}
-              >
-                {currentGradeClasses.length > 0 ? (
-                  <span>
-                    💾 Saved to database and applied across all <strong>{currentGradeClasses.length} classrooms</strong> in Grade {selectedGrade}.
-                  </span>
-                ) : (
-                  <span>
-                    💾 Saved directly to database for <strong>Grade {selectedGrade}</strong>. Any subject classrooms created in Grade {selectedGrade} will automatically receive this term.
-                  </span>
-                )}
               </div>
 
               {formError && (

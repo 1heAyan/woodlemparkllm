@@ -18,7 +18,7 @@ import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import { isPrincipalUser, isSltUser } from '@/lib/specialRolesHelper';
 import { sanitizeUserCode, normalizeAdmissionNumber, normalizeStudentName, isMatchingStudent } from '@/lib/userCodeHelper';
-import { computeExecutiveAnalytics } from '@/lib/analyticsHelper';
+import { computeExecutiveAnalytics, isSubjectClassInGrade } from '@/lib/analyticsHelper';
 import {
   ScoreDistributionChart,
   SubjectComparisonChart,
@@ -46,6 +46,8 @@ interface AdminDashboardProps {
   onEditUser: (user: UserProfile) => void;
   onUpdateUser?: (updatedUser: UserProfile) => Promise<void> | void;
   onDeleteUser: (userId: string) => void;
+  onBatchDeactivateUsers?: (userIds: string[], deactivate: boolean) => Promise<void> | void;
+  onBatchDeleteUsers?: (userIds: string[]) => Promise<void> | void;
   onSignOut: () => void;
   onRefreshData?: () => void;
 }
@@ -121,19 +123,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onEditUser,
   onUpdateUser,
   onDeleteUser,
+  onBatchDeactivateUsers,
+  onBatchDeleteUsers,
   onSignOut,
   onRefreshData,
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
-  const [roleFilter, setRoleFilter] = useState<'all' | 'student' | 'teacher' | 'parent' | 'admin' | 'principal'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'student' | 'teacher' | 'parent' | 'admin' | 'principal' | 'deactivated'>('all');
   const [classFilter, setClassFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const pageSize = 50;
+
   const [selectedClassInspect, setSelectedClassInspect] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserProfile | null>(null);
   const [activeMarkEntryClass, setActiveMarkEntryClass] = useState<SubjectClass | null>(null);
   const [dirScroll, setDirScroll] = useState<{ left: boolean; right: boolean }>({ left: false, right: false });
   const dirScrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Reset pagination and selection whenever filters or search change
+  useEffect(() => {
+    setCurrentPage(1);
+    setSelectedUserIds(new Set());
+  }, [roleFilter, classFilter, searchQuery]);
 
   const handleDirScroll = useCallback((el: HTMLDivElement) => {
     const { scrollLeft, scrollWidth, clientWidth } = el;
@@ -284,53 +298,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const overviewAnalytics = useMemo(() => {
-    return computeExecutiveAnalytics({
-      profiles,
-      subjectClasses,
-      tests: tests || [],
-      syllabus: syllabus || [],
-      attendance: attendance || {},
-      testResults: testResults || {},
-      selectedGradeFilter: overviewGradeFilter,
-    });
-  }, [profiles, subjectClasses, tests, syllabus, attendance, testResults, overviewGradeFilter]);
-
-  const displayHubActivities = useMemo(() => {
-    return (hubActivities || []).filter(
-      (act) => !String(act.title || '').startsWith('__') && act.type !== 'system_config' && act.id !== 'special_roles_master_v1'
-    );
-  }, [hubActivities]);
-
-  // Portal Navigation & AI Copilot Integration
-  const { isAiPanelOpen, toggleAiPanel, subscribeToNavigation } = usePortalNavigation();
-
-  React.useEffect(() => {
-    const unsubscribe = subscribeToNavigation((target) => {
-      if (target.view === 'overview') {
-        setActiveTab('overview');
-      } else if (target.view === 'directory' || target.view === 'users') {
-        setActiveTab('directory');
-      } else if (target.view === 'classes' || target.view === 'sections') {
-        setActiveTab('classes');
-      } else if (target.view === 'assessments' || target.view === 'exams' || target.view === 'terms' || target.view === 'marks') {
-        setActiveTab('assessments');
-      } else if (target.view === 'hub' || target.view === 'activities') {
-        setActiveTab('hub');
-      } else if (target.view === 'settings' || target.view === 'password') {
-        setActiveTab('settings');
-      } else if (target.view === 'support' || target.view === 'helpdesk') {
-        setActiveTab('support');
-
-      } else if (target.modalAction === 'provision_user') {
-        onOpenProvisionModal();
-      } else if (target.modalAction === 'bulk_import') {
-        onOpenBulkModal();
-      }
-    });
-    return unsubscribe;
-  }, [subscribeToNavigation, onOpenProvisionModal, onOpenBulkModal]);
-
   // Grouped profiles
   const students = useMemo(() => profiles.filter((p) => p.role === 'student'), [profiles]);
   const teachers = useMemo(() => profiles.filter((p) => p.role === 'teacher'), [profiles]);
@@ -377,18 +344,132 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
   }, [students, teachers, subjectClasses]);
 
+  // ─── GLOBAL GRADE FILTER DATA FOR OVERVIEW DASHBOARD ───────────────────
+  const overviewStudents = useMemo(() => {
+    if (overviewGradeFilter === 'all') return students;
+    return students.filter(
+      (st) => (st.grade || '').replace(/[^0-9]/g, '') === overviewGradeFilter
+    );
+  }, [students, overviewGradeFilter]);
+
+  const overviewActiveClassList = useMemo(() => {
+    if (overviewGradeFilter === 'all') return activeClassList;
+    return activeClassList.filter((c) => c.startsWith(`${overviewGradeFilter}-`) || c === overviewGradeFilter);
+  }, [activeClassList, overviewGradeFilter]);
+
+  const overviewSubjectClasses = useMemo(() => {
+    if (overviewGradeFilter === 'all') return subjectClasses;
+    return subjectClasses.filter((sc) => isSubjectClassInGrade(sc, overviewGradeFilter, profiles));
+  }, [subjectClasses, overviewGradeFilter, profiles]);
+
+  const overviewTeachers = useMemo(() => {
+    if (overviewGradeFilter === 'all') return teachers;
+    const gradeClassNames = new Set(overviewSubjectClasses.map((sc) => (sc.name || sc.class_name || '').toLowerCase()));
+    const gradeTeacherIds = new Set(overviewSubjectClasses.map((sc) => sc.teacher_id).filter(Boolean));
+    const gradeTeacherNames = new Set(overviewSubjectClasses.map((sc) => sc.teacher_name?.toLowerCase()).filter(Boolean));
+
+    return teachers.filter((t) => {
+      const assigned = (t.assigned_class || '').replace(/[^0-9]/g, '');
+      if (assigned === overviewGradeFilter || (t.assigned_class || '').includes(`${overviewGradeFilter}-`)) {
+        return true;
+      }
+      if (gradeTeacherIds.has(t.id)) return true;
+      if (t.name && gradeTeacherNames.has(t.name.toLowerCase())) return true;
+      if (t.assigned_class && gradeClassNames.has(t.assigned_class.toLowerCase())) return true;
+      return false;
+    });
+  }, [teachers, overviewGradeFilter, overviewSubjectClasses]);
+
+  const overviewParents = useMemo(() => {
+    if (overviewGradeFilter === 'all') return parents;
+    const studentIdsInGrade = new Set(overviewStudents.map((s) => s.id));
+    const studentAdmInGrade = new Set(
+      overviewStudents.map((s) => sanitizeUserCode(s.admission_number || s.user_code, s.email)).filter(Boolean)
+    );
+
+    return parents.filter((p) => {
+      const pGrade = (p.grade || '').replace(/[^0-9]/g, '');
+      if (pGrade === overviewGradeFilter) return true;
+      if (p.linked_student_ids && p.linked_student_ids.some((cId: string) => studentIdsInGrade.has(cId))) return true;
+      const pAdm = sanitizeUserCode(p.admission_number || p.user_code, p.email);
+      if (pAdm && studentAdmInGrade.has(pAdm)) return true;
+      return false;
+    });
+  }, [parents, overviewGradeFilter, overviewStudents]);
+
+  const overviewProfiles = useMemo(() => {
+    if (overviewGradeFilter === 'all') return profiles.filter((p) => !p.is_deactivated);
+    return [...overviewStudents, ...overviewTeachers, ...overviewParents].filter((p) => !p.is_deactivated);
+  }, [overviewGradeFilter, profiles, overviewStudents, overviewTeachers, overviewParents]);
+
+  const overviewAnalytics = useMemo(() => {
+    return computeExecutiveAnalytics({
+      profiles: overviewProfiles,
+      subjectClasses: overviewSubjectClasses,
+      tests: tests || [],
+      syllabus: syllabus || [],
+      attendance: attendance || {},
+      testResults: testResults || {},
+      selectedGradeFilter: overviewGradeFilter,
+    });
+  }, [overviewProfiles, overviewSubjectClasses, tests, syllabus, attendance, testResults, overviewGradeFilter]);
+
+  const displayHubActivities = useMemo(() => {
+    return (hubActivities || []).filter(
+      (act) => !String(act.title || '').startsWith('__') && act.type !== 'system_config' && act.id !== 'special_roles_master_v1'
+    );
+  }, [hubActivities]);
+
+  // Portal Navigation & AI Copilot Integration
+  const { isAiPanelOpen, toggleAiPanel, subscribeToNavigation } = usePortalNavigation();
+
+  React.useEffect(() => {
+    const unsubscribe = subscribeToNavigation((target) => {
+      if (target.view === 'overview') {
+        setActiveTab('overview');
+      } else if (target.view === 'directory' || target.view === 'users') {
+        setActiveTab('directory');
+      } else if (target.view === 'classes' || target.view === 'sections') {
+        setActiveTab('classes');
+      } else if (target.view === 'assessments' || target.view === 'exams' || target.view === 'terms' || target.view === 'marks') {
+        setActiveTab('assessments');
+      } else if (target.view === 'hub' || target.view === 'activities') {
+        setActiveTab('hub');
+      } else if (target.view === 'settings' || target.view === 'password') {
+        setActiveTab('settings');
+      } else if (target.view === 'support' || target.view === 'helpdesk') {
+        setActiveTab('support');
+      } else if (target.modalAction === 'provision_user') {
+        onOpenProvisionModal();
+      } else if (target.modalAction === 'bulk_import') {
+        onOpenBulkModal();
+      }
+    });
+    return unsubscribe;
+  }, [subscribeToNavigation, onOpenProvisionModal, onOpenBulkModal]);
+
+  // Deactivated accounts count
+  const deactivatedCount = useMemo(() => profiles.filter((p) => p.is_deactivated).length, [profiles]);
+
   // Filtered profiles for User Directory
   const filteredProfiles = useMemo(() => {
     return profiles.filter((p) => {
-      // Role filter
-      if (roleFilter !== 'all') {
-        if (roleFilter === 'principal') {
-          const isExec = p.role === 'principal' || isPrincipalUser(p) || isSltUser(p) || p.special_role === 'slt';
-          if (!isExec) return false;
-        } else if (roleFilter === 'admin') {
-          if (p.role !== 'admin' || isPrincipalUser(p) || isSltUser(p)) return false;
-        } else if (p.role !== roleFilter) {
-          return false;
+      // Deactivated category filtering
+      if (roleFilter === 'deactivated') {
+        if (!p.is_deactivated) return false;
+      } else {
+        if (p.is_deactivated) return false;
+
+        // Role filter for active accounts
+        if (roleFilter !== 'all') {
+          if (roleFilter === 'principal') {
+            const isExec = p.role === 'principal' || isPrincipalUser(p) || isSltUser(p) || p.special_role === 'slt';
+            if (!isExec) return false;
+          } else if (roleFilter === 'admin') {
+            if (p.role !== 'admin' || isPrincipalUser(p) || isSltUser(p)) return false;
+          } else if (p.role !== roleFilter) {
+            return false;
+          }
         }
       }
 
@@ -407,7 +488,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
       }
 
-      // Search query
+      // Search query across all accounts
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesName = (p.name || '').toLowerCase().includes(q);
@@ -419,7 +500,69 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
       return true;
     });
-  }, [profiles, roleFilter, classFilter, searchQuery]);
+  }, [profiles, roleFilter, classFilter, searchQuery, subjectClasses]);
+
+  // Pagination calculation (50 records per page)
+  const totalPages = Math.ceil(filteredProfiles.length / pageSize) || 1;
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedProfiles = useMemo(() => {
+    const start = (safeCurrentPage - 1) * pageSize;
+    return filteredProfiles.slice(start, start + pageSize);
+  }, [filteredProfiles, safeCurrentPage, pageSize]);
+
+  // Selection helpers
+  const isAllCurrentPageSelected = useMemo(() => {
+    if (paginatedProfiles.length === 0) return false;
+    return paginatedProfiles.every((p) => selectedUserIds.has(p.id));
+  }, [paginatedProfiles, selectedUserIds]);
+
+  const toggleSelectAllCurrentPage = () => {
+    setSelectedUserIds((prev) => {
+      const next = new Set(prev);
+      if (isAllCurrentPageSelected) {
+        paginatedProfiles.forEach((p) => next.delete(p.id));
+      } else {
+        paginatedProfiles.forEach((p) => next.add(p.id));
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectUser = (id: string) => {
+    setSelectedUserIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Batch action handlers
+  const handleBatchDeactivate = async (deactivate: boolean) => {
+    if (selectedUserIds.size === 0) return;
+    const count = selectedUserIds.size;
+    const actionWord = deactivate ? 'deactivate' : 'reactivate';
+    if (!confirm(`Are you sure you want to ${actionWord} ${count} selected account${count > 1 ? 's' : ''}?`)) {
+      return;
+    }
+    if (onBatchDeactivateUsers) {
+      await onBatchDeactivateUsers(Array.from(selectedUserIds), deactivate);
+      setSelectedUserIds(new Set());
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedUserIds.size === 0) return;
+    const count = selectedUserIds.size;
+    if (!confirm(`WARNING: Are you sure you want to permanently delete ${count} selected account${count > 1 ? 's' : ''}? This action cannot be undone.`)) {
+      return;
+    }
+    if (onBatchDeleteUsers) {
+      await onBatchDeleteUsers(Array.from(selectedUserIds));
+      setSelectedUserIds(new Set());
+    }
+  };
 
   useEffect(() => {
     const el = dirScrollRef.current;
@@ -427,29 +570,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     else setDirScroll({ left: false, right: false });
   }, [handleDirScroll, filteredProfiles.length]);
 
-
-
-  // Format student / teacher class & subject badge
+  // Clean identifier formatter
   const formatUserAssignment = (p: UserProfile) => {
     if (p.role === 'student') {
-      const cleanG = (p.grade || '').replace(/[^0-9]/g, '') || p.grade;
-      const cleanS = (p.class_letter || '').toUpperCase() || '';
-      const base = `Grade ${cleanG || '12'}${cleanS ? `-${cleanS}` : ''}`;
-      return p.parent_link_code ? `${base} · Code: ${p.parent_link_code}` : base;
+      const cleanG = (p.grade || '').replace(/[^0-9]/g, '') || '10';
+      const cleanS = (p.class_letter || 'A').toUpperCase().trim();
+      return `Grade ${cleanG}-${cleanS}`;
     }
     if (p.role === 'teacher') {
-      const parts: string[] = [];
-      if (p.subject) parts.push(p.subject);
       const info = extractClassTeacherInfo(p, subjectClasses);
-      if (info.isClassTeacher) {
-        parts.push(`Class Teacher (${info.classKey})`);
-      }
-      return parts.length > 0 ? parts.join(' | ') : 'Faculty';
+      const isCT = info.isClassTeacher;
+      const ctClass = info.classKey;
+      return `${p.subject || 'Faculty'}${isCT ? ` • Class Teacher (${ctClass})` : ''}`;
     }
     if (p.role === 'parent') {
-      const linked = profiles.filter((st) => (p.linked_student_ids || []).includes(st.id));
-      if (linked.length === 0) return 'Parent (No Ward Linked)';
-      return `Ward: ${linked.map((s) => `${s.name} (${s.grade ? `G${s.grade.replace(/[^0-9]/g, '')}-${s.class_letter || 'A'}` : 'Student'})`).join(', ')}`;
+      const linked = (p.linked_student_ids || [])
+        .map((id) => {
+          const st = profiles.find((x) => x.id === id);
+          if (!st) return null;
+          const g = (st.grade || '').replace(/[^0-9]/g, '');
+          const s = (st.class_letter || '').toUpperCase().trim();
+          return `${st.name} (G${g}-${s})`;
+        })
+        .filter(Boolean);
+      return linked.length > 0 ? `Ward: ${linked.join(', ')}` : 'No ward linked';
     }
     if (p.role === 'principal' || isPrincipalUser(p) || isSltUser(p) || p.special_role === 'slt') {
       return p.designation || (isPrincipalUser(p) ? 'Principal & Executive Head' : 'Senior Leadership Team');
@@ -467,12 +611,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // CSV export helper
-  const exportUsersCSV = () => {
-    const headers = ['Name', 'Email', 'Role', 'Admission/Code', 'Grade', 'Section', 'Subject', 'Assigned Class'];
-    const rows = filteredProfiles.map((p) => [
+  const exportUsersCSV = (onlySelected: boolean = false) => {
+    const listToExport = onlySelected
+      ? profiles.filter((p) => selectedUserIds.has(p.id))
+      : filteredProfiles;
+    if (listToExport.length === 0) {
+      alert('No accounts to export.');
+      return;
+    }
+    const headers = ['Name', 'Email', 'Role', 'Status', 'Admission/Code', 'Grade', 'Section', 'Subject', 'Assigned Class'];
+    const rows = listToExport.map((p) => [
       `"${p.name || ''}"`,
       `"${p.email || ''}"`,
       `"${p.role || ''}"`,
+      `"${p.is_deactivated ? 'Deactivated' : 'Active'}"`,
       `"${p.role === 'parent' ? '' : sanitizeUserCode(p.admission_number || p.user_code, p.email)}"`,
       `"${p.grade || ''}"`,
       `"${p.class_letter || ''}"`,
@@ -483,7 +635,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `woodlem_directory_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `woodlem_${onlySelected ? 'selected_' : ''}directory_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -501,6 +653,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     background: '#F5F4F0',
     borderBottom: '1px solid var(--border-color)',
     whiteSpace: 'nowrap',
+    position: 'sticky',
+    top: 0,
+    zIndex: 10,
   };
 
   const tdStyle: React.CSSProperties = {
@@ -608,20 +763,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 10,
+          gap: 12,
         }}
       >
-        <div>
+        <div style={{ minWidth: 0, flexShrink: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <h1 className="page-title" style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)', fontFamily: 'var(--font-display)' }}>
               Executive Control Console
             </h1>
           </div>
-          
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+            <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+              Logged in as System Admin ({currentUser.email || 'admin@woodlempark.ae'})
+            </span>
+            <span style={{ fontSize: 11.5, color: '#C8C6C2' }}>|</span>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary)' }}>
+              Total {overviewProfiles.length} Accounts {overviewGradeFilter === 'all' ? 'In System' : `(Grade ${overviewGradeFilter})`}
+            </span>
+          </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           {/* Grade Quick Filter Chips */}
           <SegmentedControl
             value={overviewGradeFilter}
@@ -668,7 +830,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             Import Accounts
           </button>
           <button
-            onClick={exportUsersCSV}
+            onClick={() => exportUsersCSV(false)}
             style={{
               padding: '6px 12px',
               fontSize: 11.5,
@@ -685,18 +847,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </div>
 
-      {/* Pending Parent Link Requests Alert Banner */}
       {/* KPI Stats Strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
         {[
-          { label: 'TOTAL ACCOUNTS', val: profiles.length, sub: 'Registered users', tab: 'directory' as const, role: 'all' as const, isAlert: false },
-          { label: 'STUDENTS', val: students.length, sub: `Active cohort (${overviewAnalytics.overallAverageScore}% mean)`, tab: 'directory' as const, role: 'student' as const, isAlert: false },
-          { label: 'FACULTY', val: teachers.length, sub: 'Teaching staff & HODs', tab: 'directory' as const, role: 'teacher' as const, isAlert: false },
-          { label: 'PARENTS', val: parents.length, sub: 'Linked guardians', tab: 'directory' as const, role: 'parent' as const, isAlert: false },
+          {
+            label: 'TOTAL ACCOUNTS',
+            val: overviewProfiles.length,
+            sub: overviewGradeFilter === 'all' ? 'Registered users' : `Grade ${overviewGradeFilter} accounts`,
+            tab: 'directory' as const,
+            role: 'all' as const,
+            isAlert: false,
+          },
+          {
+            label: 'STUDENTS',
+            val: overviewStudents.length,
+            sub: `Active cohort (${overviewAnalytics.overallAverageScore}% mean)`,
+            tab: 'directory' as const,
+            role: 'student' as const,
+            isAlert: false,
+          },
+          {
+            label: 'FACULTY',
+            val: overviewTeachers.length,
+            sub: overviewGradeFilter === 'all' ? 'Teaching staff & HODs' : `Grade ${overviewGradeFilter} teachers`,
+            tab: 'directory' as const,
+            role: 'teacher' as const,
+            isAlert: false,
+          },
+          {
+            label: 'PARENTS',
+            val: overviewParents.length,
+            sub: overviewGradeFilter === 'all' ? 'Linked guardians' : `Grade ${overviewGradeFilter} guardians`,
+            tab: 'directory' as const,
+            role: 'parent' as const,
+            isAlert: false,
+          },
           {
             label: 'CLASSES & SECTIONS',
-            val: `${activeClassList.length} ACTIVE`,
-            sub: 'Active cohorts (9-12)',
+            val: `${overviewActiveClassList.length} ACTIVE`,
+            sub: overviewGradeFilter === 'all' ? 'Active cohorts (9-12)' : `Grade ${overviewGradeFilter} sections`,
             tab: 'classes' as const,
             role: 'all' as const,
             isAlert: false,
@@ -742,12 +931,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <AtRiskHonorRollGrid
         distinctions={overviewAnalytics.distinctionStudents}
         atRisk={overviewAnalytics.atRiskStudents}
-        subjectClasses={subjectClasses}
-        profiles={profiles}
+        subjectClasses={overviewSubjectClasses}
+        profiles={overviewProfiles}
         testResults={testResults}
         tests={tests}
         onOpenClassMarks={(className: string) => {
-          const matched = subjectClasses.find(
+          const matched = overviewSubjectClasses.find(
             (sc) => (sc.name || sc.class_name || '') === className
           );
           if (matched) setActiveMarkEntryClass(matched);
@@ -758,19 +947,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }}
       />
 
-
-
       {/* Recent User Registrations (Dense Table) */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
         <div style={{ padding: '9px 14px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--neutral-dark)' }}>
-            Recent Accounts
+            Recent Accounts {overviewGradeFilter !== 'all' ? `(Grade ${overviewGradeFilter})` : ''}
           </span>
           <button
-            onClick={() => setActiveTab('directory')}
+            onClick={() => {
+              setActiveTab('directory');
+              if (overviewGradeFilter !== 'all') {
+                setClassFilter('all');
+              }
+            }}
             style={{ background: 'none', border: 'none', color: 'var(--neutral-dark)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
           >
-            View All Accounts ({profiles.length})
+            View All Accounts ({overviewProfiles.length})
           </button>
         </div>
 
@@ -787,39 +979,47 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </tr>
             </thead>
             <tbody>
-              {profiles.slice(-7).reverse().map((p) => (
-                <tr
-                  key={p.id}
-                  style={{ background: '#FFFFFF', transition: 'background 0.1s' }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#F8F7F4')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = '#FFFFFF')}
-                >
-                  <td style={{ ...tdStyle, fontWeight: 600 }}>{p.name}</td>
-                  <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11.5 }}>{p.email}</td>
-                  <td style={tdStyle}>{rolePill(p.role)}</td>
-                  <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>
-                    {sanitizeUserCode(p.admission_number || p.user_code, p.email) || '—'}
-                  </td>
-                  <td style={{ ...tdStyle, fontSize: 11.5, color: '#55534E' }}>{formatUserAssignment(p)}</td>
-                  <td style={{ ...tdStyle, textAlign: 'right' }}>
-                    <button
-                      onClick={() => handleInitiateEditUser(p)}
-                      style={{
-                        padding: '3px 8px',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 4,
-                        background: '#FFFFFF',
-                        cursor: 'pointer',
-                        marginRight: 4,
-                      }}
-                    >
-                      Edit
-                    </button>
+              {overviewProfiles.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 12 }}>
+                    No accounts registered in Grade {overviewGradeFilter} yet.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                overviewProfiles.slice(-7).reverse().map((p) => (
+                  <tr
+                    key={p.id}
+                    style={{ background: '#FFFFFF', transition: 'background 0.1s' }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = '#F8F7F4')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = '#FFFFFF')}
+                  >
+                    <td style={{ ...tdStyle, fontWeight: 600 }}>{p.name}</td>
+                    <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11.5 }}>{p.email}</td>
+                    <td style={tdStyle}>{rolePill(p.role)}</td>
+                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>
+                      {sanitizeUserCode(p.admission_number || p.user_code, p.email) || '—'}
+                    </td>
+                    <td style={{ ...tdStyle, fontSize: 11.5, color: '#55534E' }}>{formatUserAssignment(p)}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right' }}>
+                      <button
+                        onClick={() => handleInitiateEditUser(p)}
+                        style={{
+                          padding: '3px 8px',
+                          fontSize: 11,
+                          fontWeight: 600,
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 4,
+                          background: '#FFFFFF',
+                          cursor: 'pointer',
+                          marginRight: 4,
+                        }}
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -829,36 +1029,51 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // ─── TAB 2: USER DIRECTORY ───────────────────────────────────────────────────
   const renderUserDirectory = () => (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+    <div
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border-color)',
+        borderRadius: 8,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        flex: 1,
+        minHeight: 0,
+        height: '100%',
+      }}
+    >
       {/* Search & Filter Strip */}
       <div
         style={{
-          padding: '10px 14px',
+          padding: '8px 14px',
           borderBottom: '1px solid var(--border-color)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 8,
+          gap: 10,
           background: '#FAF9F6',
+          flexShrink: 0,
+          whiteSpace: 'nowrap',
+          overflowX: 'auto',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <input
             type="text"
-            placeholder="Search name, email, code, subject..."
+            placeholder="Search name, email, code..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
               height: 32,
-              width: 240,
-              padding: '0 12px',
+              width: 220,
+              padding: '0 11px',
               fontSize: 12,
               borderRadius: 6,
               border: '1px solid #E5E3DF',
               background: '#FFFFFF',
               color: '#1A1A1A',
               outline: 'none',
+              flexShrink: 0,
             }}
           />
 
@@ -873,17 +1088,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               { value: 'parent', label: 'Parent' },
               { value: 'admin', label: 'Admin' },
               { value: 'principal', label: 'Leadership' },
+              { value: 'deactivated', label: `Deactivated${deactivatedCount > 0 ? ` (${deactivatedCount})` : ''}` },
             ]}
             height={32}
             textTransform="uppercase"
           />
 
           {/* Class Filter */}
-          <div style={{ width: 140 }}>
+          <div style={{ width: 130, flexShrink: 0 }}>
             <CustomSelect
               value={classFilter}
               onChange={(val) => setClassFilter(val)}
-              buttonStyle={{ height: 32, padding: '0 12px', fontSize: 12, borderRadius: 6, borderColor: '#E5E3DF' }}
+              buttonStyle={{ height: 32, padding: '0 10px', fontSize: 12, borderRadius: 6, borderColor: '#E5E3DF' }}
               options={[
                 { value: 'all', label: 'All Sections' },
                 ...activeClassList.map((c) => ({ value: c, label: `Section ${c}` })),
@@ -899,84 +1115,88 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 setClassFilter('all');
               }}
               style={{
-                height: 26,
+                height: 28,
                 padding: '0 8px',
-                fontSize: 10.5,
+                fontSize: 11,
                 fontWeight: 600,
                 color: '#A83B38',
                 background: '#FDF1F0',
                 border: '1px solid #F5C6CB',
-                borderRadius: 4,
+                borderRadius: 5,
                 cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
               }}
             >
               Reset Filters
             </button>
           )}
-
-          <span style={{ fontSize: 11, color: 'var(--text-secondary)', paddingLeft: 4 }}>
-            Showing {filteredProfiles.length} of {profiles.length} accounts
-          </span>
         </div>
 
         {/* Action Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           <button
-            onClick={exportUsersCSV}
+            onClick={() => exportUsersCSV(false)}
             style={{
-              height: 28,
-              padding: '0 10px',
+              height: 30,
+              padding: '0 11px',
               fontSize: 11.5,
               fontWeight: 600,
               color: 'var(--neutral-dark)',
               background: '#FFFFFF',
               border: '1px solid var(--border-color)',
-              borderRadius: 5,
+              borderRadius: 6,
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
             }}
           >
-              Export Accounts
-            </button>
-            <button
-              onClick={onOpenBulkModal}
-              style={{
-                height: 28,
-                padding: '0 10px',
-                fontSize: 11.5,
-                fontWeight: 600,
-                color: 'var(--neutral-dark)',
-                background: '#FFFFFF',
-                border: '1px solid var(--border-color)',
-                borderRadius: 5,
-                cursor: 'pointer',
-              }}
-            >
-              Import Accounts
-            </button>
-            <button
-              onClick={onOpenProvisionModal}
-              style={{
-                height: 28,
-                padding: '0 12px',
-                fontSize: 11.5,
-                fontWeight: 600,
-                color: '#FFFFFF',
-                background: '#2D2C2A',
-                border: '1px solid #2D2C2A',
-                borderRadius: 5,
-                cursor: 'pointer',
-              }}
-            >
-              + Create Account
-            </button>
-          </div>
+            Export Accounts
+          </button>
+          <button
+            onClick={onOpenBulkModal}
+            style={{
+              height: 30,
+              padding: '0 11px',
+              fontSize: 11.5,
+              fontWeight: 600,
+              color: 'var(--neutral-dark)',
+              background: '#FFFFFF',
+              border: '1px solid var(--border-color)',
+              borderRadius: 6,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            Import Accounts
+          </button>
+          <button
+            onClick={onOpenProvisionModal}
+            style={{
+              height: 30,
+              padding: '0 13px',
+              fontSize: 11.5,
+              fontWeight: 600,
+              color: '#FFFFFF',
+              background: '#2D2C2A',
+              border: '1px solid #2D2C2A',
+              borderRadius: 6,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            + Create Account
+          </button>
+        </div>
       </div>
 
       {/* Duplicate Student Accounts Banner */}
       {duplicateGroups.length > 0 && (
         <div
           style={{
-            padding: '11px 16px',
+            padding: '10px 16px',
             background: '#FEF3C7',
             borderBottom: '1px solid #FDE68A',
             display: 'flex',
@@ -984,6 +1204,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             justifyContent: 'space-between',
             flexWrap: 'wrap',
             gap: 10,
+            flexShrink: 0,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1017,13 +1238,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* Directory Table */}
-      <div style={{ position: 'relative' }}>
+      {/* Directory Table Area */}
+      <div
+        style={{
+          position: 'relative',
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
         <div
           ref={dirScrollRef}
           onScroll={(e) => handleDirScroll(e.currentTarget)}
           className="scroll-visible"
-          style={{ overflowX: 'auto', maxHeight: 'calc(100vh - 180px)' }}
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            overflowX: 'auto',
+          }}
         >
           {filteredProfiles.length === 0 ? (
             <div style={{ padding: '40px 20px', textAlign: 'center' }}>
@@ -1031,34 +1266,88 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 4 }}>Try clearing active search or filters.</div>
             </div>
           ) : (
-            <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', minWidth: 890, tableLayout: 'fixed', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  <th style={{ ...thStyle, width: 180 }}>Full Name</th>
+                  <th style={{ ...thStyle, width: 42, textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={isAllCurrentPageSelected}
+                      onChange={toggleSelectAllCurrentPage}
+                      style={{ cursor: 'pointer', accentColor: '#2D2C2A' }}
+                      title="Select / Deselect all accounts on this page"
+                    />
+                  </th>
+                  <th style={{ ...thStyle, width: 46, textAlign: 'center' }}>#</th>
+                  <th style={{ ...thStyle, width: 190 }}>Full Name</th>
                   <th style={{ ...thStyle, width: 108 }}>Role</th>
-                  <th style={{ ...thStyle, width: 200 }}>Email Address</th>
-                  <th style={{ ...thStyle, width: 104 }}>Admission / Code</th>
-                  <th style={{ ...thStyle, width: 128, textAlign: 'right' }}>Actions</th>
+                  <th style={{ ...thStyle, width: 210 }}>Email Address</th>
+                  <th style={{ ...thStyle, width: 115 }}>Admission / Code</th>
+                  <th style={{ ...thStyle, width: 180 }}>Academic Mapping</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredProfiles.map((p, idx) => {
+                {paginatedProfiles.map((p, idx) => {
+                  const globalIdx = (safeCurrentPage - 1) * pageSize + idx + 1;
+                  const isSelected = selectedUserIds.has(p.id);
                   const idCode = p.role === 'parent' ? '—' : (sanitizeUserCode(p.admission_number || p.user_code, p.role === 'student' ? p.email : null) || p.user_code || p.admission_number || '—');
+                  const assignment = formatUserAssignment(p);
+
                   return (
                     <tr
                       key={p.id}
+                      onClick={() => handleInitiateEditUser(p)}
                       style={{
-                        background: idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7',
+                        background: isSelected ? '#EFF6FF' : idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7',
+                        cursor: 'pointer',
                         transition: 'background 0.08s',
                       }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = '#F2F1EC')}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7')}
+                      onMouseEnter={(e) => {
+                        if (!isSelected) e.currentTarget.style.background = '#F2F1EC';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) e.currentTarget.style.background = idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7';
+                      }}
                     >
+                      <td
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ ...tdStyle, width: 42, textAlign: 'center' }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectUser(p.id)}
+                          style={{ cursor: 'pointer', accentColor: '#2D2C2A' }}
+                        />
+                      </td>
+                      <td style={{ ...tdStyle, width: 46, textAlign: 'center', color: '#888580', fontSize: 11 }}>
+                        {globalIdx}
+                      </td>
                       <td
                         title={p.name}
                         style={{ ...tdStyle, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                       >
-                        {p.name}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                          {p.is_deactivated && (
+                            <span
+                              style={{
+                                flexShrink: 0,
+                                fontSize: 9.5,
+                                fontWeight: 700,
+                                color: '#DC2626',
+                                background: '#FEF2F2',
+                                border: '1px solid #FCA5A5',
+                                padding: '1px 6px',
+                                borderRadius: 4,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.04em',
+                              }}
+                            >
+                              Deactivated
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td style={{ ...tdStyle, overflow: 'hidden' }}>{rolePill(p.role, p)}</td>
                       <td
@@ -1088,71 +1377,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       >
                         {idCode}
                       </td>
-                      <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <button
-                          onClick={() => handleInitiateEditUser(p)}
-                          style={{
-                            padding: '3px 10px',
-                            fontSize: 11,
-                            fontWeight: 600,
-                            border: '1px solid var(--border-color)',
-                            borderRadius: 4,
-                            background: '#FFFFFF',
-                            color: 'var(--neutral-dark)',
-                            cursor: 'pointer',
-                            marginRight: 6,
-                          }}
-                        >
-                          Edit
-                        </button>
-                        {(() => {
-                          const isPrincipal = isPrincipalUser(p);
-                          if (isPrincipal) {
-                            return (
-                              <span
-                                title="The Principal account holds permanent root executive privileges and cannot be deleted."
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  padding: '2px 8px',
-                                  fontSize: 10,
-                                  fontWeight: 700,
-                                  color: '#92400E',
-                                  background: '#FEF3C7',
-                                  border: '1px solid #F59E0B',
-                                  borderRadius: 4,
-                                }}
-                              >
-                                <Lock size={10} /> Protected
-                              </span>
-                            );
-                          }
-                          if (p.role !== 'admin') {
-                            return (
-                              <button
-                                onClick={() => {
-                                  if (confirm(`Are you sure you want to delete profile for "${p.name}"?`)) {
-                                    onDeleteUser(p.id);
-                                  }
-                                }}
-                                style={{
-                                  padding: '3px 8px',
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  border: '1px solid #F5C6CB',
-                                  borderRadius: 4,
-                                  background: '#FDF1F0',
-                                  color: '#A83B38',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                Delete
-                              </button>
-                            );
-                          }
-                          return null;
-                        })()}
+                      <td
+                        title={assignment}
+                        style={{
+                          ...tdStyle,
+                          fontSize: 11.5,
+                          color: '#55534E',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {assignment}
                       </td>
                     </tr>
                   );
@@ -1162,6 +1398,123 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           )}
         </div>
 
+        {/* Floating Batch Actions Toolbar */}
+        {selectedUserIds.size > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 10,
+              left: 14,
+              right: 14,
+              zIndex: 40,
+              padding: '9px 16px',
+              background: '#1F2937',
+              color: '#FFFFFF',
+              borderRadius: 8,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3)',
+              flexWrap: 'wrap',
+              gap: 10,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#F9FAFB' }}>
+                {selectedUserIds.size} account{selectedUserIds.size > 1 ? 's' : ''} selected
+              </span>
+              <span style={{ color: '#4B5563' }}>•</span>
+              <button
+                type="button"
+                onClick={() => setSelectedUserIds(new Set())}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#9CA3AF',
+                  fontSize: 11.5,
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  padding: 0,
+                }}
+              >
+                Deselect all
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => exportUsersCSV(true)}
+                style={{
+                  padding: '6px 13px',
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  background: '#374151',
+                  color: '#FFFFFF',
+                  border: '1px solid #4B5563',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                }}
+              >
+                Export Selected ({selectedUserIds.size})
+              </button>
+
+              {roleFilter !== 'deactivated' ? (
+                <button
+                  type="button"
+                  onClick={() => handleBatchDeactivate(true)}
+                  style={{
+                    padding: '6px 13px',
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    background: '#D97706',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Deactivate Selected
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleBatchDeactivate(false)}
+                  style={{
+                    padding: '6px 13px',
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    background: '#16A34A',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Reactivate Selected
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleBatchDelete}
+                style={{
+                  padding: '6px 13px',
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  background: '#DC2626',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                }}
+              >
+                Delete Selected
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Edge overflow fades — visible only while content is clipped horizontally */}
         {dirScroll.left && (
           <div
@@ -1170,10 +1523,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               top: 0,
               bottom: 0,
               left: 0,
-              width: 28,
+              width: 24,
               pointerEvents: 'none',
-              zIndex: 5,
-              background: 'linear-gradient(to right, rgba(0,0,0,0.16), rgba(0,0,0,0.06), transparent)',
+              zIndex: 15,
+              background: 'linear-gradient(to right, rgba(0,0,0,0.12), transparent)',
             }}
           />
         )}
@@ -1184,14 +1537,171 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               top: 0,
               bottom: 0,
               right: 0,
-              width: 28,
+              width: 24,
               pointerEvents: 'none',
-              zIndex: 5,
-              background: 'linear-gradient(to left, rgba(0,0,0,0.16), rgba(0,0,0,0.06), transparent)',
+              zIndex: 15,
+              background: 'linear-gradient(to left, rgba(0,0,0,0.12), transparent)',
             }}
           />
         )}
       </div>
+
+      {/* Pagination Footer */}
+      {filteredProfiles.length > 0 && (
+        <div
+          style={{
+            padding: '8px 16px',
+            borderTop: '1px solid var(--border-color)',
+            background: '#FAF9F6',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 10,
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            Showing <strong>{(safeCurrentPage - 1) * pageSize + 1}</strong>–<strong>{Math.min(safeCurrentPage * pageSize, filteredProfiles.length)}</strong> of <strong>{filteredProfiles.length}</strong> accounts (50 per set)
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentPage(1);
+                if (dirScrollRef.current) dirScrollRef.current.scrollTop = 0;
+              }}
+              disabled={safeCurrentPage === 1}
+              style={{
+                padding: '4px 8px',
+                fontSize: 11.5,
+                fontWeight: 600,
+                background: '#FFFFFF',
+                border: '1px solid #E5E3DF',
+                borderRadius: 5,
+                cursor: safeCurrentPage === 1 ? 'not-allowed' : 'pointer',
+                opacity: safeCurrentPage === 1 ? 0.35 : 1,
+              }}
+              title="First Page"
+            >
+              «
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentPage((p) => Math.max(1, p - 1));
+                if (dirScrollRef.current) dirScrollRef.current.scrollTop = 0;
+              }}
+              disabled={safeCurrentPage === 1}
+              style={{
+                padding: '4px 10px',
+                fontSize: 11.5,
+                fontWeight: 600,
+                background: '#FFFFFF',
+                border: '1px solid #E5E3DF',
+                borderRadius: 5,
+                cursor: safeCurrentPage === 1 ? 'not-allowed' : 'pointer',
+                opacity: safeCurrentPage === 1 ? 0.35 : 1,
+              }}
+            >
+              Previous
+            </button>
+
+            {/* Page Number Pills */}
+            {(() => {
+              const pages: (number | string)[] = [];
+              if (totalPages <= 7) {
+                for (let i = 1; i <= totalPages; i++) pages.push(i);
+              } else {
+                pages.push(1);
+                if (safeCurrentPage > 3) pages.push('...');
+                const start = Math.max(2, safeCurrentPage - 1);
+                const end = Math.min(totalPages - 1, safeCurrentPage + 1);
+                for (let i = start; i <= end; i++) pages.push(i);
+                if (safeCurrentPage < totalPages - 2) pages.push('...');
+                pages.push(totalPages);
+              }
+              return pages.map((pg, idx) => {
+                if (pg === '...') {
+                  return (
+                    <span key={`ellipsis-${idx}`} style={{ padding: '0 4px', color: '#9CA3AF', fontSize: 12 }}>
+                      …
+                    </span>
+                  );
+                }
+                const isCurrent = pg === safeCurrentPage;
+                return (
+                  <button
+                    key={`page-${pg}`}
+                    type="button"
+                    onClick={() => {
+                      setCurrentPage(Number(pg));
+                      if (dirScrollRef.current) dirScrollRef.current.scrollTop = 0;
+                    }}
+                    style={{
+                      minWidth: 28,
+                      height: 28,
+                      padding: '0 6px',
+                      fontSize: 11.5,
+                      fontWeight: isCurrent ? 700 : 500,
+                      color: isCurrent ? '#FFFFFF' : '#1F2937',
+                      background: isCurrent ? '#2D2C2A' : '#FFFFFF',
+                      border: isCurrent ? '1px solid #2D2C2A' : '1px solid #E5E3DF',
+                      borderRadius: 5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {pg}
+                  </button>
+                );
+              });
+            })()}
+
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentPage((p) => Math.min(totalPages, p + 1));
+                if (dirScrollRef.current) dirScrollRef.current.scrollTop = 0;
+              }}
+              disabled={safeCurrentPage === totalPages}
+              style={{
+                padding: '4px 10px',
+                fontSize: 11.5,
+                fontWeight: 600,
+                background: '#FFFFFF',
+                border: '1px solid #E5E3DF',
+                borderRadius: 5,
+                cursor: safeCurrentPage === totalPages ? 'not-allowed' : 'pointer',
+                opacity: safeCurrentPage === totalPages ? 0.35 : 1,
+              }}
+            >
+              Next
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentPage(totalPages);
+                if (dirScrollRef.current) dirScrollRef.current.scrollTop = 0;
+              }}
+              disabled={safeCurrentPage === totalPages}
+              style={{
+                padding: '4px 8px',
+                fontSize: 11.5,
+                fontWeight: 600,
+                background: '#FFFFFF',
+                border: '1px solid #E5E3DF',
+                borderRadius: 5,
+                cursor: safeCurrentPage === totalPages ? 'not-allowed' : 'pointer',
+                opacity: safeCurrentPage === totalPages ? 0.35 : 1,
+              }}
+              title="Last Page"
+            >
+              »
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -1873,7 +2383,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </header>
 
         {/* Scrollable Viewport Content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0,
+            overflowY: activeTab === 'directory' && !selectedUserForEdit ? 'hidden' : 'auto',
+            padding: activeTab === 'directory' && !selectedUserForEdit ? '10px 16px' : '14px 16px',
+          }}
+        >
           {selectedUserForEdit ? (() => {
             const activeUser = profiles.find(
               (p) =>

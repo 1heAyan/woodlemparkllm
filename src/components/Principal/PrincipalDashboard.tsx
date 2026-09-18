@@ -13,7 +13,7 @@ import {
 import { useSidebarState } from '@/lib/useSidebarState';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { SegmentedControl } from '@/components/UI/SegmentedControl';
-import { computeExecutiveAnalytics } from '@/lib/analyticsHelper';
+import { computeExecutiveAnalytics, isSubjectClassInGrade } from '@/lib/analyticsHelper';
 import { ACADEMIC_DEPARTMENTS, DEFAULT_PRINCIPAL_RECORD, isPrincipalUser, isSltUser } from '@/lib/specialRolesHelper';
 import {
   KpiSparklineCard,
@@ -102,21 +102,52 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
   const [selectedClassForMarks, setSelectedClassForMarks] = useState<SubjectClass | null>(null);
   const sidebar = useSidebarState(currentUser?.id || currentUser?.email || 'principal');
 
+  const facultyList = useMemo(() => profiles.filter((p) => p.role === 'teacher'), [profiles]);
+  const studentList = useMemo(() => profiles.filter((p) => p.role === 'student'), [profiles]);
+
+  const overviewStudents = useMemo(() => {
+    if (selectedGradeFilter === 'all') return studentList;
+    return studentList.filter((st) => (st.grade || '').replace(/[^0-9]/g, '') === selectedGradeFilter);
+  }, [studentList, selectedGradeFilter]);
+
+  const overviewSubjectClasses = useMemo(() => {
+    if (selectedGradeFilter === 'all') return subjectClasses;
+    return subjectClasses.filter((sc) => isSubjectClassInGrade(sc, selectedGradeFilter, profiles));
+  }, [subjectClasses, selectedGradeFilter, profiles]);
+
+  const overviewTeachers = useMemo(() => {
+    if (selectedGradeFilter === 'all') return facultyList;
+    const gradeClassNames = new Set(overviewSubjectClasses.map((sc) => (sc.name || sc.class_name || '').toLowerCase()));
+    const gradeTeacherIds = new Set(overviewSubjectClasses.map((sc) => sc.teacher_id).filter(Boolean));
+    const gradeTeacherNames = new Set(overviewSubjectClasses.map((sc) => sc.teacher_name?.toLowerCase()).filter(Boolean));
+
+    return facultyList.filter((t) => {
+      const assigned = (t.assigned_class || '').replace(/[^0-9]/g, '');
+      if (assigned === selectedGradeFilter || (t.assigned_class || '').includes(`${selectedGradeFilter}-`)) return true;
+      if (gradeTeacherIds.has(t.id)) return true;
+      if (t.name && gradeTeacherNames.has(t.name.toLowerCase())) return true;
+      if (t.assigned_class && gradeClassNames.has(t.assigned_class.toLowerCase())) return true;
+      return false;
+    });
+  }, [facultyList, selectedGradeFilter, overviewSubjectClasses]);
+
+  const overviewProfiles = useMemo(() => {
+    if (selectedGradeFilter === 'all') return profiles;
+    return [...overviewStudents, ...overviewTeachers];
+  }, [selectedGradeFilter, profiles, overviewStudents, overviewTeachers]);
+
   // Compute live executive analytics
   const analytics = useMemo(() => {
     return computeExecutiveAnalytics({
-      profiles,
-      subjectClasses,
+      profiles: overviewProfiles,
+      subjectClasses: overviewSubjectClasses,
       tests,
       syllabus,
       attendance,
       testResults,
       selectedGradeFilter,
     });
-  }, [profiles, subjectClasses, tests, syllabus, attendance, testResults, selectedGradeFilter]);
-
-  const facultyList = useMemo(() => profiles.filter((p) => p.role === 'teacher'), [profiles]);
-  const studentList = useMemo(() => profiles.filter((p) => p.role === 'student'), [profiles]);
+  }, [overviewProfiles, overviewSubjectClasses, tests, syllabus, attendance, testResults, selectedGradeFilter]);
 
   const filteredFaculty = useMemo(() => {
     if (!facultySearch.trim()) return facultyList;
@@ -534,7 +565,7 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
                   label="TOTAL ENROLLMENT"
                   value={analytics.totalEnrollment}
                   subValue="Students"
-                  growthText={`${profiles.filter((p) => p.role === 'teacher').length} Faculty Members`}
+                  growthText={`${overviewTeachers.length} Faculty Members`}
                   sparklineData={[]}
                 />
                 <KpiSparklineCard
@@ -553,9 +584,9 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
                 />
                 <KpiSparklineCard
                   label="MARK COMPLIANCE"
-                  value={subjectClasses.length > 0 ? `${analytics.markCompliance.complianceRate}%` : '0%'}
-                  subValue={subjectClasses.length > 0 ? `${analytics.markCompliance.fullyGradedClasses}/${analytics.markCompliance.totalClasses} Verified` : '0 Verified'}
-                  growthText={subjectClasses.length > 0 ? `${analytics.markCompliance.pendingClasses} Pending Registers` : 'No classes registered'}
+                  value={overviewSubjectClasses.length > 0 ? `${analytics.markCompliance.complianceRate}%` : '0%'}
+                  subValue={overviewSubjectClasses.length > 0 ? `${analytics.markCompliance.fullyGradedClasses}/${analytics.markCompliance.totalClasses} Verified` : '0 Verified'}
+                  growthText={overviewSubjectClasses.length > 0 ? `${analytics.markCompliance.pendingClasses} Pending Registers` : 'No classes registered'}
                   sparklineData={[]}
                 />
               </div>
@@ -572,14 +603,14 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
 
               {/* Bottom Table: Recent Marks Registers & Verifications */}
               <RecentRegistersTable
-                subjectClasses={subjectClasses}
-                profiles={profiles}
+                subjectClasses={overviewSubjectClasses}
+                profiles={overviewProfiles}
                 testResults={testResults}
                 tests={tests}
                 onOpenClassMarks={(className) => {
-                  const found = subjectClasses.find((c) => c.name === className || c.class_name === className);
+                  const found = overviewSubjectClasses.find((c) => c.name === className || c.class_name === className);
                   if (found) setSelectedClassForMarks(found);
-                  else if (subjectClasses.length > 0) setSelectedClassForMarks(subjectClasses[0]);
+                  else if (overviewSubjectClasses.length > 0) setSelectedClassForMarks(overviewSubjectClasses[0]);
                 }}
               />
             </div>

@@ -50,6 +50,8 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS managed_grades TEXT[] DEFAU
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS special_permissions TEXT[] DEFAULT '{}'::TEXT[];
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS parent_link_code TEXT DEFAULT '';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_protected_executive BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_deactivated BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ DEFAULT NULL;
 
 -- Seed default Admin and Principal accounts
 INSERT INTO public.profiles (id, email, name, role, user_code, temp_password)
@@ -84,8 +86,21 @@ CREATE TABLE IF NOT EXISTS public.assignments (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     title TEXT NOT NULL,
     class_name TEXT DEFAULT 'Grade 12 - Physics (A)',
+    description TEXT DEFAULT '',
+    total_marks INT DEFAULT NULL,
+    file_name TEXT DEFAULT '',
+    file_url TEXT DEFAULT '',
+    teacher_id TEXT DEFAULT NULL,
+    due_date TIMESTAMPTZ DEFAULT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';
+ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS total_marks INT DEFAULT NULL;
+ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS file_name TEXT DEFAULT '';
+ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS file_url TEXT DEFAULT '';
+ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS teacher_id TEXT DEFAULT NULL;
+ALTER TABLE public.assignments ADD COLUMN IF NOT EXISTS due_date TIMESTAMPTZ DEFAULT NULL;
+
 
 -- 4. Syllabus Terms Table
 CREATE TABLE IF NOT EXISTS public.syllabus_terms (
@@ -251,6 +266,8 @@ CREATE TABLE IF NOT EXISTS public.assignment_submissions (
     student_id TEXT NOT NULL,
     file_name TEXT DEFAULT '',
     file_url TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    text_answer TEXT DEFAULT '',
     grade TEXT DEFAULT '',
     feedback TEXT DEFAULT '',
     submitted_at TIMESTAMPTZ DEFAULT NOW(),
@@ -258,6 +275,9 @@ CREATE TABLE IF NOT EXISTS public.assignment_submissions (
     graded_by TEXT DEFAULT '',
     UNIQUE(assignment_id, student_id)
 );
+ALTER TABLE public.assignment_submissions ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '';
+ALTER TABLE public.assignment_submissions ADD COLUMN IF NOT EXISTS text_answer TEXT DEFAULT '';
+
 
 -- 17. Student Syllabus Progress Table
 CREATE TABLE IF NOT EXISTS public.student_syllabus_progress (

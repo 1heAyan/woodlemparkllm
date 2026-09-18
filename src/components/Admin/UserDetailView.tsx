@@ -78,6 +78,30 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeactivated, setIsDeactivated] = useState(Boolean(user.is_deactivated));
+
+  useEffect(() => {
+    setIsDeactivated(Boolean(user.is_deactivated));
+  }, [user.is_deactivated]);
+
+  const handleReactivate = async () => {
+    setIsSaving(true);
+    try {
+      await onSave({
+        ...user,
+        is_deactivated: false,
+        deactivated_at: undefined,
+      });
+      setIsDeactivated(false);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 4000);
+    } catch (err: any) {
+      console.error('Error reactivating user profile:', err);
+      alert('Unable to reactivate account. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Student & Teacher Grade & Section initialized directly from user profile
   const [grade, setGrade] = useState<'9' | '10' | '11' | '12'>(() => initialClassInfo.grade);
@@ -203,6 +227,10 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isDeactivated) {
+      alert('This user account is deactivated. You must reactivate the account to make and save changes.');
+      return;
+    }
     if (!name.trim() || !email.trim()) {
       alert('Please provide both Full Name and Email Address.');
       return;
@@ -278,7 +306,7 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
   const roleInfo = getRoleBadge(role);
 
   return (
-    <div style={{ maxWidth: 1200, margin: '0 auto', paddingBottom: 40 }}>
+    <div style={{ width: '100%', paddingBottom: 40 }}>
       {/* ── TOP BREADCRUMB & BACK ROW ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -330,6 +358,58 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* ── DEACTIVATION NOTICE BANNER (VIEW-ONLY) ── */}
+      {isDeactivated && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '14px 18px',
+            marginBottom: 20,
+            background: '#FEF2F2',
+            border: '1.5px solid #F87171',
+            borderRadius: 10,
+            color: '#991B1B',
+            flexWrap: 'wrap',
+            gap: 12,
+            boxShadow: '0 1px 3px rgba(220,38,38,0.08)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <AlertTriangle size={22} color="#DC2626" style={{ flexShrink: 0 }} />
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }}>Account Deactivated (View-Only Mode)</div>
+              <div style={{ fontSize: 12, color: '#B91C1C', marginTop: 2 }}>
+                This user account is currently deactivated. Details and credentials are view-only. Reactivate this account to edit profile settings, credentials, or class assignments.
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleReactivate}
+            disabled={isSaving}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 18px',
+              fontSize: 12.5,
+              fontWeight: 700,
+              background: '#16A34A',
+              color: '#FFFFFF',
+              border: 'none',
+              borderRadius: 6,
+              cursor: isSaving ? 'not-allowed' : 'pointer',
+              boxShadow: '0 2px 4px rgba(22,163,74,0.2)',
+            }}
+          >
+            <Check size={14} />
+            {isSaving ? 'Reactivating...' : 'Reactivate Account'}
+          </button>
+        </div>
+      )}
 
       {/* ── USER HERO PROFILE CARD ── */}
       <div
@@ -448,10 +528,11 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
       </div>
 
       {/* ── TWO-COLUMN FORM LAYOUT ── */}
-      <form onSubmit={handleSubmit}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 20 }}>
+      <form onSubmit={handleSubmit} style={{ width: '100%' }}>
+        <fieldset disabled={isDeactivated} style={{ border: 'none', padding: 0, margin: 0, width: '100%', minWidth: 0 }}>
+        <div className="user-detail-grid">
           {/* ════ LEFT COLUMN: ACCOUNT & CREDENTIALS ════ */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
             {/* CARD 1: Core Account Details */}
             <div
               style={{
@@ -694,7 +775,7 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
           </div>
 
           {/* ════ RIGHT COLUMN: ACADEMIC MAPPING & ROLE SPECIFICS ════ */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
             {/* ── STUDENT COHORT CARD ── */}
             {role === 'student' && (
               <div
@@ -1507,6 +1588,7 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
             )}
           </div>
         </div>
+        </fieldset>
 
         {/* ── BOTTOM ACTIONS BAR ── */}
         <div
@@ -1538,27 +1620,51 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
             Cancel &amp; Return
           </button>
 
-          <button
-            type="submit"
-            disabled={isSaving || (role === 'teacher' && isClassTeacher && !!existingClassTeacher)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '10px 24px',
-              fontSize: 13.5,
-              fontWeight: 700,
-              color: '#FFFFFF',
-              background: '#2D2C2A',
-              border: 'none',
-              borderRadius: 6,
-              cursor: isSaving || (role === 'teacher' && isClassTeacher && !!existingClassTeacher) ? 'not-allowed' : 'pointer',
-              opacity: isSaving || (role === 'teacher' && isClassTeacher && !!existingClassTeacher) ? 0.6 : 1,
-            }}
-          >
-            <Save size={15} />
-            {isSaving ? 'Saving Changes...' : 'Save Profile Changes'}
-          </button>
+          {isDeactivated ? (
+            <button
+              type="button"
+              onClick={handleReactivate}
+              disabled={isSaving}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 24px',
+                fontSize: 13.5,
+                fontWeight: 700,
+                color: '#FFFFFF',
+                background: '#16A34A',
+                border: 'none',
+                borderRadius: 6,
+                cursor: isSaving ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <Check size={15} />
+              {isSaving ? 'Reactivating...' : 'Reactivate Account to Edit'}
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={isSaving || (role === 'teacher' && isClassTeacher && !!existingClassTeacher)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 24px',
+                fontSize: 13.5,
+                fontWeight: 700,
+                color: '#FFFFFF',
+                background: '#2D2C2A',
+                border: 'none',
+                borderRadius: 6,
+                cursor: isSaving || (role === 'teacher' && isClassTeacher && !!existingClassTeacher) ? 'not-allowed' : 'pointer',
+                opacity: isSaving || (role === 'teacher' && isClassTeacher && !!existingClassTeacher) ? 0.6 : 1,
+              }}
+            >
+              <Save size={15} />
+              {isSaving ? 'Saving Changes...' : 'Save Profile Changes'}
+            </button>
+          )}
         </div>
       </form>
     </div>

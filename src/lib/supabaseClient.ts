@@ -39,6 +39,8 @@ export interface UserProfile {
   parent_link_code?: string;   // For Student: Class teacher verified 6-digit access code (e.g. "PL-123456")
   temp_password?: string;        // Admin preset / assigned credential
   avatar_url?: string;           // Custom profile picture
+  is_deactivated?: boolean;      // Account deactivation status
+  deactivated_at?: string;       // Timestamp when account was deactivated
   created_at?: string;
 }
 
@@ -121,6 +123,12 @@ export interface AssignmentItem {
   id: string;
   title: string;
   class_name?: string;
+  description?: string;
+  total_marks?: number;
+  file_name?: string;
+  file_url?: string;
+  teacher_id?: string;
+  due_date?: string;
   created_at?: string;
 }
 

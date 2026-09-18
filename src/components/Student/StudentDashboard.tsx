@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Award, Calendar, Settings, LifeBuoy, BookOpen, LogOut, MessageSquare, Megaphone, Pin, PinOff, SlidersHorizontal, Check, FileText, Video, Link2, FolderOpen, User, Trash2, Edit3, Paperclip, Plus, Menu, X, ChevronDown, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Award, Calendar, Settings, LifeBuoy, BookOpen, LogOut, MessageSquare, Megaphone, Pin, PinOff, SlidersHorizontal, Check, FileText, Video, Link2, FolderOpen, User, Trash2, Edit3, Paperclip, Plus, Menu, X, ChevronDown, Sparkles, ExternalLink, Download, AlertCircle } from 'lucide-react';
 import { WoodlemLogo, WoodlemEmblemSVG } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import {
@@ -21,7 +21,6 @@ import {
 import { SubmitAssignmentModal } from '../Modals/SubmitAssignmentModal';
 import { ExamPortalView } from './ExamPortalView';
 import { EditAchievementModal } from '../Modals/EditAchievementModal';
-import { triggerConfetti, showCelebrationToast } from '@/lib/confetti';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { TestResultRecord } from '../Modals/ReviewTestResultsModal';
@@ -432,7 +431,13 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       return true;
     }
 
-    // 2. Check if the item explicitly mentions the subject/class title
+    // 2. Direct section match (e.g. "12-M" or "Grade Section 12-M" matches classroom gradeSection "12-m")
+    const cleanItemKey = itemCn.replace(/grade\s*/gi, '').replace(/section\s*/gi, '').trim();
+    if (gradeSection && (cleanItemKey === gradeSection || cleanItemKey.includes(gradeSection) || gradeSection.includes(cleanItemKey))) {
+      return true;
+    }
+
+    // 3. Check if the item explicitly mentions the subject/class title
     const mentionsSubject =
       (subjectName && itemCn.includes(subjectName)) ||
       itemCn.includes(className) ||
@@ -648,25 +653,28 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   const handleTopicCheck = (termId: string, topicId: string, title: string, isChecked: boolean) => {
     onToggleTopicCheck(termId, topicId, 'student', isChecked, currentStudent.id);
-    if (isChecked) {
-      showCelebrationToast('Topic Completed', `Mastered "${title}"`, 50);
-    }
   };
 
-  const handleAssignmentSubmitSuccess = (assignmentId: string, fileName: string, notes?: string) => {
+  const handleAssignmentSubmitSuccess = (
+    assignmentId: string,
+    fileName?: string,
+    fileUrl?: string,
+    textAnswer?: string,
+    notes?: string
+  ) => {
     onSubmitAssignment({
       assignment_id: assignmentId,
       student_id: currentStudent.id,
       student_name: currentStudent.name,
-      file_name: fileName,
-      notes: notes || '',
+      file_name: fileName || '',
+      file_url: fileUrl || '',
+      text_answer: textAnswer || '',
+      notes: notes || textAnswer || '',
       grade: '',
       feedback: '',
       status: 'submitted',
       submitted_at: new Date().toLocaleDateString(),
     });
-    showCelebrationToast('Homework Submitted', `Attached: ${fileName}`, 75);
-    triggerConfetti();
   };
 
   const handleApplyLeaveSubmit = (data: {
@@ -696,8 +704,6 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       score,
       completed_at: new Date().toLocaleDateString(),
     });
-    showCelebrationToast('Assessment Completed', `Score: ${score}%`, 100);
-    triggerConfetti();
   };
 
   const handleHubEnroll = (activityId: string, title: string) => {
@@ -1421,7 +1427,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   className={`tab-btn ${classSubTab === 'tasks' ? 'active' : ''}`}
                   onClick={() => setClassSubTab('tasks')}
                 >
-                  Class Tests
+                  Assignments
                   <span className="tab-count">{myTests.length + myAssignments.length}</span>
                 </button>
                 <button
@@ -1864,120 +1870,417 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 </div>
               )}
 
-              {/* SUBTAB 3: ASSESSMENTS & HOMEWORK */}
+              {/* SUBTAB 3: ASSIGNMENTS & ONLINE TESTS */}
               {classSubTab === 'tasks' && (
-                <div>
-                  <h3 className="section-title" style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>
-                    Active Class Tests for {activeClassObj ? activeClassObj.name : 'Class'}
-                  </h3>
-                  <div className="card-list" style={{ marginBottom: 28 }}>
-                    {myTests.length === 0 ? (
-                      <div className="panel-block" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-                        No class tests currently scheduled for this subject class.
-                      </div>
-                    ) : (
-                      myTests.map((test) => {
-                        const result = testResults[`${test.id}_${currentStudent.id}`];
-                        const isDone = !!result;
-                        const timeStatus = getTestTimeStatus(test, now);
-                        return (
-                          <div className="item-card" key={test.id} style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div className="item-info">
-                              <span className="badge badge-test" style={{ marginBottom: 4, fontSize: 9.5 }}>
-                                Class Test · {test.class_name || (activeClassObj ? activeClassObj.name : studentClass)}
-                              </span>
-                              <h4 style={{ fontSize: 14, margin: '0 0 2px' }}>{test.title}</h4>
-                              {result?.feedback && (
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontStyle: 'italic', marginTop: 2 }}>
-                                  Teacher Feedback: &quot;{result.feedback}&quot;
-                                </div>
-                              )}
-                            </div>
-                            {isDone ? (
-                              <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8' }}>
-                                Score: {result.score}%
-                              </span>
-                            ) : timeStatus.status === 'coming_soon' ? (
-                              <span style={{ fontSize: 11, fontWeight: 700, padding: '6px 12px', borderRadius: 6, background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE', cursor: 'default', whiteSpace: 'nowrap' }}>
-                                Coming Soon
-                                <span style={{ display: 'block', fontSize: 10, fontWeight: 500, color: '#3B82F6', marginTop: 2 }}>
-                                  {timeStatus.startsAt}
-                                </span>
-                              </span>
-                            ) : timeStatus.status === 'past_deadline' ? (
-                              <span style={{ fontSize: 11, fontWeight: 700, padding: '6px 12px', borderRadius: 6, background: '#FDF2F2', color: '#991B1B', border: '1px solid #FECACA', cursor: 'default', whiteSpace: 'nowrap' }}>
-                                Past Deadline
-                                <span style={{ display: 'block', fontSize: 10, fontWeight: 500, color: '#DC2626', marginTop: 2 }}>
-                                  {timeStatus.endedAt}
-                                </span>
-                              </span>
-                            ) : (
-                              <button
-                                className="btn-primary"
-                                onClick={() => setActiveTestModal(test)}
-                                style={{ padding: '6px 14px', fontSize: 12 }}
-                              >
-                                Take Class Test
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })
-                    )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div
+                    style={{
+                      background: '#FFFFFF',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: 8,
+                      padding: '16px 20px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: 10,
+                    }}
+                  >
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                        Assignments &amp; Coursework for {activeClassObj ? activeClassObj.name : 'Class'}
+                      </h4>
+                      <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                        Download worksheets, submit homework responses, and complete online assessments.
+                      </p>
+                    </div>
+
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: '#B37D4A', background: '#FBF6F0', border: '1px solid #F0DFCE', padding: '4px 10px', borderRadius: 4 }}>
+                      {myAssignments.length + myTests.length} Total {myAssignments.length + myTests.length === 1 ? 'Task' : 'Tasks'}
+                    </div>
                   </div>
 
-                  <h3 className="section-title" style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>
-                    Pending Homework &amp; Coursework
-                  </h3>
-                  <div className="card-list">
-                    {myAssignments.length === 0 ? (
-                      <div className="panel-block" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-                        No pending assignments for this subject class.
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    {myTests.length === 0 && myAssignments.length === 0 ? (
+                      <div className="panel-block" style={{ padding: '36px 20px', textAlign: 'center' }}>
+                        <h4 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px', color: 'var(--neutral-dark)' }}>
+                          No Assignments Yet
+                        </h4>
+                        <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 auto', maxWidth: 360 }}>
+                          Your teacher has not published any homework assignments or tests for this class yet.
+                        </p>
                       </div>
                     ) : (
-                      myAssignments.map((ass) => {
-                        const submission = assignmentSubmissions[`${ass.id}_${currentStudent.id}`];
-                        return (
-                          <div className="item-card" key={ass.id} style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div className="item-info">
-                              <span
-                                className="badge badge-test"
-                                style={{ background: 'var(--secondary-light)', color: 'var(--secondary)', marginBottom: 4, fontSize: 9.5 }}
-                              >
-                                Assignment · {ass.class_name || (activeClassObj ? activeClassObj.name : studentClass)}
-                              </span>
-                              <h4 style={{ fontSize: 14, margin: '0 0 2px' }}>{ass.title}</h4>
-                              {submission?.feedback && (
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontStyle: 'italic', marginTop: 2 }}>
-                                  Teacher Feedback: &quot;{submission.feedback}&quot;
+                      <>
+                        {/* Interactive Online Tests */}
+                        {myTests.map((test) => {
+                          const result = testResults[`${test.id}_${currentStudent.id}`];
+                          const isDone = !!result;
+                          const timeStatus = getTestTimeStatus(test, now);
+                          return (
+                            <div
+                              key={test.id}
+                              style={{
+                                background: '#FFFFFF',
+                                border: '1px solid var(--border-color)',
+                                borderLeft: '4px solid #2C6E6A',
+                                borderRadius: 8,
+                                padding: '18px 22px',
+                                boxShadow: '0 1px 4px rgba(0,0,0,0.02)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 12,
+                              }}
+                            >
+                              {/* Top Row: Badges and Action Status */}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                    ONLINE TEST
+                                  </span>
+                                  {test.class_name && (
+                                    <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                                      {test.class_name}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  {isDone ? (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', fontSize: 11.5, fontWeight: 700 }}>
+                                      <Check size={13} />
+                                      <span>Score: {result.score}%</span>
+                                    </div>
+                                  ) : timeStatus.status === 'coming_soon' ? (
+                                    <span style={{ fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 4, background: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE', cursor: 'default', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                      Coming Soon ({timeStatus.startsAt})
+                                    </span>
+                                  ) : timeStatus.status === 'past_deadline' ? (
+                                    <span style={{ fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 4, background: '#FDF2F2', color: '#991B1B', border: '1px solid #FECACA', cursor: 'default', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                      Past Deadline
+                                    </span>
+                                  ) : (
+                                    <button
+                                      className="btn-primary"
+                                      onClick={() => setActiveTestModal(test)}
+                                      style={{ padding: '6px 14px', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                                    >
+                                      <span>Take Test</span>
+                                      <ChevronRight size={13} />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Title & Type */}
+                              <div>
+                                <h4 style={{ margin: '0 0 3px', fontSize: 14.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                  {test.title}
+                                </h4>
+                                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                                  Interactive Assessment
+                                </div>
+                              </div>
+
+                              {/* Teacher Feedback Panel */}
+                              {result?.feedback && (
+                                <div style={{
+                                  padding: '10px 14px',
+                                  background: '#F0F6F5',
+                                  border: '1px solid #CBE2DF',
+                                  borderRadius: 6,
+                                  display: 'flex',
+                                  alignItems: 'flex-start',
+                                  gap: 8,
+                                }}>
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>
+                                    Teacher Feedback:
+                                  </span>
+                                  <span style={{ fontSize: 12.5, color: '#1F4D4A', fontStyle: 'italic', lineHeight: 1.4 }}>
+                                    &ldquo;{result.feedback}&rdquo;
+                                  </span>
                                 </div>
                               )}
                             </div>
+                          );
+                        })}
 
-                            {submission ? (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8' }} title={submission.file_name || ''}>
-                                  {submission.grade ? `Graded: ${submission.grade}` : `Submitted: ${formatShortFileName(submission.file_name || 'Work.pdf')}`}
-                                </span>
-                                <button
-                                  onClick={() => setActiveSubmitModal(ass)}
-                                  style={{ padding: '4px 8px', fontSize: 11, fontWeight: 600, background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer' }}
-                                >
-                                  Re-upload
-                                </button>
+                        {/* Homework & Coursework Assignments */}
+                        {myAssignments.map((ass) => {
+                          const submission = assignmentSubmissions[`${ass.id}_${currentStudent.id}`];
+                          const hasTeacherDoc = !!(ass.file_name || ass.file_url);
+
+                          return (
+                            <div
+                              key={ass.id}
+                              style={{
+                                background: '#FFFFFF',
+                                border: '1px solid var(--border-color)',
+                                borderLeft: '4px solid #B37D4A',
+                                borderRadius: 8,
+                                padding: '18px 22px',
+                                boxShadow: '0 1px 4px rgba(0,0,0,0.02)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 12,
+                              }}
+                            >
+                              {/* Top Row: Meta Badges and Status Action */}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: '#FBF6F0', color: '#B37D4A', border: '1px solid #F0DFCE', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                    ASSIGNMENT
+                                  </span>
+                                  {ass.total_marks && (
+                                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#FEF7EC', color: '#9E6C1B', border: '1px solid #F5DEB3' }}>
+                                      Max: {ass.total_marks} Marks
+                                    </span>
+                                  )}
+                                  {ass.class_name && (
+                                    <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                                      {ass.class_name}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  {submission ? (
+                                    (() => {
+                                      const isAbsent = submission.grade && (submission.grade.toLowerCase() === 'absent' || submission.grade.toUpperCase() === 'AB');
+                                      const isZeroMissing = submission.grade === '0' && !submission.file_name && !submission.text_answer && !submission.notes;
+                                      const hasStudentWork = Boolean(submission.file_name || submission.text_answer || submission.notes);
+
+                                      if (isAbsent) {
+                                        return (
+                                          <>
+                                            <span
+                                              style={{
+                                                fontSize: 11.5,
+                                                fontWeight: 700,
+                                                padding: '4px 10px',
+                                                borderRadius: 4,
+                                                background: '#FDF1F0',
+                                                color: '#A83B38',
+                                                border: '1px solid #F5C6CB',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 5,
+                                              }}
+                                            >
+                                              <AlertCircle size={13} />
+                                              <span>Absent (AB)</span>
+                                            </span>
+                                            <button
+                                              className="btn-primary"
+                                              onClick={() => setActiveSubmitModal(ass)}
+                                              style={{ padding: '6px 14px', fontSize: 11.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                            >
+                                              <span>Submit Late Work</span>
+                                              <ChevronRight size={13} />
+                                            </button>
+                                          </>
+                                        );
+                                      }
+
+                                      if (isZeroMissing) {
+                                        return (
+                                          <>
+                                            <span
+                                              style={{
+                                                fontSize: 11.5,
+                                                fontWeight: 700,
+                                                padding: '4px 10px',
+                                                borderRadius: 4,
+                                                background: '#FDF1F0',
+                                                color: '#A83B38',
+                                                border: '1px solid #F5C6CB',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 5,
+                                              }}
+                                            >
+                                              <AlertCircle size={13} />
+                                              <span>0 / {ass.total_marks || 25} (Missing)</span>
+                                            </span>
+                                            <button
+                                              className="btn-primary"
+                                              onClick={() => setActiveSubmitModal(ass)}
+                                              style={{ padding: '6px 14px', fontSize: 11.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                            >
+                                              <span>Submit Work</span>
+                                              <ChevronRight size={13} />
+                                            </button>
+                                          </>
+                                        );
+                                      }
+
+                                      return (
+                                        <>
+                                          <span
+                                            style={{
+                                              fontSize: 11.5,
+                                              fontWeight: 700,
+                                              padding: '4px 10px',
+                                              borderRadius: 4,
+                                              background: '#EAF3EF',
+                                              color: '#2D6E5D',
+                                              border: '1px solid #C7E4D8',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: 5,
+                                            }}
+                                          >
+                                            <Check size={13} />
+                                            <span>
+                                              {submission.grade
+                                                ? `Graded: ${submission.grade}${ass.total_marks && !submission.grade.includes('/') && !isNaN(Number(submission.grade)) ? ` / ${ass.total_marks}` : ''}`
+                                                : `Submitted`}
+                                            </span>
+                                          </span>
+                                          <button
+                                            className="btn-secondary"
+                                            onClick={() => setActiveSubmitModal(ass)}
+                                            style={{
+                                              padding: '5px 12px',
+                                              fontSize: 11.5,
+                                              fontWeight: 600,
+                                            }}
+                                          >
+                                            Re-submit
+                                          </button>
+                                        </>
+                                      );
+                                    })()
+                                  ) : (
+                                    <button
+                                      className="btn-primary"
+                                      onClick={() => setActiveSubmitModal(ass)}
+                                      style={{ padding: '6px 16px', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                                    >
+                                      <span>Submit Work</span>
+                                      <ChevronRight size={13} />
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                            ) : (
-                              <button
-                                className="btn-secondary btn-primary"
-                                onClick={() => setActiveSubmitModal(ass)}
-                                style={{ padding: '6px 14px', fontSize: 12 }}
-                              >
-                                Submit Work
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })
+
+                              {/* Title & Description */}
+                              <div>
+                                <h4 style={{ margin: '0 0 4px', fontSize: 14.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                  {ass.title}
+                                </h4>
+                                {ass.description && (
+                                  <div style={{ fontSize: 12.5, color: '#4B4945', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                                    {ass.description}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Attached Worksheet Card */}
+                              {hasTeacherDoc && (
+                                <div
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 12,
+                                    padding: '9px 14px',
+                                    background: '#FAF9F6',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: 6,
+                                    maxWidth: 480,
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                                    <div style={{ width: 28, height: 28, borderRadius: 5, background: '#EAF3EF', color: '#2D6E5D', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                      <FileText size={15} />
+                                    </div>
+                                    <div style={{ minWidth: 0 }}>
+                                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ass.file_name || 'Assignment Material'}>
+                                        {ass.file_name || 'Assignment Worksheet'}
+                                      </div>
+                                      <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
+                                        Teacher Material
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => openFileInNewTab({
+                                        fileName: ass.file_name || 'Assignment Worksheet.pdf',
+                                        fileUrl: ass.file_url,
+                                        title: ass.title,
+                                        description: ass.description,
+                                      })}
+                                      style={{
+                                        padding: '4px 10px',
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        background: '#2D2C2A',
+                                        color: '#FFFFFF',
+                                        border: 'none',
+                                        borderRadius: 4,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                      }}
+                                    >
+                                      <span>View</span>
+                                      <ExternalLink size={11} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => downloadFile({
+                                        fileName: ass.file_name || 'Assignment Worksheet.pdf',
+                                        fileUrl: ass.file_url,
+                                        title: ass.title,
+                                        description: ass.description,
+                                      })}
+                                      title="Download Worksheet"
+                                      style={{
+                                        padding: '4px 8px',
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        background: '#FFFFFF',
+                                        color: 'var(--neutral-dark)',
+                                        border: '1px solid var(--border-color)',
+                                        borderRadius: 4,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                      }}
+                                    >
+                                      <Download size={12} />
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Teacher Feedback Panel */}
+                              {submission?.feedback && (
+                                <div style={{
+                                  padding: '10px 14px',
+                                  background: '#F0F6F5',
+                                  border: '1px solid #CBE2DF',
+                                  borderRadius: 6,
+                                  display: 'flex',
+                                  alignItems: 'flex-start',
+                                  gap: 8,
+                                }}>
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>
+                                    Teacher Feedback:
+                                  </span>
+                                  <span style={{ fontSize: 12.5, color: '#1F4D4A', fontStyle: 'italic', lineHeight: 1.4 }}>
+                                    &ldquo;{submission.feedback}&rdquo;
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </>
                     )}
                   </div>
                 </div>
@@ -3655,8 +3958,6 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               score,
               completed_at: new Date().toLocaleDateString(),
             });
-            showCelebrationToast('Assessment Completed', `Score: ${score}%`, 100);
-            triggerConfetti();
           }}
         />
       )}

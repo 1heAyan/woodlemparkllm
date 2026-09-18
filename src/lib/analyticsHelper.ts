@@ -116,6 +116,40 @@ const DEFAULT_SUBJECT_COLORS: Record<string, string> = {
   'Art & Design': '#D946EF',
 };
 
+// Helper to check if a subject class belongs to a specific grade
+export function isSubjectClassInGrade(
+  sc: SubjectClass,
+  grade: string,
+  profiles?: UserProfile[]
+): boolean {
+  if (!grade || grade === 'all') return true;
+  const cleanTarget = grade.replace(/[^0-9]/g, '');
+  if (!cleanTarget) return true;
+
+  // 1. Check class_name, name, section with regex
+  const combined = `${sc.class_name || ''} ${sc.name || ''} ${sc.section || ''}`;
+  const m = combined.match(/\b(9|10|11|12)\b/i) || combined.match(/grade\s*(9|10|11|12)/i);
+  if (m) {
+    const g = (m[1] || m[0]).replace(/[^0-9]/g, '');
+    if (g === cleanTarget) return true;
+  }
+
+  // 2. Check enrolled students
+  if (profiles && sc.enrolled_student_ids && sc.enrolled_student_ids.length > 0) {
+    const enrolledStudents = profiles.filter(
+      (p) => p.role === 'student' && sc.enrolled_student_ids.includes(p.id)
+    );
+    if (enrolledStudents.length > 0) {
+      const matchCount = enrolledStudents.filter(
+        (st) => (st.grade || '').replace(/[^0-9]/g, '') === cleanTarget
+      ).length;
+      if (matchCount > 0) return true;
+    }
+  }
+
+  return false;
+}
+
 // Compute pure dynamic analytics strictly from actual LMS database state
 export function computeExecutiveAnalytics({
   profiles,
@@ -371,11 +405,7 @@ export function computeExecutiveAnalytics({
   });
 
   // 6. Mark Compliance Summary
-  const filteredClasses = subjectClasses.filter((sc) => {
-    if (selectedGradeFilter === 'all') return true;
-    const gMatch = (sc.class_name || '').match(/\d+/);
-    return gMatch && gMatch[0] === selectedGradeFilter;
-  });
+  const filteredClasses = subjectClasses.filter((sc) => isSubjectClassInGrade(sc, selectedGradeFilter, profiles));
 
   const totalClasses = filteredClasses.length;
   let fullyGraded = 0;

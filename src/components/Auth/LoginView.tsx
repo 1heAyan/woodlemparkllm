@@ -9,7 +9,6 @@ import {
   verifyStudentParentCode,
   generateParentLinkCode,
 } from '@/lib/parentCodeHelper';
-import { triggerConfetti } from '@/lib/confetti';
 import { UserCheck, ShieldCheck, KeyRound, ArrowRight, ArrowLeft, Check, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface LoginViewProps {
@@ -146,6 +145,29 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
         }
       }
 
+      // Check if account is deactivated before allowing any login
+      const isAccountDeactivated = (prof: UserProfile | null, em: string) => {
+        if (prof?.is_deactivated) return true;
+        const fromProp = profiles.find(
+          (p) => (prof?.id && p.id === prof.id) || (p.email && p.email.toLowerCase().trim() === em.toLowerCase().trim())
+        );
+        if (fromProp?.is_deactivated) return true;
+        try {
+          const deactivatedStr = typeof window !== 'undefined' ? localStorage.getItem('woodlem_deactivated_user_ids_v1') : null;
+          if (deactivatedStr) {
+            const list: string[] = JSON.parse(deactivatedStr);
+            if (prof?.id && list.includes(prof.id)) return true;
+            if (fromProp?.id && list.includes(fromProp.id)) return true;
+          }
+        } catch (e) {}
+        return false;
+      };
+
+      if (isAccountDeactivated(matchedProfile, resolvedEmail)) {
+        try { await supabase.auth.signOut(); } catch (e) {}
+        throw new Error('Your account has been deactivated. Please contact the school administration.');
+      }
+
       // Root Admin special shortcut
       if (resolvedEmail === 'admin@woodlempark.ae' || resolvedEmail === 'admin@woodlem.com' || resolvedEmail.startsWith('admin@')) {
         const expectedPwd = resolveUserPassword(matchedProfile);
@@ -233,6 +255,11 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
 
       if (!finalProfile) {
         throw new Error('Account profile not found. Please contact school administration.');
+      }
+
+      if (isAccountDeactivated(finalProfile, resolvedEmail)) {
+        try { await supabase.auth.signOut(); } catch (e) {}
+        throw new Error('Your account has been deactivated. Please contact the school administration.');
       }
 
       let authRole = finalProfile.role;
@@ -475,7 +502,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
 
       // 4. Save password locally & trigger instant login
       saveUserPasswordToCloudAndLocal(targetParentProfile.id, cleanParentEmail, parentPassword);
-      triggerConfetti();
 
       // Log in immediately
       onLoginSuccess(targetParentProfile);

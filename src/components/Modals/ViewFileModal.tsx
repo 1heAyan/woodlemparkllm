@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { openFileInNewTab, downloadFile } from '@/lib/fileHelper';
+import { X, ExternalLink, Download, FileText, Image as ImageIcon } from 'lucide-react';
 
 export interface ViewFileModalProps {
   isOpen: boolean;
@@ -53,57 +54,19 @@ export const ViewFileModal: React.FC<ViewFileModalProps> = ({
   };
 
   return (
-    <div
-      className="modal-overlay active"
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100vw',
-        height: '100vh',
-        zIndex: 100000,
-        background: 'rgba(15, 23, 42, 0.65)',
-        backdropFilter: 'blur(6px)',
-        WebkitBackdropFilter: 'blur(6px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-      }}
-    >
+    <div className="dialog-overlay" onClick={onClose}>
       <div
-        className="modal-content"
-        style={{
-          maxWidth: 520,
-          width: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: 0,
-          borderRadius: 14,
-          boxShadow: '0 24px 60px rgba(0, 0, 0, 0.3)',
-          background: '#FFFFFF',
-          overflow: 'hidden',
-          animation: 'fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-        }}
+        className="dialog-card"
+        style={{ maxWidth: 540 }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header Bar */}
-        <div
-          style={{
-            padding: '16px 20px',
-            borderBottom: '1px solid var(--border-color, #E5E3DF)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            background: '#FAF9F6',
-          }}
-        >
+        <div className="dialog-card-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, overflow: 'hidden' }}>
             <div
               style={{
-                width: 40,
-                height: 40,
+                width: 38,
+                height: 38,
                 borderRadius: 8,
                 background: '#2C6E6A',
                 color: '#FFFFFF',
@@ -116,7 +79,7 @@ export const ViewFileModal: React.FC<ViewFileModalProps> = ({
                 letterSpacing: '0.04em',
               }}
             >
-              {isImage ? 'IMG' : isPdf ? 'PDF' : 'DOC'}
+              {isImage ? <ImageIcon size={18} /> : isPdf ? <FileText size={18} /> : 'DOC'}
             </div>
             <div style={{ overflow: 'hidden' }}>
               <h3
@@ -128,6 +91,7 @@ export const ViewFileModal: React.FC<ViewFileModalProps> = ({
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
+                  maxWidth: 380,
                 }}
                 title={fileName}
               >
@@ -142,31 +106,23 @@ export const ViewFileModal: React.FC<ViewFileModalProps> = ({
 
           <button
             type="button"
-            className="close-modal"
+            className="dialog-close-btn"
             onClick={onClose}
-            style={{
-              padding: '4px 10px',
-              fontSize: 20,
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              lineHeight: 1,
-              color: '#94A3B8',
-            }}
+            title="Close"
           >
-            &times;
+            <X size={16} />
           </button>
         </div>
 
-        {/* Action Body (Mobile-Optimized) */}
-        <div style={{ padding: '24px 20px', background: '#FFFFFF', display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Direct Action Buttons: Touch-friendly */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {/* Action Body */}
+        <div className="dialog-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Direct Action Buttons */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <button
               type="button"
               onClick={handleOpenNewTab}
               style={{
-                padding: '12px 16px',
+                padding: '11px 14px',
                 fontSize: 13,
                 fontWeight: 700,
                 background: '#2C6E6A',
@@ -177,19 +133,20 @@ export const ViewFileModal: React.FC<ViewFileModalProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 8,
+                gap: 7,
                 boxShadow: '0 2px 8px rgba(44, 110, 106, 0.25)',
                 transition: 'all 0.15s ease',
               }}
             >
-              <span>↗</span> Open in New Tab
+              <ExternalLink size={15} />
+              <span>Open in New Tab</span>
             </button>
 
             <button
               type="button"
               onClick={handleDownload}
               style={{
-                padding: '12px 16px',
+                padding: '11px 14px',
                 fontSize: 13,
                 fontWeight: 700,
                 background: '#FAF9F6',
@@ -200,11 +157,12 @@ export const ViewFileModal: React.FC<ViewFileModalProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 8,
+                gap: 7,
                 transition: 'all 0.15s ease',
               }}
             >
-              <span>↓</span> Download File
+              <Download size={15} />
+              <span>Download File</span>
             </button>
           </div>
 
@@ -214,16 +172,16 @@ export const ViewFileModal: React.FC<ViewFileModalProps> = ({
               background: '#FAF9F6',
               border: '1px solid var(--border-color, #E5E3DF)',
               borderRadius: 8,
-              padding: '14px 16px',
+              padding: '12px 14px',
               fontSize: 12.5,
               display: 'flex',
               flexDirection: 'column',
-              gap: 8,
+              gap: 7,
             }}
           >
             {title && (
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-secondary, #73716D)' }}>Category / Title:</span>
+                <span style={{ color: 'var(--text-secondary, #73716D)' }}>Assignment:</span>
                 <strong style={{ color: 'var(--neutral-dark, #2D2C2A)' }}>{title}</strong>
               </div>
             )}
@@ -240,9 +198,9 @@ export const ViewFileModal: React.FC<ViewFileModalProps> = ({
               </div>
             )}
             {description && (
-              <div style={{ marginTop: 4, paddingTop: 8, borderTop: '1px solid #ECEAE5' }}>
-                <span style={{ color: 'var(--text-secondary, #73716D)', display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                  Description / Remarks:
+              <div style={{ marginTop: 2, paddingTop: 6, borderTop: '1px solid #ECEAE5' }}>
+                <span style={{ color: 'var(--text-secondary, #73716D)', display: 'block', marginBottom: 3, fontWeight: 600 }}>
+                  Notes / Answer Text:
                 </span>
                 <div style={{ color: 'var(--neutral-dark, #2D2C2A)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
                   {description}
@@ -253,20 +211,12 @@ export const ViewFileModal: React.FC<ViewFileModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div
-          style={{
-            padding: '12px 20px',
-            borderTop: '1px solid var(--border-color, #E5E3DF)',
-            background: '#FAF9F6',
-            display: 'flex',
-            justifyContent: 'flex-end',
-          }}
-        >
+        <div className="dialog-card-footer">
           <button
             type="button"
             className="btn-secondary"
             onClick={onClose}
-            style={{ padding: '8px 20px', fontSize: 12.5 }}
+            style={{ padding: '7px 18px', fontSize: 13, borderRadius: 6 }}
           >
             Close
           </button>
@@ -275,3 +225,4 @@ export const ViewFileModal: React.FC<ViewFileModalProps> = ({
     </div>
   );
 };
+

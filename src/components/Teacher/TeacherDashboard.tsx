@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Users, Award, BookOpen, UserCheck, MessageSquare, LayoutDashboard, Calendar, Settings, LifeBuoy, LogOut, Megaphone, FileText, Pin, PinOff, SlidersHorizontal, Check, Video, Link2, X, Plus, Edit3, KeyRound, Copy, Share2, RotateCcw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Users, Award, BookOpen, UserCheck, MessageSquare, LayoutDashboard, Calendar, Settings, LifeBuoy, LogOut, Megaphone, FileText, Pin, PinOff, SlidersHorizontal, Check, Video, Link2, X, Plus, Edit3, KeyRound, Copy, Share2, RotateCcw, ExternalLink, Download, Trash2 } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import {
@@ -781,6 +781,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // Filter tests and assignments for active class — scoped to this teacher only
   const classTests = useMemo(() => {
     if (!activeClassObj) return [];
+    const activeName = (activeClassObj.name || '').toLowerCase().trim();
+    const activeClassKey = (activeClassObj.class_name || '').toLowerCase().replace(/grade\s*/gi, '').trim();
+
     return tests.filter((t) => {
       // Primary isolation: if teacher_id is stamped, must match this teacher
       if (t.teacher_id && currentUser?.id && t.teacher_id !== currentUser.id) return false;
@@ -788,23 +791,42 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
       // Check target_sections array
       if (t.target_sections && t.target_sections.length > 0) {
-        const classKey = (activeClassObj.class_name || '').replace(/grade\s*/gi, '').trim();
-        if (t.target_sections.some((sec) => sec.replace(/grade\s*/gi, '').trim() === classKey)) {
+        if (t.target_sections.some((sec) => sec.toLowerCase().replace(/grade\s*/gi, '').trim() === activeClassKey)) {
           return true;
         }
       }
 
-      return t.class_name.includes(activeClassObj.class_name) || t.class_name.includes(activeClassObj.name);
+      const tCls = (t.class_name || '').toLowerCase().trim();
+      const tCleanKey = tCls.replace(/grade\s*/gi, '').trim();
+
+      if (activeName && (tCls.includes(activeName) || activeName.includes(tCls))) return true;
+      if (activeClassKey && (tCleanKey.includes(activeClassKey) || activeClassKey.includes(tCleanKey))) return true;
+      if (activeClassObj.class_name && (tCls.includes(activeClassObj.class_name.toLowerCase()) || activeClassObj.class_name.toLowerCase().includes(tCls))) return true;
+
+      return false;
     });
   }, [tests, activeClassObj, currentUser]);
 
   const classAssignments = useMemo(() => {
     if (!activeClassObj) return [];
+    const activeName = (activeClassObj.name || '').toLowerCase().trim();
+    const activeClassKey = (activeClassObj.class_name || '').toLowerCase().replace(/grade\s*/gi, '').trim();
+
     return assignments.filter((a) => {
+      // Primary isolation: if teacher_id is stamped, must match this teacher
+      if (a.teacher_id && currentUser?.id && a.teacher_id !== currentUser.id) return false;
       if (!a.class_name || a.class_name === 'All Classes' || a.class_name === 'General') return true;
-      return a.class_name.includes(activeClassObj.class_name) || a.class_name.includes(activeClassObj.name);
+
+      const aCls = (a.class_name || '').toLowerCase().trim();
+      const aCleanKey = aCls.replace(/grade\s*/gi, '').trim();
+
+      if (activeName && (aCls.includes(activeName) || activeName.includes(aCls))) return true;
+      if (activeClassKey && (aCleanKey.includes(activeClassKey) || activeClassKey.includes(aCleanKey))) return true;
+      if (activeClassObj.class_name && (aCls.includes(activeClassObj.class_name.toLowerCase()) || activeClassObj.class_name.toLowerCase().includes(aCls))) return true;
+
+      return false;
     });
-  }, [assignments, activeClassObj]);
+  }, [assignments, activeClassObj, currentUser]);
 
   // Filter resources & broadcasts for active subject class
   const thisClassResources = useMemo(() => {
@@ -1692,30 +1714,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </button>
                   )}
                   {activeClassObj && (
-                    <>
-                      <button
-                        className="btn-secondary"
-                        onClick={() => onOpenCreateAssignmentModal(`${activeClassObj.name} (${activeClassObj.class_name})`)}
-                        style={{ padding: '7px 12px', fontSize: 12 }}
-                      >
-                        + Homework
-                      </button>
-                      <button
-                        className="btn-secondary"
-                        onClick={() => setIsMarkEntryOpen(true)}
-                        style={{ padding: '7px 12px', fontSize: 12 }}
-                      >
-                        Mark Entry
-                      </button>
-                      <button
-                        className="btn-primary"
-                        onClick={() => onOpenCreateTestModal(`${activeClassObj.name} (${activeClassObj.class_name})`)}
-                        style={{ padding: '7px 16px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
-                      >
-                        <Plus size={14} />
-                        <span>Create Class Test</span>
-                      </button>
-                    </>
+                    <button
+                      className="btn-secondary"
+                      onClick={() => setIsMarkEntryOpen(true)}
+                      style={{ padding: '7px 12px', fontSize: 12 }}
+                    >
+                      Mark Entry
+                    </button>
                   )}
                 </div>
               </div>
@@ -1739,7 +1744,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   className={`tab-btn ${classSubTab === 'tasks' ? 'active' : ''}`}
                   onClick={() => setClassSubTab('tasks')}
                 >
-                  Class Tests
+                  Assignments
                   <span className="tab-count">{classTests.length + classAssignments.length}</span>
                 </button>
                 <button
@@ -2686,7 +2691,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
                         <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 16px' }}>
                           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                            Active Class Tests
+                            Online Tests
                           </div>
                           <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--neutral-dark)', marginTop: 4 }}>
                             {classTests.length}
@@ -2703,19 +2708,41 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         </div>
                       </div>
 
-                      {/* Class Tests & Tasks */}
+                      {/* Assignments & Tasks */}
                       <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                          <h3 className="section-title" style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>
-                            Class Tests &amp; Homework for {activeClassObj.name}
-                          </h3>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+                          <div>
+                            <h3 className="section-title" style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>
+                              Assignments &amp; Tasks for {activeClassObj.name}
+                            </h3>
+                            <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                              Manage class tests, homework assignments, student submissions, and grading.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn-primary"
+                            onClick={() => onOpenCreateAssignmentModal(`${activeClassObj.name} (${activeClassObj.class_name})`)}
+                            style={{ padding: '7px 16px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                          >
+                            <Plus size={13} />
+                            <span>Assignment</span>
+                          </button>
                         </div>
                         <div className="card-list">
                           {classTests.length === 0 && classAssignments.length === 0 ? (
-                            <div className="panel-block" style={{ padding: '24px', textAlign: 'center' }}>
-                              <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
-                                No class tests or assignments currently published for this class.
+                            <div className="panel-block" style={{ padding: '32px 24px', textAlign: 'center' }}>
+                              <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '0 0 12px' }}>
+                                No assignments or tests currently published for this class.
                               </p>
+                              <button
+                                className="btn-primary"
+                                onClick={() => onOpenCreateAssignmentModal(`${activeClassObj.name} (${activeClassObj.class_name})`)}
+                                style={{ padding: '7px 14px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                              >
+                                <Plus size={13} />
+                                <span>Assignment</span>
+                              </button>
                             </div>
                           ) : (
                             <>
@@ -2726,62 +2753,79 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                 const count = submissionsForTest.length;
 
                                 return (
-                                  <div className="item-card" key={test.id} style={{ padding: '12px 16px' }}>
-                                    <div className="item-info">
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                                        <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 5px', borderRadius: 3, background: '#F0F4F4', color: '#2C6E6A' }}>
-                                          CLASS TEST
+                                  <div
+                                    key={test.id}
+                                    style={{
+                                      background: '#FFFFFF',
+                                      border: '1px solid var(--border-color)',
+                                      borderLeft: '4px solid #2C6E6A',
+                                      borderRadius: 8,
+                                      padding: '18px 22px',
+                                      boxShadow: '0 1px 4px rgba(0,0,0,0.02)',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      gap: 12,
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                        <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                          ONLINE TEST
                                         </span>
                                         {test.class_name && (
-                                          <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                          <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
                                             {test.class_name}
                                           </span>
                                         )}
                                       </div>
-                                      <div className="item-title" style={{ fontSize: 13, fontWeight: 700 }}>
-                                        {test.title}
-                                      </div>
-                                      <div className="item-meta">
-                                        Published · {count} {count === 1 ? 'submission' : 'submissions'}
+
+                                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                        <button
+                                          type="button"
+                                          onClick={() => setSelectedReviewTest(test)}
+                                          style={{
+                                            padding: '5px 12px',
+                                            fontSize: 11.5,
+                                            fontWeight: 700,
+                                            background: count > 0 ? '#2C6E6A' : '#FFFFFF',
+                                            color: count > 0 ? '#FFFFFF' : 'var(--neutral-dark)',
+                                            border: '1px solid ' + (count > 0 ? '#2C6E6A' : 'var(--border-color)'),
+                                            borderRadius: 4,
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          Review Results ({count})
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (confirm(`Are you sure you want to delete test "${test.title}"?`)) {
+                                              onDeleteTest(test.id);
+                                            }
+                                          }}
+                                          style={{
+                                            padding: '5px 8px',
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                            background: '#FDF1F0',
+                                            border: '1px solid #F5C6CB',
+                                            color: '#A83B38',
+                                            borderRadius: 4,
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          Delete
+                                        </button>
                                       </div>
                                     </div>
-                                    <div className="item-actions" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                                      <button
-                                        type="button"
-                                        onClick={() => setSelectedReviewTest(test)}
-                                        style={{
-                                          padding: '5px 12px',
-                                          fontSize: 11,
-                                          fontWeight: 700,
-                                          background: count > 0 ? '#2C6E6A' : '#FFFFFF',
-                                          color: count > 0 ? '#FFFFFF' : 'var(--neutral-dark)',
-                                          border: '1px solid ' + (count > 0 ? '#2C6E6A' : 'var(--border-color)'),
-                                          borderRadius: 4,
-                                          cursor: 'pointer',
-                                        }}
-                                      >
-                                        Review Results ({count})
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (confirm(`Are you sure you want to delete class test "${test.title}"?`)) {
-                                            onDeleteTest(test.id);
-                                          }
-                                        }}
-                                        style={{
-                                          padding: '5px 8px',
-                                          fontSize: 11,
-                                          fontWeight: 600,
-                                          background: '#FDF1F0',
-                                          border: '1px solid #F5C6CB',
-                                          color: '#A83B38',
-                                          borderRadius: 4,
-                                          cursor: 'pointer',
-                                        }}
-                                      >
-                                        Delete
-                                      </button>
+
+                                    <div>
+                                      <h4 style={{ margin: '0 0 3px', fontSize: 14.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                        {test.title}
+                                      </h4>
+                                      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                                        Published · {count} {count === 1 ? 'submission' : 'submissions'}
+                                      </div>
                                     </div>
                                   </div>
                                 );
@@ -2791,66 +2835,174 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                 const subsForAss = Object.entries(assignmentSubmissions)
                                   .filter(([key]) => key.startsWith(`${ass.id}_`))
                                   .map(([_, rec]) => rec);
-                                const count = subsForAss.length;
+                                const actualSubmissionsCount = subsForAss.filter((rec) => Boolean(rec.file_name || rec.text_answer || rec.notes)).length;
+                                const gradedCount = subsForAss.filter((rec) => Boolean(rec.grade && rec.grade.trim() !== '')).length;
+                                const hasTeacherDoc = !!(ass.file_name || ass.file_url);
 
                                 return (
-                                  <div className="item-card" key={ass.id} style={{ padding: '12px 16px' }}>
-                                    <div className="item-info">
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                                        <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 5px', borderRadius: 3, background: '#FBF6F0', color: '#B37D4A' }}>
+                                  <div
+                                    key={ass.id}
+                                    style={{
+                                      background: '#FFFFFF',
+                                      border: '1px solid var(--border-color)',
+                                      borderLeft: '4px solid #B37D4A',
+                                      borderRadius: 8,
+                                      padding: '18px 22px',
+                                      boxShadow: '0 1px 4px rgba(0,0,0,0.02)',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      gap: 12,
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                        <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: '#FBF6F0', color: '#B37D4A', border: '1px solid #F0DFCE', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                                           ASSIGNMENT
                                         </span>
+                                        {ass.total_marks && (
+                                          <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#FEF7EC', color: '#9E6C1B', border: '1px solid #F5DEB3' }}>
+                                            Max: {ass.total_marks} Marks
+                                          </span>
+                                        )}
                                         {ass.class_name && (
-                                          <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                          <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
                                             {ass.class_name}
                                           </span>
                                         )}
                                       </div>
-                                      <div className="item-title" style={{ fontSize: 13, fontWeight: 700 }}>
+
+                                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                        <button
+                                          type="button"
+                                          onClick={() => setSelectedGradeAssignment(ass)}
+                                          style={{
+                                            padding: '5px 14px',
+                                            fontSize: 11.5,
+                                            fontWeight: 700,
+                                            background: actualSubmissionsCount > 0 ? '#B37D4A' : '#FFFFFF',
+                                            color: actualSubmissionsCount > 0 ? '#FFFFFF' : 'var(--neutral-dark)',
+                                            border: '1px solid ' + (actualSubmissionsCount > 0 ? '#B37D4A' : 'var(--border-color)'),
+                                            borderRadius: 4,
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          Grade Homework ({actualSubmissionsCount} submitted)
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (confirm(`Are you sure you want to delete assignment "${ass.title}"?`)) {
+                                              onDeleteAssignment(ass.id);
+                                            }
+                                          }}
+                                          style={{
+                                            padding: '5px 8px',
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                            background: '#FDF1F0',
+                                            border: '1px solid #F5C6CB',
+                                            color: '#A83B38',
+                                            borderRadius: 4,
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          Delete
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    <div>
+                                      <h4 style={{ margin: '0 0 4px', fontSize: 14.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
                                         {ass.title}
-                                      </div>
-                                      <div className="item-meta">
-                                        Published · {count} {count === 1 ? 'submission' : 'submissions'}
-                                      </div>
+                                      </h4>
+                                      {ass.description && (
+                                        <div style={{ fontSize: 12.5, color: '#4B4945', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                                          {ass.description}
+                                        </div>
+                                      )}
                                     </div>
-                                    <div className="item-actions" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                                      <button
-                                        type="button"
-                                        onClick={() => setSelectedGradeAssignment(ass)}
+
+                                    {/* Attached Document */}
+                                    {hasTeacherDoc && (
+                                      <div
                                         style={{
-                                          padding: '5px 12px',
-                                          fontSize: 11,
-                                          fontWeight: 700,
-                                          background: count > 0 ? '#B37D4A' : '#FFFFFF',
-                                          color: count > 0 ? '#FFFFFF' : 'var(--neutral-dark)',
-                                          border: '1px solid ' + (count > 0 ? '#B37D4A' : 'var(--border-color)'),
-                                          borderRadius: 4,
-                                          cursor: 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'space-between',
+                                          gap: 12,
+                                          padding: '9px 14px',
+                                          background: '#FAF9F6',
+                                          border: '1px solid var(--border-color)',
+                                          borderRadius: 6,
+                                          maxWidth: 480,
                                         }}
                                       >
-                                        Grade Homework ({count})
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (confirm(`Are you sure you want to delete assignment "${ass.title}"?`)) {
-                                            onDeleteAssignment(ass.id);
-                                          }
-                                        }}
-                                        style={{
-                                          padding: '5px 8px',
-                                          fontSize: 11,
-                                          fontWeight: 600,
-                                          background: '#FDF1F0',
-                                          border: '1px solid #F5C6CB',
-                                          color: '#A83B38',
-                                          borderRadius: 4,
-                                          cursor: 'pointer',
-                                        }}
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                                          <div style={{ width: 28, height: 28, borderRadius: 5, background: '#EAF3EF', color: '#2D6E5D', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <FileText size={15} />
+                                          </div>
+                                          <div style={{ minWidth: 0 }}>
+                                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ass.file_name || 'Assignment Document'}>
+                                              {ass.file_name || 'Assignment Material'}
+                                            </div>
+                                            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
+                                              Worksheet Attachment
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => openFileInNewTab({
+                                              fileName: ass.file_name || 'Assignment_Material.pdf',
+                                              fileUrl: ass.file_url,
+                                              title: ass.title,
+                                              description: ass.description,
+                                            })}
+                                            style={{
+                                              padding: '4px 10px',
+                                              fontSize: 11,
+                                              fontWeight: 700,
+                                              background: '#2D2C2A',
+                                              color: '#FFFFFF',
+                                              border: 'none',
+                                              borderRadius: 4,
+                                              cursor: 'pointer',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: 4,
+                                            }}
+                                          >
+                                            <span>View</span>
+                                            <ExternalLink size={11} />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => downloadFile({
+                                              fileName: ass.file_name || 'Assignment_Material.pdf',
+                                              fileUrl: ass.file_url,
+                                              title: ass.title,
+                                              description: ass.description,
+                                            })}
+                                            title="Download File"
+                                            style={{
+                                              padding: '4px 8px',
+                                              fontSize: 11,
+                                              fontWeight: 700,
+                                              background: '#FFFFFF',
+                                              color: 'var(--neutral-dark)',
+                                              border: '1px solid var(--border-color)',
+                                              borderRadius: 4,
+                                              cursor: 'pointer',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                            }}
+                                          >
+                                            <Download size={12} />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })}

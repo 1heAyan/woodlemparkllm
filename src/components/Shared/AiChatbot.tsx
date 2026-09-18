@@ -163,8 +163,9 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
   const [isMounted, setIsMounted] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
-  // Floating Draggable Orb Launcher State
-  const [orbPosition, setOrbPosition] = useState<{ x: number; y: number } | null>(null);
+  // Floating Draggable Orb Launcher State & Corner Snapping
+  const [dockedCorner, setDockedCorner] = useState<'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'>('bottom-right');
+  const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
   const [isDraggingOrb, setIsDraggingOrb] = useState(false);
   const dragRef = useRef<{
     startX: number;
@@ -191,38 +192,39 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Initialize and restore saved orb position
+  // Initialize and restore saved orb corner
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const defaultX = Math.max(16, window.innerWidth - 84);
-    const defaultY = Math.max(16, window.innerHeight - 84);
 
     try {
-      const saved = localStorage.getItem('woodlem_ai_orb_pos');
-      if (saved) {
-        const parsed = JSON.parse(saved);
+      const savedCorner = localStorage.getItem('woodlem_ai_orb_corner');
+      if (
+        savedCorner === 'bottom-right' ||
+        savedCorner === 'bottom-left' ||
+        savedCorner === 'top-right' ||
+        savedCorner === 'top-left'
+      ) {
+        setDockedCorner(savedCorner as any);
+        return;
+      }
+
+      // Convert legacy pixel position if present
+      const legacy = localStorage.getItem('woodlem_ai_orb_pos');
+      if (legacy) {
+        const parsed = JSON.parse(legacy);
         if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
-          const clampedX = Math.max(16, Math.min(window.innerWidth - 76, parsed.x));
-          const clampedY = Math.max(16, Math.min(window.innerHeight - 76, parsed.y));
-          setOrbPosition({ x: clampedX, y: clampedY });
+          const isLeft = parsed.x < window.innerWidth / 2;
+          const isTop = parsed.y < window.innerHeight / 2;
+          const target = isLeft && isTop ? 'top-left' : isLeft ? 'bottom-left' : isTop ? 'top-right' : 'bottom-right';
+          setDockedCorner(target as any);
+          localStorage.setItem('woodlem_ai_orb_corner', target);
+          localStorage.removeItem('woodlem_ai_orb_pos');
           return;
         }
       }
     } catch {}
 
-    setOrbPosition({ x: defaultX, y: defaultY });
-
-    const handleResize = () => {
-      setOrbPosition((prev) => {
-        if (!prev) return { x: window.innerWidth - 84, y: window.innerHeight - 84 };
-        return {
-          x: Math.max(16, Math.min(window.innerWidth - 76, prev.x)),
-          y: Math.max(16, Math.min(window.innerHeight - 76, prev.y)),
-        };
-      });
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    setDockedCorner('bottom-right');
   }, []);
 
   // Global mouse & touch drag listeners for orb
@@ -240,10 +242,10 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
         dragRef.current.hasMoved = true;
       }
 
-      const nextX = Math.max(16, Math.min(window.innerWidth - 76, dragRef.current.startOrbX + dx));
-      const nextY = Math.max(16, Math.min(window.innerHeight - 76, dragRef.current.startOrbY + dy));
+      const nextX = Math.max(12, Math.min(window.innerWidth - 72, dragRef.current.startOrbX + dx));
+      const nextY = Math.max(12, Math.min(window.innerHeight - 72, dragRef.current.startOrbY + dy));
 
-      setOrbPosition({ x: nextX, y: nextY });
+      setDragPosition({ x: nextX, y: nextY });
     };
 
     const handlePointerUp = () => {
@@ -251,26 +253,29 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
 
       if (dragRef.current.hasMoved) {
         // Snap smoothly to closest corner
-        setOrbPosition((current) => {
-          if (!current) return current;
-          const minX = 20;
-          const maxX = Math.max(20, window.innerWidth - 84);
-          const minY = 20;
-          const maxY = Math.max(20, window.innerHeight - 84);
+        const currentX = dragPosition?.x ?? dragRef.current.startOrbX;
+        const currentY = dragPosition?.y ?? dragRef.current.startOrbY;
 
-          const midX = window.innerWidth / 2;
-          const midY = window.innerHeight / 2;
+        const centerX = currentX + 30;
+        const centerY = currentY + 30;
 
-          const snapX = current.x < midX ? minX : maxX;
-          const snapY = current.y < midY ? minY : maxY;
+        const isLeft = centerX < window.innerWidth / 2;
+        const isTop = centerY < window.innerHeight / 2;
 
-          const snapped = { x: snapX, y: snapY };
-          try {
-            localStorage.setItem('woodlem_ai_orb_pos', JSON.stringify(snapped));
-          } catch {}
-          return snapped;
-        });
+        let targetCorner: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' = 'bottom-right';
+        if (isLeft && isTop) targetCorner = 'top-left';
+        else if (isLeft && !isTop) targetCorner = 'bottom-left';
+        else if (!isLeft && isTop) targetCorner = 'top-right';
+        else targetCorner = 'bottom-right';
+
+        setDockedCorner(targetCorner);
+        try {
+          localStorage.setItem('woodlem_ai_orb_corner', targetCorner);
+          localStorage.removeItem('woodlem_ai_orb_pos');
+        } catch {}
       }
+
+      setDragPosition(null);
     };
 
     window.addEventListener('mousemove', handlePointerMove);
@@ -284,22 +289,23 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
       window.removeEventListener('mouseup', handlePointerUp);
       window.removeEventListener('touchend', handlePointerUp);
     };
-  }, [isDraggingOrb]);
+  }, [isDraggingOrb, dragPosition]);
 
   const handleOrbPointerDown = (e: React.MouseEvent | React.TouchEvent) => {
     const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
 
-    const currentX = orbPosition?.x ?? (window.innerWidth - 84);
-    const currentY = orbPosition?.y ?? (window.innerHeight - 84);
+    const target = e.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
 
     dragRef.current = {
       startX: clientX,
       startY: clientY,
-      startOrbX: currentX,
-      startOrbY: currentY,
+      startOrbX: rect.left,
+      startOrbY: rect.top,
       hasMoved: false,
     };
+    setDragPosition({ x: rect.left, y: rect.top });
     setIsDraggingOrb(true);
   };
 
@@ -1308,8 +1314,8 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
         </div>
       </div>
 
-      {/* FLOATING TRIGGER LAUNCHER WITH 3D ORB (DRAGGABLE TO ANY CORNER) */}
-      {!isAiPanelOpen && orbPosition && (
+      {/* FLOATING TRIGGER LAUNCHER WITH 3D ORB (ANCHORED TO SCREEN CORNERS) */}
+      {!isAiPanelOpen && isMounted && (
         <div
           onMouseDown={handleOrbPointerDown}
           onTouchStart={handleOrbPointerDown}
@@ -1319,15 +1325,16 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
           className={`woodlem-ai-floating-launcher ${isDraggingOrb ? 'woodlem-ai-launcher-dragging' : ''}`}
           style={{
             position: 'fixed',
-            left: `${orbPosition.x}px`,
-            top: `${orbPosition.y}px`,
-            bottom: 'auto',
-            right: 'auto',
+            left: isDraggingOrb && dragPosition ? `${dragPosition.x}px` : dockedCorner.includes('left') ? '24px' : 'auto',
+            right: isDraggingOrb && dragPosition ? 'auto' : dockedCorner.includes('right') ? '24px' : 'auto',
+            top: isDraggingOrb && dragPosition ? `${dragPosition.y}px` : dockedCorner.includes('top') ? '24px' : 'auto',
+            bottom: isDraggingOrb && dragPosition ? 'auto' : dockedCorner.includes('bottom') ? '24px' : 'auto',
             transform: isDraggingOrb ? 'scale(1.14)' : undefined,
-            transition: isDraggingOrb ? 'none' : 'all 0.38s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+            transition: isDraggingOrb ? 'none' : 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
             cursor: isDraggingOrb ? 'grabbing' : 'grab',
             touchAction: 'none',
             userSelect: 'none',
+            zIndex: 9990,
           }}
           title="Drag to any corner or click to open Woodpecker (⌘K)"
         >
@@ -1342,8 +1349,8 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
             <div
               className="woodlem-ai-launcher-tooltip"
               style={{
-                left: orbPosition.x < (typeof window !== 'undefined' ? window.innerWidth / 2 : 500) ? 'calc(100% + 14px)' : 'auto',
-                right: orbPosition.x < (typeof window !== 'undefined' ? window.innerWidth / 2 : 500) ? 'auto' : 'calc(100% + 14px)',
+                left: dockedCorner.includes('left') ? 'calc(100% + 14px)' : 'auto',
+                right: dockedCorner.includes('right') ? 'calc(100% + 14px)' : 'auto',
                 top: '50%',
                 transform: 'translateY(-50%)',
               }}
