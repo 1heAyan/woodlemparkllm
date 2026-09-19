@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Award, Calendar, Settings, LifeBuoy, BookOpen, LogOut, MessageSquare, Megaphone, Pin, PinOff, SlidersHorizontal, Check, FileText, Video, Link2, FolderOpen, User, Trash2, Edit3, Paperclip, Plus, Menu, X, ChevronDown, Sparkles, ExternalLink, Download, AlertCircle, Clock, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Award, Calendar, Settings, LifeBuoy, BookOpen, LogOut, MessageSquare, Megaphone, Pin, PinOff, SlidersHorizontal, Check, FileText, Video, Link2, FolderOpen, User, Trash2, Edit3, Paperclip, Plus, Menu, X, ChevronDown, Sparkles, ExternalLink, Download, AlertCircle, Clock, AlertTriangle, CheckCircle2, Terminal } from 'lucide-react';
 import { WoodlemLogo, WoodlemEmblemSVG } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import {
@@ -17,9 +17,13 @@ import {
   ResourceType,
   LeaveRequest,
   LateEntryRecord,
+  CsQuestion,
+  CsSubmission,
+  CsLabSession,
   supabase,
 } from '@/lib/supabaseClient';
 import { getTodayDateString } from '@/lib/lateEntryHelper';
+import { StudentCSLabView } from '@/components/CSLab/StudentCSLabView';
 import { SubmitAssignmentModal } from '../Modals/SubmitAssignmentModal';
 import { ExamPortalView } from './ExamPortalView';
 import { EditAchievementModal } from '../Modals/EditAchievementModal';
@@ -33,6 +37,7 @@ import { SupportView } from '@/components/Shared/SupportView';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 import { openFileInNewTab, downloadFile, formatShortFileName } from '@/lib/fileHelper';
 import { sanitizeUserCode } from '@/lib/userCodeHelper';
+import { isCsStudent } from '@/lib/csLabHelper';
 import { ApplyLeaveModal } from '../Modals/ApplyLeaveModal';
 
 interface StudentDashboardProps {
@@ -72,6 +77,13 @@ interface StudentDashboardProps {
   onUpdateCurrentUser?: (user: UserProfile) => void;
   onRefreshData?: () => void;
   onSignOut: () => void;
+  // CS Lab (only used when the student is CS-enrolled)
+  csQuestions?: CsQuestion[];
+  csSubmissions?: CsSubmission[];
+  csLabSessions?: CsLabSession[];
+  onSaveCsLabSession?: (payload: any) => Promise<CsLabSession | null>;
+  onDeleteCsLabSession?: (sessionId: string) => Promise<boolean>;
+  onSaveCsSubmission?: (payload: any) => Promise<boolean>;
 }
 
 export const StudentDashboard: React.FC<StudentDashboardProps> = ({
@@ -103,9 +115,16 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   onUpdateCurrentUser,
   onRefreshData,
   onSignOut,
+  csQuestions = [],
+  csSubmissions = [],
+  csLabSessions = [],
+  onSaveCsLabSession,
+  onDeleteCsLabSession,
+  onSaveCsSubmission,
 }) => {
-  // Navigation mode: 'class' | 'homeroom_circulars' | 'awards' | 'attendance' | 'hub' | 'settings' | 'support'
-  const [activeNavType, setActiveNavType] = useState<'class' | 'homeroom_circulars' | 'awards' | 'attendance' | 'hub' | 'settings' | 'support'>('class');
+  // Navigation mode: 'class' | 'homeroom_circulars' | 'awards' | 'attendance' | 'hub' | 'cslab' | 'settings' | 'support'
+  const [activeNavType, setActiveNavType] = useState<'class' | 'homeroom_circulars' | 'awards' | 'attendance' | 'hub' | 'cslab' | 'settings' | 'support'>('class');
+  const [isCsLabStudent, setIsCsLabStudent] = useState(false);
   
   // Tabs inside a subject classroom: 'broadcasts' | 'resources' | 'tasks' | 'syllabus'
   const [classSubTab, setClassSubTab] = useState<'broadcasts' | 'resources' | 'tasks' | 'marks' | 'syllabus'>('broadcasts');
@@ -266,6 +285,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     });
   }, [subjectClasses, currentStudent.id, currentStudent.email, cleanGrade, cleanSection]);
 
+  // CS Lab visibility: student is enrolled in at least one Computer Science classroom
+  useEffect(() => {
+    setIsCsLabStudent(isCsStudent(currentStudent, subjectClasses));
+  }, [currentStudent, subjectClasses]);
+
   // Selected active classroom
   const [selectedClassId, setSelectedClassId] = useState<string>('');
 
@@ -361,6 +385,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       } else if (target.view === 'support' || target.view === 'helpdesk') {
         setActiveNavType('support');
         window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else if (target.view === 'cslab') {
+        if (isCsLabStudent) {
+          setActiveNavType('cslab');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
       } else if (
         target.view === 'class' ||
         target.view === 'tasks' ||
@@ -825,6 +854,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 ? 'Attendance'
                 : activeNavType === 'hub'
                 ? 'Co-Curricular'
+                : activeNavType === 'cslab'
+                ? 'CS Lab'
                 : activeNavType}
             </span>
           )}
@@ -1020,6 +1051,23 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 <span>Holistic Hub</span>
               </button>
             </div>
+
+            {/* CS Lab (mobile) — only for CS students */}
+            {isCsLabStudent && (
+              <div>
+                <button
+                  type="button"
+                  className={`mobile-drawer-item ${activeNavType === 'cslab' ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveNavType('cslab');
+                    setIsMobileDrawerOpen(false);
+                  }}
+                >
+                  <Terminal size={16} style={{ color: activeNavType === 'cslab' ? '#FFFFFF' : '#7C5CBF', flexShrink: 0 }} />
+                  <span>CS Lab</span>
+                </button>
+              </div>
+            )}
 
             {/* Drawer Footer */}
             <div className="mobile-drawer-footer">
@@ -1341,6 +1389,36 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </button>
             {sidebar.isCollapsed && <div className="sidebar-tooltip">Holistic Hub</div>}
           </div>
+
+          {/* CS LAB — visible only to Computer Science students */}
+          {isCsLabStudent && (
+            <div className="sidebar-tooltip-wrapper">
+              <button
+                className={`nav-item ${activeNavType === 'cslab' ? 'active' : ''}`}
+                onClick={() => { setActiveNavType('cslab'); sidebar.handleNavClick(); }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                  <Terminal size={15} className="icon" style={{ color: activeNavType === 'cslab' ? '#FFFFFF' : '#7C5CBF', flexShrink: 0 }} />
+                  <span className="sidebar-text" style={{ flex: 1, color: activeNavType === 'cslab' ? '#FFFFFF' : 'inherit' }}>CS Lab</span>
+                  <span
+                    className="sidebar-text"
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 800,
+                      padding: '1px 5px',
+                      borderRadius: 3,
+                      background: activeNavType === 'cslab' ? '#454340' : '#F3EFFA',
+                      color: activeNavType === 'cslab' ? '#FFFFFF' : '#6D28D9',
+                      border: activeNavType === 'cslab' ? '1px solid #5A5854' : '1px solid #DDD6FE',
+                    }}
+                  >
+                    CS
+                  </span>
+                </div>
+              </button>
+              {sidebar.isCollapsed && <div className="sidebar-tooltip">Computer Science Lab</div>}
+            </div>
+          )}
 
           {/* SUBJECT CLASSROOMS divider + label */}
           <div className="sidebar-nav-divider" />
@@ -4137,6 +4215,20 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           <div className="content-body">
             <SupportView currentUser={currentStudent} />
           </div>
+        )}
+
+        {/* VIEW 7: CS LAB — full lab for CS-enrolled students */}
+        {activeNavType === 'cslab' && isCsLabStudent && (
+          <StudentCSLabView
+            currentUser={currentStudent}
+            subjectClasses={subjectClasses}
+            questions={csQuestions}
+            submissions={csSubmissions}
+            sessions={csLabSessions}
+            onSaveSession={async (p) => (onSaveCsLabSession ? onSaveCsLabSession(p) : null)}
+            onDeleteSession={async (id) => (onDeleteCsLabSession ? onDeleteCsLabSession(id) : false)}
+            onSaveSubmission={async (p) => (onSaveCsSubmission ? onSaveCsSubmission(p) : false)}
+          />
         )}
       </main>
 

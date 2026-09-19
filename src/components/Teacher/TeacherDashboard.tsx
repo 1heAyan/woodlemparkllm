@@ -18,9 +18,12 @@ import {
   SpecialRoleAssignment,
   LeaveRequest,
   LateEntryRecord,
+  CsQuestion,
+  CsSubmission,
 } from '@/lib/supabaseClient';
 import { LateEntryView } from '@/components/Shared/LateEntryView';
 import { getTodayDateString, loadAuthorizedStaffIds } from '@/lib/lateEntryHelper';
+import { TeacherCSLabView } from '@/components/CSLab/TeacherCSLabView';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { ReviewTestResultsModal, TestResultRecord } from '../Modals/ReviewTestResultsModal';
@@ -34,6 +37,7 @@ import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 import { openFileInNewTab, downloadFile, formatShortFileName } from '@/lib/fileHelper';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import { isHodUser, isCoordinatorUser, loadSpecialRoleAssignments, ACADEMIC_DEPARTMENTS } from '@/lib/specialRolesHelper';
+import { isCsTeacher as checkIsCsTeacher } from '@/lib/csLabHelper';
 import { computeExecutiveAnalytics } from '@/lib/analyticsHelper';
 import {
   getOrGenerateStudentParentCode,
@@ -49,7 +53,7 @@ import {
   ScoreDistributionChart,
   SubjectComparisonChart,
 } from '@/components/UI/AnalyticsCharts';
-import { ShieldCheck, Layers, Crown } from 'lucide-react';
+import { ShieldCheck, Layers, Crown, Terminal } from 'lucide-react';
 
 interface TeacherDashboardProps {
   currentUser: UserProfile;
@@ -123,6 +127,13 @@ interface TeacherDashboardProps {
   onUpdateCurrentUser?: (user: UserProfile) => void;
   onRefreshData?: () => void;
   onSignOut: () => void;
+  // CS Lab (only rendered when the teacher is CS faculty)
+  csQuestions?: CsQuestion[];
+  csSubmissions?: CsSubmission[];
+  onCreateCsQuestion?: (payload: any) => Promise<boolean>;
+  onUpdateCsQuestion?: (payload: any) => Promise<boolean>;
+  onDeleteCsQuestion?: (questionId: string) => Promise<boolean>;
+  onOverrideCsSubmission?: (payload: any) => Promise<boolean>;
 }
 
 export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
@@ -170,14 +181,34 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   onUpdateCurrentUser,
   onRefreshData,
   onSignOut,
+  csQuestions = [],
+  csSubmissions = [],
+  onCreateCsQuestion,
+  onUpdateCsQuestion,
+  onDeleteCsQuestion,
+  onOverrideCsSubmission,
 }) => {
   const [isEditClassModalOpen, setIsEditClassModalOpen] = useState(false);
   const sidebar = useSidebarState(currentUser?.id || currentUser?.email || 'teacher');
   const [selectedReviewTest, setSelectedReviewTest] = useState<TestItem | null>(null);
   const [selectedGradeAssignment, setSelectedGradeAssignment] = useState<AssignmentItem | null>(null);
   const [isMarkEntryOpen, setIsMarkEntryOpen] = useState(false);
-  // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'homeroom_codes' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub' | 'late_entry' | 'my_attendance'
-  const [activeNavMode, setActiveNavMode] = useState<'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'homeroom_codes' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub' | 'late_entry' | 'my_attendance'>('class');
+  // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'homeroom_codes' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub' | 'cs_lab' | 'late_entry' | 'my_attendance'
+  const [activeNavMode, setActiveNavMode] = useState<
+    | 'class'
+    | 'homeroom_attendance'
+    | 'homeroom_awards'
+    | 'homeroom_resources'
+    | 'homeroom_codes'
+    | 'hub'
+    | 'settings'
+    | 'support'
+    | 'hod_hub'
+    | 'coordinator_hub'
+    | 'cs_lab'
+    | 'late_entry'
+    | 'my_attendance'
+  >('class');
 
   // Teacher late arrival notice state
   const todayStr = getTodayDateString();
@@ -265,6 +296,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   useEffect(() => {
     loadSpecialRoleAssignments().then(setSpecialAssignments);
   }, []);
+
+  // CS Lab visibility: teacher teaches a Computer Science subject or owns a CS classroom
+  const isCsLabTeacher = useMemo(
+    () => checkIsCsTeacher(currentUser, subjectClasses),
+    [currentUser, subjectClasses]
+  );
 
   const userHodAssignment = useMemo(() => {
     return specialAssignments.find(
@@ -467,6 +504,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         setActiveNavMode('settings');
       } else if (target.view === 'support' || target.view === 'helpdesk') {
         setActiveNavMode('support');
+      } else if (target.view === 'cslab') {
+        if (isCsLabTeacher) {
+          setIsMarkEntryOpen(false);
+          setActiveNavMode('cs_lab');
+        }
       } else if (target.view === 'class' || target.view === 'resources' || target.view === 'tasks' || target.view === 'syllabus' || target.view === 'broadcasts') {
         if (teacherClasses.length > 0) {
           setActiveNavMode('class');
@@ -1508,6 +1550,42 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             </div>
           )}
 
+          {/* 0. CS LAB — visible only to Computer Science faculty */}
+          {isCsLabTeacher && (
+            <div className="sidebar-tooltip-wrapper">
+              <button
+                className={`nav-item ${activeNavMode === 'cs_lab' && !isMarkEntryOpen ? 'active' : ''}`}
+                onClick={() => {
+                  setIsMarkEntryOpen(false);
+                  setActiveNavMode('cs_lab');
+                  sidebar.handleNavClick();
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                  <Terminal size={15} className="icon" style={{ color: activeNavMode === 'cs_lab' && !isMarkEntryOpen ? '#FFFFFF' : '#7C5CBF', flexShrink: 0 }} />
+                  <span className="sidebar-text" style={{ flex: 1 }}>CS Lab</span>
+                  <span
+                    className="sidebar-text"
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 800,
+                      padding: '1px 5px',
+                      borderRadius: 3,
+                      background: activeNavMode === 'cs_lab' && !isMarkEntryOpen ? '#454340' : '#F3EFFA',
+                      color: activeNavMode === 'cs_lab' && !isMarkEntryOpen ? '#FFFFFF' : '#6D28D9',
+                      border: activeNavMode === 'cs_lab' && !isMarkEntryOpen ? '1px solid #5A5854' : '1px solid #DDD6FE',
+                    }}
+                  >
+                    CS
+                  </span>
+                </div>
+              </button>
+              {sidebar.isCollapsed && (
+                <div className="sidebar-tooltip">Computer Science Lab</div>
+              )}
+            </div>
+          )}
+
           {/* SPECIAL LATE ENTRY PANEL (If authorized duty staff) */}
           {(currentUser.can_manage_late_entry || loadAuthorizedStaffIds().includes(currentUser.id)) && (
             <div className="sidebar-tooltip-wrapper">
@@ -1598,7 +1676,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               <div className="sidebar-tooltip">My Attendance{teacherTodayLate ? ' (Late Today)' : ''}</div>
             )}
           </div>
-
           {/* 1. HOMEROOM / CLASS TEACHER SECTION */}
           <div className="sidebar-tooltip-wrapper">
             <button
@@ -5905,6 +5982,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           <div style={{ padding: '24px 32px' }}>
             <SupportView currentUser={currentUser} />
           </div>
+        )}
+
+        {/* VIEW 7.5: CS LAB — full lab for CS faculty */}
+        {activeNavMode === 'cs_lab' && isCsLabTeacher && (
+          <TeacherCSLabView
+            currentUser={currentUser}
+            subjectClasses={subjectClasses}
+            profiles={profiles}
+            questions={csQuestions}
+            submissions={csSubmissions}
+            onCreateQuestion={async (p) => (onCreateCsQuestion ? onCreateCsQuestion(p) : false)}
+            onUpdateQuestion={async (p) => (onUpdateCsQuestion ? onUpdateCsQuestion(p) : false)}
+            onDeleteQuestion={async (id) => (onDeleteCsQuestion ? onDeleteCsQuestion(id) : false)}
+            onOverrideSubmission={async (p) => (onOverrideCsSubmission ? onOverrideCsSubmission(p) : false)}
+          />
         )}
 
         {/* VIEW 8: HOD DEPARTMENT HUB */}

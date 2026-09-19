@@ -21,10 +21,18 @@ import {
   ResourceType,
   LeaveRequest,
   LateEntryRecord,
+  CsQuestion,
+  CsSubmission,
+  CsLabSession,
 } from '@/lib/supabaseClient';
 import { loadLateEntries, loadAuthorizedStaffIds, fetchCloudAuthorizedStaffIds } from '@/lib/lateEntryHelper';
 
 import { LoginView } from '@/components/Auth/LoginView';
+import {
+  CsQuestionSavePayload,
+  CsSubmissionOverridePayload,
+} from '@/components/CSLab/TeacherCSLabView';
+import { CsSubmissionSavePayload } from '@/components/CSLab/StudentCSLabView';
 import { StudentDashboard } from '@/components/Student/StudentDashboard';
 import { TeacherDashboard } from '@/components/Teacher/TeacherDashboard';
 import { AdminDashboard } from '@/components/Admin/AdminDashboard';
@@ -122,6 +130,9 @@ export default function WoodlemApp() {
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
+  const [csQuestions, setCsQuestions] = useState<CsQuestion[]>([]);
+  const [csSubmissions, setCsSubmissions] = useState<CsSubmission[]>([]);
+  const [csLabSessions, setCsLabSessions] = useState<CsLabSession[]>([]);
   const [subjectClasses, setSubjectClasses] = useState<SubjectClass[]>([]);
   const [isCreateClassOpen, setIsCreateClassOpen] = useState(false);
 
@@ -143,6 +154,9 @@ export default function WoodlemApp() {
         testResultsRes,
         assignSubsRes,
         sylProgRes,
+        csQRes,
+        csSubRes,
+        csSessRes,
       ] = await Promise.all([
         supabase.from('profiles').select('*').limit(10000),
         supabase.from('tests').select('*').order('created_at', { ascending: false }).limit(10000),
@@ -158,6 +172,9 @@ export default function WoodlemApp() {
         supabase.from('test_results').select('*').limit(10000),
         supabase.from('assignment_submissions').select('*').limit(10000),
         supabase.from('student_syllabus_progress').select('*').limit(10000),
+        supabase.from('cs_questions').select('*').order('created_at', { ascending: false }).limit(10000),
+        supabase.from('cs_submissions').select('*').limit(10000),
+        supabase.from('cs_lab_sessions').select('*').order('updated_at', { ascending: false }).limit(10000),
       ]);
 
       // Extract all cloud-stored user avatars from Supabase
@@ -632,6 +649,26 @@ export default function WoodlemApp() {
       const loadedLate = await loadLateEntries();
       setLateEntries(loadedLate);
       fetchCloudAuthorizedStaffIds().catch(() => {});
+
+      // CS Lab data (tables may not exist until migration runs — fail soft)
+      if (csQRes.error) {
+        console.warn('CS Lab questions unavailable (run supabase_cs_lab.sql):', csQRes.error.message);
+        setCsQuestions([]);
+      } else {
+        setCsQuestions((csQRes.data || []) as CsQuestion[]);
+      }
+      if (csSubRes.error) {
+        console.warn('CS Lab submissions unavailable (run supabase_cs_lab.sql):', csSubRes.error.message);
+        setCsSubmissions([]);
+      } else {
+        setCsSubmissions((csSubRes.data || []) as CsSubmission[]);
+      }
+      if (csSessRes.error) {
+        console.warn('CS Lab sessions unavailable (run supabase_cs_lab.sql):', csSessRes.error.message);
+        setCsLabSessions([]);
+      } else {
+        setCsLabSessions((csSessRes.data || []) as CsLabSession[]);
+      }
     } catch (err: any) {
       console.error('Error loading Supabase data:', err);
     }
@@ -3491,6 +3528,200 @@ export default function WoodlemApp() {
     } catch (e) {}
   };
 
+  // =============================================================================
+  // CS Lab handlers
+  // =============================================================================
+
+  const handleCreateCsQuestion = async (payload: CsQuestionSavePayload): Promise<boolean> => {
+    try {
+      const row = {
+        ...payload,
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `csq_${Date.now()}`,
+        created_at: new Date().toISOString(),
+      };
+      const { error } = await supabase.from('cs_questions').insert([row]);
+      if (error) {
+        console.error('Create CS question error:', error);
+        return false;
+      }
+      setCsQuestions((prev) => [row as unknown as CsQuestion, ...prev]);
+      recordAuditLog('CREATE_ACHIEVEMENT' as any, row.title, `CS Lab question published to ${row.target_class_ids.length} class(es)`);
+      return true;
+    } catch (e) {
+      console.error('Create CS question exception:', e);
+      return false;
+    }
+  };
+
+  const handleUpdateCsQuestion = async (payload: CsQuestionSavePayload & { id: string }): Promise<boolean> => {
+    try {
+      const { id, ...row } = payload;
+      const { error } = await supabase.from('cs_questions').update(row).eq('id', id);
+      if (error) {
+        console.error('Update CS question error:', error);
+        return false;
+      }
+      setCsQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, ...row } : q)));
+      recordAuditLog('EDIT_ACHIEVEMENT' as any, row.title, 'CS Lab question updated');
+      return true;
+    } catch (e) {
+      console.error('Update CS question exception:', e);
+      return false;
+    }
+  };
+
+  const handleDeleteCsQuestion = async (questionId: string): Promise<boolean> => {
+    try {
+      const { error } = await supabase.from('cs_questions').delete().eq('id', questionId);
+      if (error) {
+        console.error('Delete CS question error:', error);
+        return false;
+      }
+      setCsQuestions((prev) => prev.filter((q) => q.id !== questionId));
+      return true;
+    } catch (e) {
+      console.error('Delete CS question exception:', e);
+      return false;
+    }
+  };
+
+  const handleSaveCsSubmission = async (payload: CsSubmissionSavePayload): Promise<boolean> => {
+    try {
+      const existing = csSubmissions.find(
+        (s) => s.question_id === payload.question_id && s.student_id === payload.student_id
+      );
+      const isSubmit = payload.status !== 'draft';
+      const row: any = {
+        question_id: payload.question_id,
+        question_order: payload.question_order ?? 0,
+        student_id: payload.student_id,
+        student_name: payload.student_name,
+        language: payload.language,
+        code: payload.code,
+        output: payload.output,
+        error: payload.error,
+        status: payload.status,
+        code_matches_solution: payload.code_matches_solution,
+        attempt_count: (existing?.attempt_count || 0) + (isSubmit ? 1 : 0),
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from('cs_submissions')
+        .upsert([row], { onConflict: 'question_id,student_id' });
+      if (error) {
+        console.error('Save CS submission error:', error);
+        return false;
+      }
+
+      setCsSubmissions((prev) => {
+        const next = { ...(existing || {}), ...row } as CsSubmission;
+        const others = prev.filter(
+          (s) => !(s.question_id === payload.question_id && s.student_id === payload.student_id)
+        );
+        return [...others, next];
+      });
+
+      if (isSubmit) {
+        recordAuditLog('SUBMIT_ASSIGNMENT' as any, `CS Lab: ${payload.question_id}`, `Status: ${payload.status}`);
+      }
+      return true;
+    } catch (e) {
+      console.error('Save CS submission exception:', e);
+      return false;
+    }
+  };
+
+  const handleOverrideCsSubmission = async (payload: CsSubmissionOverridePayload): Promise<boolean> => {
+    try {
+      const { error } = await supabase
+        .from('cs_submissions')
+        .update({
+          teacher_score: payload.teacher_score,
+          teacher_feedback: payload.teacher_feedback,
+          reviewed_by: currentUser?.name || 'Teacher',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('question_id', payload.question_id)
+        .eq('student_id', payload.student_id);
+      if (error) {
+        console.error('Override CS submission error:', error);
+        return false;
+      }
+      setCsSubmissions((prev) =>
+        prev.map((s) =>
+          s.question_id === payload.question_id && s.student_id === payload.student_id
+            ? {
+                ...s,
+                teacher_score: payload.teacher_score,
+                teacher_feedback: payload.teacher_feedback,
+                reviewed_by: currentUser?.name || 'Teacher',
+              }
+            : s
+        )
+      );
+      return true;
+    } catch (e) {
+      console.error('Override CS submission exception:', e);
+      return false;
+    }
+  };
+
+  const handleSaveCsLabSession = async (
+    payload: Partial<CsLabSession> & { student_id: string; title: string; language: 'python' | 'sql'; code: string }
+  ): Promise<CsLabSession | null> => {
+    try {
+      const nowIso = new Date().toISOString();
+      const row: any = {
+        id: payload.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `css_${Date.now()}`),
+        student_id: payload.student_id,
+        student_name: payload.student_name || '',
+        title: payload.title,
+        language: payload.language,
+        code: payload.code || '',
+        setup_sql: payload.setup_sql || '',
+        stdin: payload.stdin || '',
+        output: payload.output || '',
+        error: payload.error || '',
+        db_checkpoint: payload.db_checkpoint || '',
+        updated_at: nowIso,
+      };
+
+      const { error } = await supabase
+        .from('cs_lab_sessions')
+        .upsert([row], { onConflict: 'id' });
+      if (error) {
+        console.error('Save CS lab session error:', error);
+        return null;
+      }
+
+      const saved = row as CsLabSession;
+      setCsLabSessions((prev) => {
+        const exists = prev.some((s) => s.id === saved.id);
+        return exists ? prev.map((s) => (s.id === saved.id ? saved : s)) : [saved, ...prev];
+      });
+      return saved;
+    } catch (e) {
+      console.error('Save CS lab session exception:', e);
+      return null;
+    }
+  };
+
+  const handleDeleteCsLabSession = async (sessionId: string): Promise<boolean> => {
+    try {
+      const { error } = await supabase.from('cs_lab_sessions').delete().eq('id', sessionId);
+      if (error) {
+        console.error('Delete CS lab session error:', error);
+        return false;
+      }
+      setCsLabSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      return true;
+    } catch (e) {
+      console.error('Delete CS lab session exception:', e);
+      return false;
+    }
+  };
+
   // Filter active profiles (excluding deactivated accounts)
   const activeProfiles = useMemo(
     () => profiles.filter((p) => !p.is_deactivated),
@@ -3595,6 +3826,12 @@ export default function WoodlemApp() {
           onUpdateCurrentUser={handleUpdateCurrentUser}
           onRefreshData={loadAllData}
           onSignOut={handleSignOut}
+          csQuestions={csQuestions}
+          csSubmissions={csSubmissions}
+          csLabSessions={csLabSessions}
+          onSaveCsLabSession={handleSaveCsLabSession}
+          onDeleteCsLabSession={handleDeleteCsLabSession}
+          onSaveCsSubmission={handleSaveCsSubmission}
         />
       ) : currentUser.role === 'teacher' ? (
         <TeacherDashboard
@@ -3654,6 +3891,12 @@ export default function WoodlemApp() {
           onUpdateCurrentUser={handleUpdateCurrentUser}
           onRefreshData={loadAllData}
           onSignOut={handleSignOut}
+          csQuestions={csQuestions}
+          csSubmissions={csSubmissions}
+          onCreateCsQuestion={handleCreateCsQuestion}
+          onUpdateCsQuestion={handleUpdateCsQuestion}
+          onDeleteCsQuestion={handleDeleteCsQuestion}
+          onOverrideCsSubmission={handleOverrideCsSubmission}
         />
       ) : isPrincipalUser(currentUser) || isSltUser(currentUser) || currentUser.role === 'principal' ? (
         <PrincipalDashboard

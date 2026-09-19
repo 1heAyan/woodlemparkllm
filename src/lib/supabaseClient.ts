@@ -292,3 +292,65 @@ export interface LateEntryRecord {
   created_at?: string;
 }
 
+// =============================================================================
+// Computer Science Lab (CS Lab)
+// =============================================================================
+
+export type CsLanguage = 'python' | 'sql';
+
+export interface CsQuestion {
+  id: string;
+  teacher_id: string;
+  teacher_name?: string;
+  title: string;
+  description?: string;
+  language: CsLanguage;
+  target_class_ids: string[];
+  starter_code?: string;
+  solution_code?: string;
+  setup_sql?: string;
+  sample_input?: string;
+  expected_output?: string;
+  expected_sql_result?: { columns: string[]; rows: any[][] } | null;
+  start_time?: string | null;
+  deadline?: string | null;
+  is_published?: boolean;
+  created_at?: string;
+}
+
+export type CsSubmissionStatus = 'draft' | 'passed' | 'passed_review' | 'failed';
+
+export interface CsSubmission {
+  id?: string;
+  question_id: string;
+  question_order?: number;
+  student_id: string;
+  student_name?: string;
+  language?: CsLanguage;
+  code: string;
+  output?: string;
+  error?: string;
+  status: CsSubmissionStatus;
+  code_matches_solution?: boolean;
+  attempt_count?: number;
+  teacher_score?: number | null;
+  teacher_feedback?: string;
+  reviewed_by?: string;
+  updated_at?: string;
+}
+
+export interface CsLabSession {
+  id: string;
+  student_id: string;
+  student_name?: string;
+  title: string;
+  language: CsLanguage;
+  code: string;
+  setup_sql?: string;
+  stdin?: string;
+  output?: string;
+  error?: string;
+  db_checkpoint?: string;
+  created_at?: string;
+  updated_at?: string;
+}
