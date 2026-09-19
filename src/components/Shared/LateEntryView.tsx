@@ -19,9 +19,6 @@ import {
   LateFrequencyItem,
   loadAuthorizedStaffIds,
   fetchCloudAuthorizedStaffIds,
-  syncAllToSupabaseNow,
-  checkSupabaseNativeLateEntriesTable,
-  SQL_LATE_ENTRIES_MIGRATION,
 } from '@/lib/lateEntryHelper';
 import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { CustomSelect } from '@/components/UI/CustomSelect';
@@ -48,11 +45,6 @@ import {
   FileSpreadsheet,
   Zap,
   Mail,
-  Cloud,
-  Database,
-  RefreshCw,
-  Copy,
-  Check,
 } from 'lucide-react';
 
 const COMMON_LATE_PRESETS = [
@@ -175,42 +167,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Supabase Cloud Sync state
-  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
-  const [isNativeTableActive, setIsNativeTableActive] = useState<boolean | null>(null);
-  const [showSqlMigrationModal, setShowSqlMigrationModal] = useState(false);
-  const [copiedSql, setCopiedSql] = useState(false);
 
-  useEffect(() => {
-    checkSupabaseNativeLateEntriesTable().then(setIsNativeTableActive);
-  }, []);
-
-  const handleManualCloudSync = async () => {
-    setIsSyncingCloud(true);
-    try {
-      const res = await syncAllToSupabaseNow();
-      setIsNativeTableActive(res.nativeTableExists);
-      if (onRefreshData) onRefreshData();
-      showToast(
-        `Cloud sync complete! ${res.count} records synced to Supabase ${res.nativeTableExists ? '(Native Table)' : '(Cloud Hub Storage)'}.`,
-        'success'
-      );
-    } catch (err) {
-      console.error(err);
-      showToast('Cloud sync encountered a problem. Please try again.', 'error');
-    } finally {
-      setIsSyncingCloud(false);
-    }
-  };
-
-  const handleCopySql = () => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(SQL_LATE_ENTRIES_MIGRATION);
-    }
-    setCopiedSql(true);
-    showToast('SQL migration script copied! Run in Supabase SQL Editor.', 'info');
-    setTimeout(() => setCopiedSql(false), 3500);
-  };
 
   // Keep time updated if user hasn't selected a person yet
   useEffect(() => {
@@ -545,74 +502,26 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
           </div>
 
           {mode === 'admin' && (
-            <>
-              <button
-                type="button"
-                onClick={handleManualCloudSync}
-                disabled={isSyncingCloud}
-                title="Ensure all local and cloud records are fully synced to Supabase"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  borderRadius: 6,
-                  background: '#F0FDF4',
-                  border: '1px solid #BBF7D0',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: '#15803D',
-                  cursor: isSyncingCloud ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <RefreshCw size={13} style={{ animation: isSyncingCloud ? 'spin 1s linear infinite' : 'none' }} />
-                <span>{isSyncingCloud ? 'Syncing...' : 'Sync Supabase'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowSqlMigrationModal(true)}
-                title="Check native Supabase table status or copy SQL migration"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  borderRadius: 6,
-                  background: isNativeTableActive ? '#F0FDF4' : '#FFFBEB',
-                  border: `1px solid ${isNativeTableActive ? '#86EFAC' : '#FDE68A'}`,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: isNativeTableActive ? '#15803D' : '#B45309',
-                  cursor: 'pointer',
-                }}
-              >
-                <Database size={13} />
-                <span>{isNativeTableActive ? 'Supabase Table: Active' : 'Supabase Table Setup'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => exportLateEntriesToCSV(lateEntries, `woodlem_all_late_entries_${todayStr}.csv`)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  borderRadius: 6,
-                  background: '#FFFFFF',
-                  border: '1px solid #E5E3DF',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: 'var(--neutral-dark)',
-                  cursor: 'pointer',
-                }}
-              >
-                <Download size={13} />
-                <span>Export All CSV</span>
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={() => exportLateEntriesToCSV(lateEntries, `woodlem_all_late_entries_${todayStr}.csv`)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                borderRadius: 6,
+                background: '#FFFFFF',
+                border: '1px solid #E5E3DF',
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'var(--neutral-dark)',
+                cursor: 'pointer',
+              }}
+            >
+              <Download size={13} />
+              <span>Export All CSV</span>
+            </button>
           )}
         </div>
       </div>
@@ -635,71 +544,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
         </div>
       )}
 
-      {/* SUPABASE STATUS BANNER FOR ADMIN (When native table is not yet detected) */}
-      {mode === 'admin' && isNativeTableActive === false && (
-        <div
-          style={{
-            padding: '12px 16px',
-            borderRadius: 8,
-            background: '#FFFBEB',
-            border: '1px solid #FDE68A',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 16,
-            flexWrap: 'wrap',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 260 }}>
-            <Cloud size={20} style={{ color: '#D97706', flexShrink: 0 }} />
-            <div style={{ fontSize: 13, color: '#92400E', lineHeight: 1.4 }}>
-              <strong>Supabase Cloud Persistence Active:</strong> Late entry logs and staff permissions are safely persisting to your Supabase Cloud.
-              To also create the dedicated PostgreSQL <code style={{ background: '#FEF3C7', padding: '2px 5px', borderRadius: 4, fontFamily: 'monospace' }}>public.late_entries</code> table in your database, execute the 10-line SQL migration in your Supabase SQL Editor.
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button
-              type="button"
-              onClick={handleCopySql}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '6px 14px',
-                borderRadius: 6,
-                background: '#D97706',
-                border: 'none',
-                color: '#FFFFFF',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              {copiedSql ? <Check size={13} /> : <Copy size={13} />}
-              <span>{copiedSql ? 'Copied to Clipboard!' : 'Copy SQL Script'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowSqlMigrationModal(true)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '6px 12px',
-                borderRadius: 6,
-                background: '#FFFFFF',
-                border: '1px solid #D97706',
-                color: '#92400E',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              <span>View Guide</span>
-            </button>
-          </div>
-        </div>
-      )}
+
 
       {/* ========================================================================= */}
       {/* SECTION 1: DAILY GATE DESK (Visible in desk mode OR admin 'desk' tab)      */}
@@ -2581,241 +2426,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
         </div>
       )}
 
-      {/* SUPABASE SQL MIGRATION MODAL */}
-      {showSqlMigrationModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 9999,
-            background: 'rgba(17, 24, 39, 0.65)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-          }}
-          onClick={() => setShowSqlMigrationModal(false)}
-        >
-          <div
-            style={{
-              width: '100%',
-              maxWidth: 680,
-              background: '#FFFFFF',
-              borderRadius: 12,
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-              border: '1px solid #E5E3DF',
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column',
-              maxHeight: '90vh',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div
-              style={{
-                padding: '16px 20px',
-                borderBottom: '1px solid #E5E3DF',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                background: '#FAF9F6',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 8,
-                    background: isNativeTableActive ? '#DCFCE7' : '#FEF3C7',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: isNativeTableActive ? '#15803D' : '#D97706',
-                  }}
-                >
-                  <Database size={18} />
-                </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                    Supabase Database Setup
-                  </h3>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                    Status: {isNativeTableActive ? '🟢 Native late_entries table active' : '🟡 Synced via Cloud Hub Storage (Table not yet created)'}
-                  </div>
-                </div>
-              </div>
 
-              <button
-                type="button"
-                onClick={() => setShowSqlMigrationModal(false)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  padding: 4,
-                  borderRadius: 6,
-                }}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div style={{ padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div style={{ fontSize: 13, color: 'var(--neutral-dark)', lineHeight: 1.5 }}>
-                All Late Entry data is <strong>currently persisting safely</strong> to your Supabase project (<code style={{ background: '#F3F4F6', padding: '1px 5px', borderRadius: 3 }}>geewtbleggwsrjazfqac.supabase.co</code>).
-                To also create the dedicated native table <code style={{ background: '#F3F4F6', padding: '1px 5px', borderRadius: 3 }}>public.late_entries</code>, run this SQL script in Supabase:
-              </div>
-
-              {/* Instructions */}
-              <div
-                style={{
-                  padding: '12px 16px',
-                  borderRadius: 8,
-                  background: '#F8FAFC',
-                  border: '1px solid #E2E8F0',
-                  fontSize: 12.5,
-                  color: '#334155',
-                }}
-              >
-                <div style={{ fontWeight: 700, marginBottom: 6, color: '#0F172A' }}>Quick Setup Instructions:</div>
-                <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
-                  <li>Open your <strong>Supabase Dashboard</strong> and navigate to <strong>SQL Editor</strong>.</li>
-                  <li>Click <strong>New query</strong>.</li>
-                  <li>Paste the SQL script below and click <strong>Run</strong>.</li>
-                </ol>
-              </div>
-
-              {/* Code Box */}
-              <div style={{ position: 'relative' }}>
-                <pre
-                  style={{
-                    margin: 0,
-                    padding: '14px 16px',
-                    borderRadius: 8,
-                    background: '#0F172A',
-                    color: '#E2E8F0',
-                    fontSize: 11.5,
-                    fontFamily: 'monospace',
-                    overflowX: 'auto',
-                    maxHeight: 220,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  <code>{SQL_LATE_ENTRIES_MIGRATION}</code>
-                </pre>
-                <button
-                  type="button"
-                  onClick={handleCopySql}
-                  style={{
-                    position: 'absolute',
-                    top: 8,
-                    right: 8,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 5,
-                    padding: '5px 10px',
-                    borderRadius: 5,
-                    background: '#1E293B',
-                    border: '1px solid #334155',
-                    color: '#F8FAFC',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {copiedSql ? <Check size={12} style={{ color: '#4ADE80' }} /> : <Copy size={12} />}
-                  <span>{copiedSql ? 'Copied' : 'Copy SQL'}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div
-              style={{
-                padding: '14px 20px',
-                borderTop: '1px solid #E5E3DF',
-                background: '#FAF9F6',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <button
-                type="button"
-                onClick={async () => {
-                  const active = await checkSupabaseNativeLateEntriesTable();
-                  setIsNativeTableActive(active);
-                  if (active) {
-                    showToast('Native late_entries table detected successfully!', 'success');
-                  } else {
-                    showToast('Table not detected yet. Make sure you clicked "Run" in Supabase SQL Editor.', 'info');
-                  }
-                }}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '7px 14px',
-                  borderRadius: 6,
-                  background: '#FFFFFF',
-                  border: '1px solid #CBD5E1',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: 'var(--neutral-dark)',
-                  cursor: 'pointer',
-                }}
-              >
-                <RefreshCw size={12} />
-                <span>Recheck Table Status</span>
-              </button>
-
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={handleCopySql}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '7px 14px',
-                    borderRadius: 6,
-                    background: '#2C6E6A',
-                    border: 'none',
-                    color: '#FFFFFF',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {copiedSql ? <Check size={13} /> : <Copy size={13} />}
-                  <span>{copiedSql ? 'Copied!' : 'Copy SQL Script'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowSqlMigrationModal(false)}
-                  style={{
-                    padding: '7px 14px',
-                    borderRadius: 6,
-                    background: '#FAF9F6',
-                    border: '1px solid #E5E3DF',
-                    color: 'var(--neutral-dark)',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
