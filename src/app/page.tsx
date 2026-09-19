@@ -829,15 +829,20 @@ export default function WoodlemApp() {
       window.addEventListener('woodlem-password-updated', handlePasswordEvent);
     }
 
-    // Subscribe to real-time database updates across public schema
+    // Subscribe to real-time database updates across public schema with debounce protection
+    let realtimeDebounceTimer: NodeJS.Timeout | null = null;
     const channel = supabase
       .channel('woodlem-realtime')
       .on('postgres_changes', { event: '*', schema: 'public' }, () => {
-        loadAllData();
+        if (realtimeDebounceTimer) clearTimeout(realtimeDebounceTimer);
+        realtimeDebounceTimer = setTimeout(() => {
+          loadAllData();
+        }, 1500);
       })
       .subscribe();
 
     return () => {
+      if (realtimeDebounceTimer) clearTimeout(realtimeDebounceTimer);
       subscription.unsubscribe();
       supabase.removeChannel(channel);
       if (typeof window !== 'undefined') {

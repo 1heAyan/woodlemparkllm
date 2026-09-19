@@ -275,13 +275,10 @@ export async function loadLateEntries(): Promise<LateEntryRecord[]> {
     (a, b) => new Date(b.created_at || b.date).getTime() - new Date(a.created_at || a.date).getTime()
   );
 
-  // 4. Update local cache and auto-push any previously unsynced local records to cloud
+  // 4. Update local cache for instant offline render (pure read, no background write loop)
   if (typeof window !== 'undefined') {
     try {
       localStorage.setItem(LOCAL_STORAGE_LATE_ENTRIES_KEY, JSON.stringify(list));
-      if (list.length > 0) {
-        syncCloudLateEntries(list).catch(() => {});
-      }
     } catch {
       // ignore
     }
