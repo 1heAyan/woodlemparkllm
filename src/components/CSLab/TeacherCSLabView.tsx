@@ -212,6 +212,16 @@ export const TeacherCSLabView: React.FC<TeacherCSLabViewProps> = ({
     }
   };
 
+  const toIsoOrNull = (val?: string | null): string | null => {
+    if (!val || !val.trim()) return null;
+    try {
+      const d = new Date(val);
+      return isNaN(d.getTime()) ? null : d.toISOString();
+    } catch {
+      return null;
+    }
+  };
+
   const buildPayload = (publish: boolean): CsQuestionSavePayload => ({
     teacher_id: currentUser.id,
     teacher_name: currentUser.name || '',
@@ -225,8 +235,8 @@ export const TeacherCSLabView: React.FC<TeacherCSLabViewProps> = ({
     sample_input: draft.sample_input,
     expected_output: draft.expected_output,
     expected_sql_result: draft.expected_sql_result,
-    start_time: draft.startTimeLocal ? new Date(draft.startTimeLocal).toISOString() : null,
-    deadline: draft.deadlineLocal ? new Date(draft.deadlineLocal).toISOString() : null,
+    start_time: toIsoOrNull(draft.startTimeLocal),
+    deadline: toIsoOrNull(draft.deadlineLocal),
     is_published: publish,
   });
 
@@ -245,6 +255,9 @@ export const TeacherCSLabView: React.FC<TeacherCSLabViewProps> = ({
       } else {
         setValidationMsg({ ok: false, text: 'Could not save. Check your connection and try again.' });
       }
+    } catch (err: any) {
+      console.error('Save question exception:', err);
+      setValidationMsg({ ok: false, text: err?.message || 'Could not save. Check your connection and try again.' });
     } finally {
       setSaving(false);
     }

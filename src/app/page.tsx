@@ -26,6 +26,18 @@ import {
   CsLabSession,
 } from '@/lib/supabaseClient';
 import { loadLateEntries, loadAuthorizedStaffIds, fetchCloudAuthorizedStaffIds } from '@/lib/lateEntryHelper';
+import {
+  saveCsQuestionToCloud,
+  deleteCsQuestionFromCloud,
+  saveCsSubmissionToCloud,
+  overrideCsSubmissionInCloud,
+  saveCsLabSessionToCloud,
+  deleteCsLabSessionFromCloud,
+  parseCsDataFromHubAndCache,
+  getLocalCachedCsQuestions,
+  getLocalCachedCsSubmissions,
+  getLocalCachedCsSessions,
+} from '@/lib/csLabStorage';
 
 import { LoginView } from '@/components/Auth/LoginView';
 import {
@@ -130,9 +142,9 @@ export default function WoodlemApp() {
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
-  const [csQuestions, setCsQuestions] = useState<CsQuestion[]>([]);
-  const [csSubmissions, setCsSubmissions] = useState<CsSubmission[]>([]);
-  const [csLabSessions, setCsLabSessions] = useState<CsLabSession[]>([]);
+  const [csQuestions, setCsQuestions] = useState<CsQuestion[]>(() => getLocalCachedCsQuestions());
+  const [csSubmissions, setCsSubmissions] = useState<CsSubmission[]>(() => getLocalCachedCsSubmissions());
+  const [csLabSessions, setCsLabSessions] = useState<CsLabSession[]>(() => getLocalCachedCsSessions());
   const [subjectClasses, setSubjectClasses] = useState<SubjectClass[]>([]);
   const [isCreateClassOpen, setIsCreateClassOpen] = useState(false);
 
@@ -650,25 +662,20 @@ export default function WoodlemApp() {
       setLateEntries(loadedLate);
       fetchCloudAuthorizedStaffIds().catch(() => {});
 
-      // CS Lab data (tables may not exist until migration runs — fail soft)
-      if (csQRes.error) {
-        console.warn('CS Lab questions unavailable (run supabase_cs_lab.sql):', csQRes.error.message);
-        setCsQuestions([]);
-      } else {
-        setCsQuestions((csQRes.data || []) as CsQuestion[]);
-      }
-      if (csSubRes.error) {
-        console.warn('CS Lab submissions unavailable (run supabase_cs_lab.sql):', csSubRes.error.message);
-        setCsSubmissions([]);
-      } else {
-        setCsSubmissions((csSubRes.data || []) as CsSubmission[]);
-      }
-      if (csSessRes.error) {
-        console.warn('CS Lab sessions unavailable (run supabase_cs_lab.sql):', csSessRes.error.message);
-        setCsLabSessions([]);
-      } else {
-        setCsLabSessions((csSessRes.data || []) as CsLabSession[]);
-      }
+      // CS Lab data (hybrid cloud: native tables if available, else hub_activities + localStorage)
+      const {
+        questions: hydratedCsQuestions,
+        submissions: hydratedCsSubmissions,
+        sessions: hydratedCsSessions,
+      } = parseCsDataFromHubAndCache(
+        hubRes.data || [],
+        csQRes.error ? null : csQRes.data,
+        csSubRes.error ? null : csSubRes.data,
+        csSessRes.error ? null : csSessRes.data
+      );
+      setCsQuestions(hydratedCsQuestions);
+      setCsSubmissions(hydratedCsSubmissions);
+      setCsLabSessions(hydratedCsSessions);
     } catch (err: any) {
       console.error('Error loading Supabase data:', err);
     }
@@ -3539,19 +3546,13 @@ export default function WoodlemApp() {
 
   const handleCreateCsQuestion = async (payload: CsQuestionSavePayload): Promise<boolean> => {
     try {
-      const row = {
-        ...payload,
-        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `csq_${Date.now()}`,
-        created_at: new Date().toISOString(),
-      };
-      const { error } = await supabase.from('cs_questions').insert([row]);
-      if (error) {
-        console.error('Create CS question error:', error);
-        return false;
+      const { ok, question } = await saveCsQuestionToCloud(payload, csQuestions);
+      if (ok) {
+        setCsQuestions((prev) => [question, ...prev.filter((q) => q.id !== question.id)]);
+        recordAuditLog('CREATE_ACHIEVEMENT' as any, question.title, `CS Lab question published to ${question.target_class_ids?.length || 0} class(es)`);
+        return true;
       }
-      setCsQuestions((prev) => [row as unknown as CsQuestion, ...prev]);
-      recordAuditLog('CREATE_ACHIEVEMENT' as any, row.title, `CS Lab question published to ${row.target_class_ids.length} class(es)`);
-      return true;
+      return false;
     } catch (e) {
       console.error('Create CS question exception:', e);
       return false;
@@ -3560,15 +3561,13 @@ export default function WoodlemApp() {
 
   const handleUpdateCsQuestion = async (payload: CsQuestionSavePayload & { id: string }): Promise<boolean> => {
     try {
-      const { id, ...row } = payload;
-      const { error } = await supabase.from('cs_questions').update(row).eq('id', id);
-      if (error) {
-        console.error('Update CS question error:', error);
-        return false;
+      const { ok, question } = await saveCsQuestionToCloud(payload, csQuestions);
+      if (ok) {
+        setCsQuestions((prev) => prev.map((q) => (q.id === question.id ? question : q)));
+        recordAuditLog('EDIT_ACHIEVEMENT' as any, question.title, 'CS Lab question updated');
+        return true;
       }
-      setCsQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, ...row } : q)));
-      recordAuditLog('EDIT_ACHIEVEMENT' as any, row.title, 'CS Lab question updated');
-      return true;
+      return false;
     } catch (e) {
       console.error('Update CS question exception:', e);
       return false;
@@ -3577,13 +3576,11 @@ export default function WoodlemApp() {
 
   const handleDeleteCsQuestion = async (questionId: string): Promise<boolean> => {
     try {
-      const { error } = await supabase.from('cs_questions').delete().eq('id', questionId);
-      if (error) {
-        console.error('Delete CS question error:', error);
-        return false;
+      const ok = await deleteCsQuestionFromCloud(questionId, csQuestions);
+      if (ok) {
+        setCsQuestions((prev) => prev.filter((q) => q.id !== questionId));
       }
-      setCsQuestions((prev) => prev.filter((q) => q.id !== questionId));
-      return true;
+      return ok;
     } catch (e) {
       console.error('Delete CS question exception:', e);
       return false;
@@ -3592,45 +3589,21 @@ export default function WoodlemApp() {
 
   const handleSaveCsSubmission = async (payload: CsSubmissionSavePayload): Promise<boolean> => {
     try {
-      const existing = csSubmissions.find(
-        (s) => s.question_id === payload.question_id && s.student_id === payload.student_id
-      );
-      const isSubmit = payload.status !== 'draft';
-      const row: any = {
-        question_id: payload.question_id,
-        question_order: payload.question_order ?? 0,
-        student_id: payload.student_id,
-        student_name: payload.student_name,
-        language: payload.language,
-        code: payload.code,
-        output: payload.output,
-        error: payload.error,
-        status: payload.status,
-        code_matches_solution: payload.code_matches_solution,
-        attempt_count: (existing?.attempt_count || 0) + (isSubmit ? 1 : 0),
-        updated_at: new Date().toISOString(),
-      };
+      const { ok, submission } = await saveCsSubmissionToCloud(payload, csSubmissions);
+      if (ok) {
+        setCsSubmissions((prev) => {
+          const others = prev.filter(
+            (s) => !(s.question_id === submission.question_id && s.student_id === submission.student_id)
+          );
+          return [...others, submission];
+        });
 
-      const { error } = await supabase
-        .from('cs_submissions')
-        .upsert([row], { onConflict: 'question_id,student_id' });
-      if (error) {
-        console.error('Save CS submission error:', error);
-        return false;
+        if (payload.status !== 'draft') {
+          recordAuditLog('SUBMIT_ASSIGNMENT' as any, `CS Lab: ${payload.question_id}`, `Status: ${payload.status}`);
+        }
+        return true;
       }
-
-      setCsSubmissions((prev) => {
-        const next = { ...(existing || {}), ...row } as CsSubmission;
-        const others = prev.filter(
-          (s) => !(s.question_id === payload.question_id && s.student_id === payload.student_id)
-        );
-        return [...others, next];
-      });
-
-      if (isSubmit) {
-        recordAuditLog('SUBMIT_ASSIGNMENT' as any, `CS Lab: ${payload.question_id}`, `Status: ${payload.status}`);
-      }
-      return true;
+      return false;
     } catch (e) {
       console.error('Save CS submission exception:', e);
       return false;
@@ -3639,33 +3612,22 @@ export default function WoodlemApp() {
 
   const handleOverrideCsSubmission = async (payload: CsSubmissionOverridePayload): Promise<boolean> => {
     try {
-      const { error } = await supabase
-        .from('cs_submissions')
-        .update({
-          teacher_score: payload.teacher_score,
-          teacher_feedback: payload.teacher_feedback,
-          reviewed_by: currentUser?.name || 'Teacher',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('question_id', payload.question_id)
-        .eq('student_id', payload.student_id);
-      if (error) {
-        console.error('Override CS submission error:', error);
-        return false;
+      const ok = await overrideCsSubmissionInCloud(payload, currentUser?.name || 'Teacher', csSubmissions);
+      if (ok) {
+        setCsSubmissions((prev) =>
+          prev.map((s) =>
+            s.question_id === payload.question_id && s.student_id === payload.student_id
+              ? {
+                  ...s,
+                  teacher_score: payload.teacher_score,
+                  teacher_feedback: payload.teacher_feedback,
+                  reviewed_by: currentUser?.name || 'Teacher',
+                }
+              : s
+          )
+        );
       }
-      setCsSubmissions((prev) =>
-        prev.map((s) =>
-          s.question_id === payload.question_id && s.student_id === payload.student_id
-            ? {
-                ...s,
-                teacher_score: payload.teacher_score,
-                teacher_feedback: payload.teacher_feedback,
-                reviewed_by: currentUser?.name || 'Teacher',
-              }
-            : s
-        )
-      );
-      return true;
+      return ok;
     } catch (e) {
       console.error('Override CS submission exception:', e);
       return false;
@@ -3676,31 +3638,7 @@ export default function WoodlemApp() {
     payload: Partial<CsLabSession> & { student_id: string; title: string; language: 'python' | 'sql'; code: string }
   ): Promise<CsLabSession | null> => {
     try {
-      const nowIso = new Date().toISOString();
-      const row: any = {
-        id: payload.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `css_${Date.now()}`),
-        student_id: payload.student_id,
-        student_name: payload.student_name || '',
-        title: payload.title,
-        language: payload.language,
-        code: payload.code || '',
-        setup_sql: payload.setup_sql || '',
-        stdin: payload.stdin || '',
-        output: payload.output || '',
-        error: payload.error || '',
-        db_checkpoint: payload.db_checkpoint || '',
-        updated_at: nowIso,
-      };
-
-      const { error } = await supabase
-        .from('cs_lab_sessions')
-        .upsert([row], { onConflict: 'id' });
-      if (error) {
-        console.error('Save CS lab session error:', error);
-        return null;
-      }
-
-      const saved = row as CsLabSession;
+      const saved = await saveCsLabSessionToCloud(payload, csLabSessions);
       setCsLabSessions((prev) => {
         const exists = prev.some((s) => s.id === saved.id);
         return exists ? prev.map((s) => (s.id === saved.id ? saved : s)) : [saved, ...prev];
@@ -3714,13 +3652,11 @@ export default function WoodlemApp() {
 
   const handleDeleteCsLabSession = async (sessionId: string): Promise<boolean> => {
     try {
-      const { error } = await supabase.from('cs_lab_sessions').delete().eq('id', sessionId);
-      if (error) {
-        console.error('Delete CS lab session error:', error);
-        return false;
+      const ok = await deleteCsLabSessionFromCloud(sessionId, csLabSessions);
+      if (ok) {
+        setCsLabSessions((prev) => prev.filter((s) => s.id !== sessionId));
       }
-      setCsLabSessions((prev) => prev.filter((s) => s.id !== sessionId));
-      return true;
+      return ok;
     } catch (e) {
       console.error('Delete CS lab session exception:', e);
       return false;
