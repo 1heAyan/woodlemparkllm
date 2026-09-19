@@ -48,6 +48,7 @@ Valid Navigation Token Formats:
 - Student Attendance Record: [[nav:view:attendance|View Attendance Record ↗]]
 - Student Achievements & Awards Registry: [[nav:view:awards|Student Achievements ↗]]
 - Holistic Hub Extracurriculars: [[nav:view:hub|Holistic Hub ↗]]
+- Computer Science Lab (Python & SQL coding lab for CS students and CS teachers): [[nav:view:cslab|CS Lab ↗]]
 - Password & Account Settings: [[nav:view:settings|Settings & Passwords ↗]]
 - IT Helpdesk & Support Tickets: [[nav:view:support|Help & Support ↗]]
 - Admin User Directory: [[nav:view:directory|User Directory ↗]]
@@ -289,6 +290,16 @@ function getLocalAiResponse(query: string, userRole: string = 'student', portalC
       return `As an Administrator, you can manage and reset passwords:\n1. **User Directory**: Search any student/teacher and click "Reset Password".\n2. **Password Manager**: Open "Settings & Passwords" to reset single users or entire grade cohorts to default (\`woodlem123\`).\n\n[[nav:view:settings|Open Password Manager & Settings ↗]] [[nav:view:directory|Open User Directory ↗]]`;
     }
     return `To change your account password:\n1. Click on "Settings & Passwords" in your sidebar.\n2. Enter your new password (min 6 characters) and confirm.\n3. Click "Save New Password".\n\n[[nav:view:settings|Settings & Passwords ↗]] [[nav:view:support|Help & Support ↗]]`;
+  }
+
+  // 8b. CS Lab Queries
+  if (q.includes('cs lab') || q.includes('computer science lab') || q.includes('python') || q.includes('mysql') || q.includes('sql lab') || q.includes('code lab') || q.includes('interpreter')) {
+    if (userRole === 'teacher') {
+      return `The Computer Science Lab lets you assign Python and MySQL coding questions to your CS classes and auto-grade student submissions:\n1. Open the CS Lab from your sidebar.\n2. Click \"New Question\" — write the problem, your reference solution, and select target classes.\n3. Click \"Validate & Capture Expected Output\" so the lab can auto-grade.\n4. Track progress under \"Submissions & Progress\" and review any student's code.\n\n[[nav:view:cslab|Open CS Lab ↗]]`;
+    }
+    if (userRole === 'student') {
+      return `The Computer Science Lab is your in-browser coding environment:\n1. Open \"CS Lab\" from your sidebar to see questions assigned by your CS teacher.\n2. Write Python or MySQL code and press Run to see the output instantly.\n3. Press Submit when done — it is auto-checked against the reference solution.\n4. The Playground is free space to experiment without affecting submissions.\n\n[[nav:view:cslab|Open CS Lab ↗]]`;
+    }
   }
 
   // 9. Holistic Hub Queries
