@@ -22,6 +22,8 @@ interface CustomSelectProps {
   buttonStyle?: React.CSSProperties;
   id?: string;
   searchable?: boolean;
+  menuWidth?: number;
+  compact?: boolean;
 }
 
 export const CustomSelect: React.FC<CustomSelectProps> = ({
@@ -36,13 +38,15 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   buttonStyle,
   id,
   searchable = false,
+  menuWidth,
+  compact = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [menuPos, setMenuPos] = useState<{
     top: number;
     left: number;
-    width: number;
+    width: number | string;
     maxHeight: number;
     openUpward?: boolean;
   } | null>(null);
@@ -72,10 +76,10 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       const viewportHeight = window.innerHeight;
       const spaceBelow = viewportHeight - rect.bottom - 12;
       const spaceAbove = rect.top - 12;
-      const preferredMaxHeight = 260;
+      const preferredMaxHeight = compact ? 320 : 260;
 
       // Determine if menu should open upwards
-      const shouldOpenUpward = spaceBelow < 180 && spaceAbove > spaceBelow;
+      const shouldOpenUpward = spaceBelow < (compact ? 220 : 180) && spaceAbove > spaceBelow;
       const availableSpace = shouldOpenUpward ? spaceAbove : spaceBelow;
       const maxHeight = Math.min(preferredMaxHeight, Math.max(140, availableSpace));
 
@@ -86,12 +90,12 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       setMenuPos({
         top,
         left: rect.left,
-        width: Math.max(rect.width, 180),
+        width: menuWidth || Math.max(rect.width, 180),
         maxHeight,
         openUpward: shouldOpenUpward,
       });
     }
-  }, []);
+  }, [menuWidth, compact]);
 
   const handleToggle = () => {
     if (disabled) return;
@@ -191,6 +195,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       ref={menuRef}
       role="listbox"
       tabIndex={-1}
+      className={compact ? 'custom-select-compact' : ''}
       onWheel={(e) => e.stopPropagation()}
       style={{
         position: 'fixed',
@@ -202,14 +207,28 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
         borderRadius: 8,
         boxShadow: '0 12px 32px rgba(0, 0, 0, 0.16), 0 2px 8px rgba(0, 0, 0, 0.08)',
         zIndex: 999999,
-        maxHeight: menuPos.maxHeight || 260,
+        maxHeight: menuPos.maxHeight || (compact ? 320 : 260),
         overflowY: 'auto',
         overscrollBehavior: 'contain',
-        padding: '6px',
-        scrollbarWidth: 'thin',
+        padding: compact ? '4px' : '6px',
+        scrollbarWidth: compact ? 'none' : 'thin',
+        msOverflowStyle: compact ? 'none' : 'auto',
         ...menuStyle,
       }}
     >
+      {compact && (
+        <style>{`
+          #__custom_select_portal__.custom-select-compact::-webkit-scrollbar {
+            display: none !important;
+            width: 0 !important;
+            height: 0 !important;
+          }
+          #__custom_select_portal__.custom-select-compact {
+            scrollbar-width: none !important;
+            -ms-overflow-style: none !important;
+          }
+        `}</style>
+      )}
       {searchable && (
         <div style={{ padding: '4px', borderBottom: '1px solid #ECEAE5', marginBottom: 6 }}>
           <input
@@ -246,18 +265,18 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
               aria-selected={isSelected}
               onClick={() => handleSelect(opt.value, opt.disabled)}
               style={{
-                padding: '9px 12px',
-                borderRadius: 6,
-                fontSize: 12.5,
+                padding: compact ? '5px 6px' : '9px 12px',
+                borderRadius: compact ? 4 : 6,
+                fontSize: compact ? 12 : 12.5,
                 fontWeight: isSelected ? 700 : 500,
                 color: opt.disabled ? '#A09E9A' : isSelected ? '#1A1A1A' : 'var(--neutral-dark, #2D2C2A)',
-                background: isSelected ? '#F2F1EE' : 'transparent',
+                background: isSelected ? '#ECEAE5' : 'transparent',
                 cursor: opt.disabled ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
+                justifyContent: compact ? 'center' : 'space-between',
                 transition: 'background 0.12s ease',
-                marginBottom: 2,
+                marginBottom: compact ? 1 : 2,
               }}
               onMouseEnter={(e) => {
                 if (!isSelected && !opt.disabled) e.currentTarget.style.background = '#FAF9F6';
@@ -266,17 +285,17 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
                 if (!isSelected && !opt.disabled) e.currentTarget.style.background = 'transparent';
               }}
             >
-              <div style={{ overflow: 'hidden', paddingRight: 8 }}>
+              <div style={{ overflow: 'hidden', paddingRight: compact ? 0 : 8, width: compact ? '100%' : 'auto', textAlign: compact ? 'center' : 'left' }}>
                 <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {opt.label}
                 </div>
-                {opt.sublabel && (
+                {!compact && opt.sublabel && (
                   <div style={{ fontSize: 10.5, color: 'var(--text-secondary, #7A7874)', marginTop: 2 }}>
                     {opt.sublabel}
                   </div>
                 )}
               </div>
-              {isSelected && (
+              {!compact && isSelected && (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                   <polyline points="20 6 9 17 4 12" />
                 </svg>

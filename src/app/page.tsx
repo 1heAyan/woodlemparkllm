@@ -20,7 +20,9 @@ import {
   ClassBroadcast,
   ResourceType,
   LeaveRequest,
+  LateEntryRecord,
 } from '@/lib/supabaseClient';
+import { loadLateEntries, loadAuthorizedStaffIds, fetchCloudAuthorizedStaffIds } from '@/lib/lateEntryHelper';
 
 import { LoginView } from '@/components/Auth/LoginView';
 import { StudentDashboard } from '@/components/Student/StudentDashboard';
@@ -101,6 +103,7 @@ export default function WoodlemApp() {
   const [studentSyllabusProgress, setStudentSyllabusProgress] = useState<Record<string, boolean>>({});
   const [classResources, setClassResources] = useState<ClassResource[]>([]);
   const [classBroadcasts, setClassBroadcasts] = useState<ClassBroadcast[]>([]);
+  const [lateEntries, setLateEntries] = useState<LateEntryRecord[]>([]);
   const [schemaError, setSchemaError] = useState<string | null>(null);
 
   // Modals state
@@ -299,8 +302,17 @@ export default function WoodlemApp() {
 
           const isDeactivated = Boolean(p.is_deactivated || cachedDeact);
 
+          let lateEntryAccess = Boolean(p.can_manage_late_entry);
+          try {
+            const authStaffIds = loadAuthorizedStaffIds();
+            if (authStaffIds.includes(p.id) || (emailLower && authStaffIds.includes(emailLower))) {
+              lateEntryAccess = true;
+            }
+          } catch (e) {}
+
           return {
             ...p,
+            can_manage_late_entry: lateEntryAccess,
             is_deactivated: isDeactivated,
             deactivated_at: p.deactivated_at || (isDeactivated ? (p.deactivated_at || new Date().toISOString()) : undefined),
             user_code: isStudent ? cleanCode : (cleanCode || p.user_code || undefined),
@@ -616,6 +628,10 @@ export default function WoodlemApp() {
         sylProgMap[`${row.student_id}_${row.topic_id}`] = !!row.is_completed;
       });
       setStudentSyllabusProgress(sylProgMap);
+
+      const loadedLate = await loadLateEntries();
+      setLateEntries(loadedLate);
+      fetchCloudAuthorizedStaffIds().catch(() => {});
     } catch (err: any) {
       console.error('Error loading Supabase data:', err);
     }
@@ -3558,6 +3574,7 @@ export default function WoodlemApp() {
           achievements={achievements}
           leaveRequests={leaveRequests}
           attendance={attendance}
+          lateEntries={lateEntries}
           hubActivities={hubActivities}
           subjectClasses={subjectClasses}
           classResources={classResources}
@@ -3588,6 +3605,7 @@ export default function WoodlemApp() {
           syllabus={syllabus}
           achievements={achievements}
           attendance={attendance}
+          lateEntries={lateEntries}
           hubActivities={hubActivities}
           subjectClasses={subjectClasses}
           classResources={classResources}
@@ -3656,6 +3674,7 @@ export default function WoodlemApp() {
         <AdminDashboard
           currentUser={currentUser}
           profiles={profiles}
+          lateEntries={lateEntries}
           parentDocuments={parentDocuments}
           hubActivities={hubActivities}
           subjectClasses={subjectClasses}

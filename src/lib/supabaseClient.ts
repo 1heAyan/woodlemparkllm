@@ -41,6 +41,7 @@ export interface UserProfile {
   avatar_url?: string;           // Custom profile picture
   is_deactivated?: boolean;      // Account deactivation status
   deactivated_at?: string;       // Timestamp when account was deactivated
+  can_manage_late_entry?: boolean; // Designated staff access for Late Entry desk
   created_at?: string;
 }
 
@@ -270,5 +271,24 @@ export interface SupportTicket {
   priority: 'normal' | 'high' | 'urgent';
   status: 'open' | 'in_progress' | 'resolved';
   created_at: string;
+}
+
+export interface LateEntryRecord {
+  id: string;
+  user_id: string;
+  person_name: string;
+  role: 'student' | 'teacher';
+  grade?: string;
+  class_letter?: string;
+  user_code?: string;
+  date: string;            // YYYY-MM-DD
+  time: string;            // e.g. "08:15 AM"
+  entry_timestamp: string; // ISO string
+  reason?: string;         // 'Traffic Congestion', 'School Bus Delay', etc.
+  notes?: string;
+  recorded_by_id: string;
+  recorded_by_name: string;
+  acknowledged?: boolean;
+  created_at?: string;
 }
 

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Award, Calendar, Settings, LifeBuoy, BookOpen, LogOut, MessageSquare, Megaphone, Pin, PinOff, SlidersHorizontal, Check, FileText, Video, Link2, FolderOpen, User, Trash2, Edit3, Paperclip, Plus, Menu, X, ChevronDown, Sparkles, ExternalLink, Download, AlertCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Award, Calendar, Settings, LifeBuoy, BookOpen, LogOut, MessageSquare, Megaphone, Pin, PinOff, SlidersHorizontal, Check, FileText, Video, Link2, FolderOpen, User, Trash2, Edit3, Paperclip, Plus, Menu, X, ChevronDown, Sparkles, ExternalLink, Download, AlertCircle, Clock, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { WoodlemLogo, WoodlemEmblemSVG } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import {
@@ -16,8 +16,10 @@ import {
   ClassBroadcast,
   ResourceType,
   LeaveRequest,
+  LateEntryRecord,
   supabase,
 } from '@/lib/supabaseClient';
+import { getTodayDateString } from '@/lib/lateEntryHelper';
 import { SubmitAssignmentModal } from '../Modals/SubmitAssignmentModal';
 import { ExamPortalView } from './ExamPortalView';
 import { EditAchievementModal } from '../Modals/EditAchievementModal';
@@ -41,6 +43,7 @@ interface StudentDashboardProps {
   achievements: Achievement[];
   leaveRequests?: LeaveRequest[];
   attendance: Record<string, Record<string, string>>; // date -> studentId -> status
+  lateEntries?: LateEntryRecord[];
   hubActivities: HubActivity[];
   subjectClasses: SubjectClass[];
   classResources?: ClassResource[];
@@ -79,6 +82,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   achievements,
   leaveRequests = [],
   attendance,
+  lateEntries = [],
   hubActivities,
   subjectClasses,
   classResources = [],
@@ -128,7 +132,34 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   // Leave & Sick Note Modal state
   const [isApplyLeaveOpen, setIsApplyLeaveOpen] = useState(false);
   const [editingLeave, setEditingLeave] = useState<LeaveRequest | null>(null);
-  const [attendanceSubTab, setAttendanceSubTab] = useState<'audit' | 'leaves'>('audit');
+  const [attendanceSubTab, setAttendanceSubTab] = useState<'audit' | 'leaves' | 'late_notices'>('audit');
+
+  // Student late arrival states
+  const todayStr = getTodayDateString();
+  const [dismissedLateNotice, setDismissedLateNotice] = useState(false);
+
+  const studentTodayLate = useMemo(() => {
+    if (!lateEntries) return null;
+    return lateEntries.find(
+      (e) =>
+        e.date === todayStr &&
+        (e.user_id === currentStudent.id ||
+          (e.user_code && e.user_code === currentStudent.user_code) ||
+          (currentStudent.admission_number && e.user_code === currentStudent.admission_number) ||
+          (e.person_name && e.person_name.toLowerCase() === currentStudent.name.toLowerCase()))
+    );
+  }, [lateEntries, todayStr, currentStudent]);
+
+  const myLateRecords = useMemo(() => {
+    if (!lateEntries) return [];
+    return lateEntries.filter(
+      (e) =>
+        e.user_id === currentStudent.id ||
+        (e.user_code && e.user_code === currentStudent.user_code) ||
+        (currentStudent.admission_number && e.user_code === currentStudent.admission_number) ||
+        (e.person_name && e.person_name.toLowerCase() === currentStudent.name.toLowerCase())
+    );
+  }, [lateEntries, currentStudent]);
   // Personalized Sidebar State Controller
   const sidebar = useSidebarState(currentStudent?.id || currentStudent?.email || 'student');
 
@@ -1252,7 +1283,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </div>
 
           {/* ATTENDANCE RECORD */}
-          <div className="sidebar-tooltip-wrapper">
+          <div className="sidebar-tooltip-wrapper" style={{ position: 'relative' }}>
             <button
               className={`nav-item ${activeNavType === 'attendance' ? 'active' : ''}`}
               onClick={() => { setActiveNavType('attendance'); sidebar.handleNavClick(); }}
@@ -1260,9 +1291,41 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
                 <Calendar size={15} className="icon" style={{ color: activeNavType === 'attendance' ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
                 <span className="sidebar-text" style={{ color: activeNavType === 'attendance' ? '#FFFFFF' : 'inherit' }}>Attendance Record</span>
+                {studentTodayLate && !sidebar.isCollapsed && (
+                  <span
+                    style={{
+                      marginLeft: 'auto',
+                      background: activeNavType === 'attendance' ? '#FFFFFF' : '#A83B38',
+                      color: activeNavType === 'attendance' ? '#A83B38' : '#FFFFFF',
+                      fontSize: 9.5,
+                      fontWeight: 800,
+                      padding: '1px 6px',
+                      borderRadius: 10,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                      flexShrink: 0,
+                    }}
+                  >
+                    Late Today
+                  </span>
+                )}
               </div>
             </button>
-            {sidebar.isCollapsed && <div className="sidebar-tooltip">Attendance Record</div>}
+            {studentTodayLate && sidebar.isCollapsed && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 8,
+                  width: 7,
+                  height: 7,
+                  borderRadius: '50%',
+                  background: '#DC2626',
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
+            {sidebar.isCollapsed && <div className="sidebar-tooltip">Attendance Record{studentTodayLate ? ' (Late Today)' : ''}</div>}
           </div>
 
           {/* HOLISTIC HUB */}
@@ -1385,6 +1448,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
       {/* MAIN VIEWPORT */}
       <main className="main-content">
+
+
         {/* VIEW 1: SUBJECT CLASSROOM VIEW */}
         {activeNavType === 'class' && (
           <>
@@ -2880,6 +2945,87 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </header>
 
             <div className="content-body">
+              {/* TODAY'S LATE ARRIVAL NOTIFICATION (INSIDE ATTENDANCE PAGE) */}
+              {studentTodayLate && !dismissedLateNotice && (
+                <div
+                  style={{
+                    background: '#FDF1F0',
+                    border: '1px solid #F5C6CB',
+                    borderRadius: 8,
+                    padding: '14px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    marginBottom: 20,
+                    animation: 'fadeIn 0.2s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 6,
+                        background: '#F8D7DA',
+                        color: '#A83B38',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Clock size={18} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#A83B38' }}>
+                        Late Arrival Recorded — Today at {studentTodayLate.time}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: '#721C24', marginTop: 2 }}>
+                        Your arrival was recorded at {studentTodayLate.time} by {studentTodayLate.recorded_by_name}. Reason: <strong>{studentTodayLate.reason || 'Unspecified'}</strong>.
+                        {studentTodayLate.notes ? ` ("${studentTodayLate.notes}")` : ''}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      onClick={() => setAttendanceSubTab('late_notices')}
+                      style={{
+                        padding: '6px 13px',
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        borderRadius: 6,
+                        border: '1px solid #A83B38',
+                        background: attendanceSubTab === 'late_notices' ? '#A83B38' : '#FFFFFF',
+                        color: attendanceSubTab === 'late_notices' ? '#FFFFFF' : '#A83B38',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {attendanceSubTab === 'late_notices' ? 'Viewing Log ↓' : 'View Late History →'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDismissedLateNotice(true)}
+                      title="Dismiss notice"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#A83B38',
+                        cursor: 'pointer',
+                        padding: 4,
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="parent-stats-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 20 }}>
                 <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 16px' }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Attendance Rate</div>
@@ -2900,6 +3046,12 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   </div>
                 </div>
                 <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 16px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Late Entries</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: myLateRecords.length > 0 ? '#A83B38' : 'var(--neutral-dark)', marginTop: 4 }}>
+                    {myLateRecords.length}
+                  </div>
+                </div>
+                <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 16px' }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total Sessions</div>
                   <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--neutral-dark)', marginTop: 4 }}>
                     {attendanceStats.totalRecorded}
@@ -2907,11 +3059,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 </div>
               </div>
 
-              {/* Subtabs: Attendance Audit vs Uploaded Leaves */}
+              {/* Subtabs: Attendance Audit vs Uploaded Leaves vs Late Arrival Records */}
               <div style={{ display: 'flex', marginBottom: 16, borderBottom: '1px solid var(--border-color)', paddingBottom: 8 }}>
                 <SegmentedControl
                   value={attendanceSubTab}
-                  onChange={(tab) => setAttendanceSubTab(tab)}
+                  onChange={(tab) => setAttendanceSubTab(tab as any)}
                   options={[
                     {
                       value: 'audit',
@@ -2922,6 +3074,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                       value: 'leaves',
                       label: 'My Uploaded Leaves & Sick Notes',
                       count: myLeaves.length,
+                    },
+                    {
+                      value: 'late_notices',
+                      label: 'Late Arrival Records',
+                      count: myLateRecords.length,
                     },
                   ]}
                   height={34}
@@ -3195,6 +3352,45 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                         </div>
                       ))}
                     </div>
+                  )}
+                </div>
+              )}
+
+              {/* SUBTAB 3: LATE ARRIVAL RECORDS */}
+              {attendanceSubTab === 'late_notices' && (
+                <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+                  {myLateRecords.length === 0 ? (
+                    <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
+                      <CheckCircle2 size={32} style={{ color: '#2C6E6A', margin: '0 auto 8px', display: 'block' }} />
+                      No late arrivals recorded on file. Excellent punctuality!
+                    </div>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                      <thead>
+                        <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Date</th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Arrival Time</th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Reason</th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Gate Notes</th>
+                          <th style={{ textAlign: 'right', padding: '10px 16px', fontWeight: 700 }}>Recorded By</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {myLateRecords.map((rec, i) => (
+                          <tr key={rec.id || i} style={{ borderBottom: i < myLateRecords.length - 1 ? '1px solid #ECEAE5' : 'none', background: i % 2 === 0 ? '#FFFFFF' : '#FAFAF9' }}>
+                            <td style={{ padding: '10px 16px', fontWeight: 700, color: 'var(--neutral-dark)' }}>{rec.date}</td>
+                            <td style={{ padding: '10px 16px', fontWeight: 700, color: '#A83B38' }}>{rec.time}</td>
+                            <td style={{ padding: '10px 16px', color: 'var(--neutral-dark)' }}>{rec.reason || 'Unspecified'}</td>
+                            <td style={{ padding: '10px 16px', color: 'var(--text-secondary)', fontStyle: rec.notes ? 'italic' : 'normal' }}>
+                              {rec.notes || '—'}
+                            </td>
+                            <td style={{ padding: '10px 16px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: 11 }}>
+                              {rec.recorded_by_name}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   )}
                 </div>
               )}

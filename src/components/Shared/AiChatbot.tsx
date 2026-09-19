@@ -851,7 +851,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
     } catch {
       // Local intelligent response with portal grounding
       const fallbackReply = isGuest
-        ? `I can help you sign in or tell you about Woodlem Park School.\n\n- **To Log In**: Select your role tab (Student, Teacher, Admin, or Parent) at the top of the login card and enter your registered email/admission number and password.\n- **Default Password**: Newly provisioned accounts use **\`woodlem123\`**.\n- **IT Helpdesk**: For login support, email \`it-helpdesk@woodlempark.ae\`.`
+        ? `I can help you sign in or tell you about Woodlem Park School.\n\n- **To Log In**: Select your role tab (Student, Teacher, Admin, or Parent) at the top of the login card and enter your registered email/admission number and password.\n- **Default Password**: Newly provisioned accounts use **\`woodlem123\`**.\n- **IT Helpdesk**: For login support, email \`wpsit@woodlempark.ae\`.`
         : `I can guide you across your subject classes, classroom attendance, assignments, and account settings.\n\n[[nav:class:tasks|Tasks & Assessments ↗]] [[nav:class:resources|Learning Resources ↗]] [[nav:view:settings|Settings & Passwords ↗]]`;
       setMessages((prev) => [
         ...prev,

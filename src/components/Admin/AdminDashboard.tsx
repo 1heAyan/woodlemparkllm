@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
-import { supabase, UserProfile, ParentDocument, HubActivity, SubjectClass, TestItem, SyllabusTerm } from '@/lib/supabaseClient';
+import { supabase, UserProfile, ParentDocument, HubActivity, SubjectClass, TestItem, SyllabusTerm, LateEntryRecord } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { SettingsView } from '@/components/Shared/SettingsView';
@@ -13,6 +13,7 @@ import { SupportView } from '@/components/Shared/SupportView';
 import { SpecialAccessView } from '@/components/Admin/SpecialAccessView';
 import { UserDetailView } from '@/components/Admin/UserDetailView';
 import { AdminAssessmentTermsView } from '@/components/Admin/AdminAssessmentTermsView';
+import { LateEntryView } from '@/components/Shared/LateEntryView';
 import { formatShortFileName, openFileInNewTab, downloadFile } from '@/lib/fileHelper';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
@@ -41,6 +42,7 @@ interface AdminDashboardProps {
   syllabus?: SyllabusTerm[];
   attendance?: Record<string, Record<string, string>>;
   testResults?: Record<string, TestResultRecord>;
+  lateEntries?: LateEntryRecord[];
   onOpenProvisionModal: () => void;
   onOpenBulkModal: () => void;
   onEditUser: (user: UserProfile) => void;
@@ -52,7 +54,7 @@ interface AdminDashboardProps {
   onRefreshData?: () => void;
 }
 
-type AdminTab = 'overview' | 'delegation' | 'directory' | 'classes' | 'assessments' | 'hub' | 'settings' | 'support';
+type AdminTab = 'overview' | 'delegation' | 'directory' | 'classes' | 'assessments' | 'late_entry' | 'hub' | 'settings' | 'support';
 
 const VALID_GRADES = ['9', '10', '11', '12'] as const;
 const BASE_SECTIONS = ['A', 'B', 'C', 'D'] as const;
@@ -118,6 +120,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   syllabus = [],
   attendance = {},
   testResults = {},
+  lateEntries = [],
   onOpenProvisionModal,
   onOpenBulkModal,
   onEditUser,
@@ -2073,6 +2076,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     { id: 'directory', label: 'USER DIRECTORY', count: profiles.length },
     { id: 'classes', label: 'CLASSES & SECTIONS', count: activeClassList.length },
     { id: 'assessments', label: 'EXAM TERMS & MARKS' },
+    { id: 'late_entry', label: 'LATE ENTRY DESK & AUDIT', count: lateEntries.length },
     { id: 'hub', label: 'HOLISTIC HUB', count: displayHubActivities.length },
     { id: 'settings', label: 'SETTINGS & PASSWORDS' },
     { id: 'support', label: 'HELP & SUPPORT' },
@@ -2206,6 +2210,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 case 'directory': return <Users size={16} />;
                 case 'classes': return <BookOpen size={16} />;
                 case 'assessments': return <FileSpreadsheet size={16} />;
+                case 'late_entry': return <Clock size={16} />;
                 case 'hub': return <Award size={16} />;
                 case 'settings': return <Settings size={16} />;
                 case 'support': return <LifeBuoy size={16} />;
@@ -2440,6 +2445,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   profiles={profiles}
                   subjectClasses={subjectClasses}
                   onOpenMarkRegister={(cls) => setActiveMarkEntryClass(cls)}
+                />
+              )}
+              {activeTab === 'late_entry' && (
+                <LateEntryView
+                  mode="admin"
+                  currentUser={currentUser}
+                  profiles={profiles}
+                  lateEntries={lateEntries}
+                  onRefreshData={onRefreshData}
                 />
               )}
               {activeTab === 'hub' && renderHub()}

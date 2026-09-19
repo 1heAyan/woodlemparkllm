@@ -29,7 +29,7 @@ When the user is on the login screen or unauthenticated (userRole === 'guest' or
      * Step 3: Enter Password. Default initial password for all newly provisioned accounts is **\`woodlem123\`**.
    - Troubleshooting common login issues:
      * Role Mismatch Error: If the portal says "Account is registered as [Role]", click the matching role tab above the login form.
-     * Forgotten Password: Try the default password \`woodlem123\` or contact the IT Helpdesk (\`it-helpdesk@woodlempark.ae\`) or your school administrator.
+     * Forgotten Password: Try the default password \`woodlem123\` or contact the IT Helpdesk (\`wpsit@woodlempark.ae\`) or your school administrator.
      * Account Not Found: Verify your admission number or registered email with school admissions.
 
 === CRITICAL DIRECTIVES FOR AUTHENTICATED USERS ===
@@ -101,7 +101,7 @@ function getLocalAiResponse(query: string, userRole: string = 'student', portalC
     q.includes('trouble')
   ) {
     if (isGuest) {
-      return `### How to Sign In to Woodlem LMS:\n\n1. **Select Your Role**: Click the appropriate tab at the top of the login card (**Student**, **Teacher**, **Admin**, or **Parent**).\n2. **Enter Identifier**:\n   - **Students**: Registered School Email or **Admission Number** (e.g. \`ADM-1001\`).\n   - **Teachers**: Staff Email or **Employee ID**.\n   - **Admins**: Admin Email or **Admin ID**.\n   - **Parents**: Registered Parent Email.\n3. **Enter Password**:\n   - Default password for newly provisioned or reset accounts is **\`woodlem123\`**.\n\n💡 **Troubleshooting Tips**:\n- **"Role Mismatch"**: If an error says your account is registered as another role, make sure to click that role's tab at the top.\n- **Forgot Password**: Try \`woodlem123\` or contact the IT Helpdesk at \`it-helpdesk@woodlempark.ae\` to reset your password.`;
+      return `### How to Sign In to Woodlem LMS:\n\n1. **Select Your Role**: Click the appropriate tab at the top of the login card (**Student**, **Teacher**, **Admin**, or **Parent**).\n2. **Enter Identifier**:\n   - **Students**: Registered School Email or **Admission Number** (e.g. \`ADM-1001\`).\n   - **Teachers**: Staff Email or **Employee ID**.\n   - **Admins**: Admin Email or **Admin ID**.\n   - **Parents**: Registered Parent Email.\n3. **Enter Password**:\n   - Default password for newly provisioned or reset accounts is **\`woodlem123\`**.\n\n💡 **Troubleshooting Tips**:\n- **"Role Mismatch"**: If an error says your account is registered as another role, make sure to click that role's tab at the top.\n- **Forgot Password**: Try \`woodlem123\` or contact the IT Helpdesk at \`wpsit@woodlempark.ae\` to reset your password.`;
     }
   }
 
@@ -298,7 +298,7 @@ function getLocalAiResponse(query: string, userRole: string = 'student', portalC
 
   // 10. Helpdesk & Support Queries
   if (q.includes('support') || q.includes('help') || q.includes('ticket') || q.includes('contact') || q.includes('it')) {
-    return `To reach the IT Helpdesk or file an issue:\n1. Click "Help & Support" in your sidebar.\n2. Fill out the ticket form or email \`it-helpdesk@woodlempark.ae\`.\n\n[[nav:view:support|Help & Support ↗]]`;
+    return `To reach the IT Helpdesk or file an issue:\n1. Click "Help & Support" in your sidebar.\n2. Fill out the ticket form or email \`wpsit@woodlempark.ae\`.\n\n[[nav:view:support|Help & Support ↗]]`;
   }
 
   // 11. Admin Provision & User Management

@@ -52,6 +52,7 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS parent_link_code TEXT DEFAU
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_protected_executive BOOLEAN DEFAULT FALSE;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_deactivated BOOLEAN DEFAULT FALSE;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ DEFAULT NULL;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS can_manage_late_entry BOOLEAN DEFAULT FALSE;
 
 -- Seed default Admin and Principal accounts
 INSERT INTO public.profiles (id, email, name, role, user_code, temp_password)
@@ -368,6 +369,27 @@ ALTER TABLE public.student_syllabus_progress ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.offline_assessments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.offline_assessment_marks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.support_tickets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.late_entries ENABLE ROW LEVEL SECURITY;
+
+-- 21. Late Entry Records Table
+CREATE TABLE IF NOT EXISTS public.late_entries (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    user_id TEXT NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    person_name TEXT NOT NULL,
+    role TEXT NOT NULL, -- 'student' | 'teacher'
+    grade TEXT DEFAULT '',
+    class_letter TEXT DEFAULT '',
+    user_code TEXT DEFAULT '',
+    date TEXT NOT NULL, -- 'YYYY-MM-DD'
+    time TEXT NOT NULL, -- 'HH:MM AM/PM'
+    entry_timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reason TEXT DEFAULT 'Unspecified',
+    notes TEXT DEFAULT '',
+    recorded_by_id TEXT NOT NULL,
+    recorded_by_name TEXT NOT NULL,
+    acknowledged BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 ALTER TABLE public.parent_student_link_requests ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Public full access profiles" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
@@ -391,6 +413,7 @@ CREATE POLICY "Public full access offline_assessments" ON public.offline_assessm
 CREATE POLICY "Public full access offline_assessment_marks" ON public.offline_assessment_marks FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public full access support_tickets" ON public.support_tickets FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Public full access parent_student_link_requests" ON public.parent_student_link_requests FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Public full access late_entries" ON public.late_entries FOR ALL USING (true) WITH CHECK (true);
 
 -- ==============================================================================
 -- Real-time Publication
@@ -418,4 +441,5 @@ BEGIN
   BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.offline_assessment_marks; EXCEPTION WHEN OTHERS THEN NULL; END;
   BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.support_tickets; EXCEPTION WHEN OTHERS THEN NULL; END;
   BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.parent_student_link_requests; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.late_entries; EXCEPTION WHEN OTHERS THEN NULL; END;
 END $$;

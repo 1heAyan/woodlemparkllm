@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Users, Award, BookOpen, UserCheck, MessageSquare, LayoutDashboard, Calendar, Settings, LifeBuoy, LogOut, Megaphone, FileText, Pin, PinOff, SlidersHorizontal, Check, Video, Link2, X, Plus, Edit3, KeyRound, Copy, Share2, RotateCcw, ExternalLink, Download, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Users, Award, BookOpen, UserCheck, MessageSquare, LayoutDashboard, Calendar, Settings, LifeBuoy, LogOut, Megaphone, FileText, Pin, PinOff, SlidersHorizontal, Check, Video, Link2, X, Plus, Edit3, KeyRound, Copy, Share2, RotateCcw, ExternalLink, Download, Trash2, Clock, AlertTriangle, Search } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import {
@@ -17,7 +17,10 @@ import {
   ResourceType,
   SpecialRoleAssignment,
   LeaveRequest,
+  LateEntryRecord,
 } from '@/lib/supabaseClient';
+import { LateEntryView } from '@/components/Shared/LateEntryView';
+import { getTodayDateString, loadAuthorizedStaffIds } from '@/lib/lateEntryHelper';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { ReviewTestResultsModal, TestResultRecord } from '../Modals/ReviewTestResultsModal';
@@ -56,6 +59,7 @@ interface TeacherDashboardProps {
   syllabus: SyllabusTerm[];
   achievements: Achievement[];
   attendance: Record<string, Record<string, string>>; // date -> studentId -> status
+  lateEntries?: LateEntryRecord[];
   hubActivities: HubActivity[];
   subjectClasses: SubjectClass[];
   classResources?: ClassResource[];
@@ -129,6 +133,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   syllabus,
   achievements,
   attendance,
+  lateEntries = [],
   hubActivities,
   subjectClasses,
   classResources = [],
@@ -171,8 +176,90 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [selectedReviewTest, setSelectedReviewTest] = useState<TestItem | null>(null);
   const [selectedGradeAssignment, setSelectedGradeAssignment] = useState<AssignmentItem | null>(null);
   const [isMarkEntryOpen, setIsMarkEntryOpen] = useState(false);
-  // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'homeroom_codes' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub'
-  const [activeNavMode, setActiveNavMode] = useState<'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'homeroom_codes' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub'>('class');
+  // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'homeroom_codes' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub' | 'late_entry' | 'my_attendance'
+  const [activeNavMode, setActiveNavMode] = useState<'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'homeroom_codes' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub' | 'late_entry' | 'my_attendance'>('class');
+
+  // Teacher late arrival notice state
+  const todayStr = getTodayDateString();
+  const [dismissedLateNotice, setDismissedLateNotice] = useState(false);
+
+  const teacherTodayLate = useMemo(() => {
+    if (!lateEntries) return null;
+    return lateEntries.find(
+      (e) =>
+        e.date === todayStr &&
+        (e.user_id === currentUser.id ||
+          e.person_name.toLowerCase() === currentUser.name.toLowerCase() ||
+          (e.user_code && e.user_code === currentUser.user_code))
+    );
+  }, [lateEntries, todayStr, currentUser]);
+
+  // My Attendance & Gate Logs state & memos
+  const [myAttSearch, setMyAttSearch] = useState('');
+  const [myAttDateFilter, setMyAttDateFilter] = useState<'all' | 'this_month' | 'last_30'>('all');
+
+  const myAllLateEntries = useMemo(() => {
+    if (!lateEntries) return [];
+    return lateEntries
+      .filter(
+        (e) =>
+          (e.user_id && e.user_id === currentUser.id) ||
+          (e.person_name && e.person_name.toLowerCase().trim() === currentUser.name.toLowerCase().trim()) ||
+          (e.user_code && currentUser.user_code && e.user_code.trim() === currentUser.user_code.trim())
+      )
+      .sort((a, b) => new Date(b.date + ' ' + (b.time || '')).getTime() - new Date(a.date + ' ' + (a.time || '')).getTime());
+  }, [lateEntries, currentUser]);
+
+  const currentMonthPrefix = useMemo(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+  }, []);
+
+  const myMonthLateCount = useMemo(() => {
+    return myAllLateEntries.filter((e) => e.date && e.date.startsWith(currentMonthPrefix)).length;
+  }, [myAllLateEntries, currentMonthPrefix]);
+
+  const myTopReason = useMemo(() => {
+    if (myAllLateEntries.length === 0) return 'None';
+    const counts: Record<string, number> = {};
+    for (const e of myAllLateEntries) {
+      const r = e.reason || 'Unspecified';
+      counts[r] = (counts[r] || 0) + 1;
+    }
+    let top = '';
+    let max = 0;
+    for (const [r, cnt] of Object.entries(counts)) {
+      if (cnt > max) {
+        max = cnt;
+        top = r;
+      }
+    }
+    return top;
+  }, [myAllLateEntries]);
+
+  const filteredMyLateEntries = useMemo(() => {
+    return myAllLateEntries.filter((e) => {
+      if (myAttDateFilter === 'this_month' && (!e.date || !e.date.startsWith(currentMonthPrefix))) {
+        return false;
+      }
+      if (myAttDateFilter === 'last_30') {
+        const d = new Date(e.date).getTime();
+        const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+        if (d < cutoff) return false;
+      }
+      if (myAttSearch.trim()) {
+        const q = myAttSearch.toLowerCase().trim();
+        const reason = (e.reason || '').toLowerCase();
+        const notes = (e.notes || '').toLowerCase();
+        const officer = (e.recorded_by_name || '').toLowerCase();
+        const date = (e.date || '').toLowerCase();
+        return reason.includes(q) || notes.includes(q) || officer.includes(q) || date.includes(q);
+      }
+      return true;
+    });
+  }, [myAllLateEntries, myAttDateFilter, myAttSearch, currentMonthPrefix]);
 
   const [specialAssignments, setSpecialAssignments] = useState<SpecialRoleAssignment[]>([]);
   useEffect(() => {
@@ -1420,6 +1507,97 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               )}
             </div>
           )}
+
+          {/* SPECIAL LATE ENTRY PANEL (If authorized duty staff) */}
+          {(currentUser.can_manage_late_entry || loadAuthorizedStaffIds().includes(currentUser.id)) && (
+            <div className="sidebar-tooltip-wrapper">
+              <button
+                className={`nav-item ${activeNavMode === 'late_entry' && !isMarkEntryOpen ? 'active' : ''}`}
+                onClick={() => {
+                  setIsMarkEntryOpen(false);
+                  setActiveNavMode('late_entry');
+                  sidebar.handleNavClick();
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                  <Clock
+                    size={15}
+                    className="icon"
+                    style={{
+                      color: activeNavMode === 'late_entry' && !isMarkEntryOpen ? '#FFFFFF' : '#2C6E6A',
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span className="sidebar-text" style={{ flex: 1, fontWeight: 600 }}>
+                    Late Entry Panel
+                  </span>
+                  <span
+                    className="sidebar-text"
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 800,
+                      padding: '1px 5px',
+                      borderRadius: 3,
+                      background: activeNavMode === 'late_entry' && !isMarkEntryOpen ? '#454340' : '#EAF3EF',
+                      color: activeNavMode === 'late_entry' && !isMarkEntryOpen ? '#FFFFFF' : '#2C6E6A',
+                      border: activeNavMode === 'late_entry' && !isMarkEntryOpen ? '1px solid #5A5854' : '1px solid #C7E4D8',
+                    }}
+                  >
+                    DUTY
+                  </span>
+                </div>
+              </button>
+              {sidebar.isCollapsed && (
+                <div className="sidebar-tooltip">Late Entry Panel (Gate Duty Desk)</div>
+              )}
+            </div>
+          )}
+
+          {/* MY ATTENDANCE & GATE LOGS */}
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`nav-item ${activeNavMode === 'my_attendance' && !isMarkEntryOpen ? 'active' : ''}`}
+              onClick={() => {
+                setIsMarkEntryOpen(false);
+                setActiveNavMode('my_attendance');
+                sidebar.handleNavClick();
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <Clock
+                  size={15}
+                  className="icon"
+                  style={{
+                    color: activeNavMode === 'my_attendance' && !isMarkEntryOpen ? '#FFFFFF' : '#2C6E6A',
+                    flexShrink: 0,
+                  }}
+                />
+                <span className="sidebar-text" style={{ flex: 1, fontWeight: 600 }}>
+                  My Attendance
+                </span>
+                {teacherTodayLate && !sidebar.isCollapsed && (
+                  <span
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 800,
+                      padding: '1px 5px',
+                      borderRadius: 3,
+                      background: '#FDF1F0',
+                      color: '#A83B38',
+                      border: '1px solid #F5C6CB',
+                      letterSpacing: '0.04em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Late Today
+                  </span>
+                )}
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">My Attendance{teacherTodayLate ? ' (Late Today)' : ''}</div>
+            )}
+          </div>
 
           {/* 1. HOMEROOM / CLASS TEACHER SECTION */}
           <div className="sidebar-tooltip-wrapper">
@@ -5917,6 +6095,492 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               </div>
             </div>
           </div>
+        )}
+
+        {/* VIEW 9: LATE ENTRY PANEL (DUTY DESK) */}
+        {activeNavMode === 'late_entry' && (
+          <div style={{ padding: '24px 32px' }}>
+            <LateEntryView
+              mode="desk"
+              currentUser={currentUser}
+              profiles={profiles}
+              lateEntries={lateEntries}
+              onRefreshData={onRefreshData}
+            />
+          </div>
+        )}
+
+        {/* VIEW 10: MY ATTENDANCE & GATE LOGS */}
+        {activeNavMode === 'my_attendance' && (
+          <>
+            <header className="content-header">
+              <div className="header-top" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: '2px 7px',
+                        borderRadius: 4,
+                        background: '#EAF3EF',
+                        color: '#2C6E6A',
+                        border: '1px solid #C7E4D8',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      Faculty Gate Attendance
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                      Today: {todayStr}
+                    </span>
+                  </div>
+                  <h1 className="page-title" style={{ margin: '2px 0 0' }}>
+                    My Attendance &amp; Gate Logs
+                  </h1>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                    Official entry records, arrival timestamps, and punctuality logs recorded for your profile at the school gate.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {teacherTodayLate ? (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '6px 12px',
+                        borderRadius: 6,
+                        background: '#FDF1F0',
+                        border: '1px solid #F5C6CB',
+                        color: '#A83B38',
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      <Clock size={14} />
+                      <span>Late Entry Today: {teacherTodayLate.time}</span>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '6px 12px',
+                        borderRadius: 6,
+                        background: '#EAF3EF',
+                        border: '1px solid #C7E4D8',
+                        color: '#166534',
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      <Check size={14} />
+                      <span>On-Time Arrival</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </header>
+
+            <div className="content-body" style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* TODAY'S LATE ARRIVAL CARD IF RECORDED TODAY */}
+              {teacherTodayLate && (
+                <div
+                  style={{
+                    background: '#FDF1F0',
+                    border: '1px solid #F5C6CB',
+                    borderRadius: 8,
+                    padding: '16px 20px',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    justifyContent: 'space-between',
+                    gap: 16,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 8,
+                        background: '#F8D7DA',
+                        color: '#A83B38',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Clock size={20} />
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 14, fontWeight: 800, color: '#A83B38' }}>
+                          Late Arrival Logged — Today at {teacherTodayLate.time}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 800,
+                            padding: '1px 6px',
+                            borderRadius: 3,
+                            background: '#A83B38',
+                            color: '#FFFFFF',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                          }}
+                        >
+                          OFFICIAL RECORD
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: '#721C24', marginTop: 4, lineHeight: 1.45 }}>
+                        Your entry was officially recorded at the school gate by <strong>{teacherTodayLate.recorded_by_name || 'Designated Gate Officer'}</strong>.
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 8, flexWrap: 'wrap' }}>
+                        <div style={{ fontSize: 12, color: '#721C24' }}>
+                          Reason: <strong>{teacherTodayLate.reason || 'Unspecified'}</strong>
+                        </div>
+                        {teacherTodayLate.notes && (
+                          <div style={{ fontSize: 12, color: '#721C24' }}>
+                            Notes: <em>"{teacherTodayLate.notes}"</em>
+                          </div>
+                        )}
+                        <div style={{ fontSize: 11, color: '#991B1B' }}>
+                          Date: {teacherTodayLate.date}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* KPI STATS ROW */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: 14,
+                }}
+              >
+                <div
+                  style={{
+                    background: '#FFFFFF',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 8,
+                    padding: '16px 18px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Today's Gate Status
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: teacherTodayLate ? '#A83B38' : '#166534' }}>
+                    {teacherTodayLate ? teacherTodayLate.time : 'On Time'}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                    {teacherTodayLate ? 'Late entry flag recorded' : 'No late arrival logged today'}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#FFFFFF',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 8,
+                    padding: '16px 18px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    This Month Late Count
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: myMonthLateCount > 0 ? '#A83B38' : 'var(--neutral-dark)' }}>
+                    {myMonthLateCount} {myMonthLateCount === 1 ? 'Time' : 'Times'}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                    Current calendar month
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#FFFFFF',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 8,
+                    padding: '16px 18px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    All-Time Late Logs
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--neutral-dark)' }}>
+                    {myAllLateEntries.length} {myAllLateEntries.length === 1 ? 'Entry' : 'Entries'}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                    Academic year cumulative
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#FFFFFF',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 8,
+                    padding: '16px 18px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Primary Delay Reason
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--neutral-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {myTopReason}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                    Most frequent logged reason
+                  </div>
+                </div>
+              </div>
+
+              {/* GATE ARRIVAL LOGS TABLE */}
+              <div
+                style={{
+                  background: '#FFFFFF',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '14px 18px',
+                    background: '#FAF9F6',
+                    borderBottom: '1px solid var(--border-color)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 12,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: 'var(--neutral-dark)' }}>
+                      Gate Arrival History
+                    </h3>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '1px 6px',
+                        borderRadius: 10,
+                        background: '#E5E3DF',
+                        color: 'var(--neutral-dark)',
+                      }}
+                    >
+                      {filteredMyLateEntries.length}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <div style={{ position: 'relative' }}>
+                      <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#8C8A84' }} />
+                      <input
+                        type="text"
+                        placeholder="Search reason, officer..."
+                        value={myAttSearch}
+                        onChange={(e) => setMyAttSearch(e.target.value)}
+                        style={{
+                          height: 32,
+                          paddingLeft: 30,
+                          paddingRight: 10,
+                          fontSize: 12,
+                          borderRadius: 6,
+                          border: '1px solid #E5E3DF',
+                          outline: 'none',
+                          width: 200,
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {(['all', 'this_month', 'last_30'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setMyAttDateFilter(mode)}
+                          style={{
+                            padding: '5px 10px',
+                            borderRadius: 5,
+                            fontSize: 11.5,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            border: '1px solid',
+                            borderColor: myAttDateFilter === mode ? '#1A1A1A' : '#E5E3DF',
+                            background: myAttDateFilter === mode ? '#1A1A1A' : '#FFFFFF',
+                            color: myAttDateFilter === mode ? '#FFFFFF' : 'var(--neutral-dark)',
+                          }}
+                        >
+                          {mode === 'all' ? 'All Records' : mode === 'this_month' ? 'This Month' : 'Last 30 Days'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {filteredMyLateEntries.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '48px 24px',
+                      textAlign: 'center',
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 12,
+                        background: '#EAF3EF',
+                        color: '#2C6E6A',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: 12,
+                      }}
+                    >
+                      <ShieldCheck size={24} />
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 4 }}>
+                      {myAllLateEntries.length === 0
+                        ? 'No Late Arrival Records Logged'
+                        : 'No records match your filter criteria'}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', maxWidth: 420, margin: '0 auto' }}>
+                      {myAllLateEntries.length === 0
+                        ? 'Your gate entry record is clear. No late arrivals have been registered for your profile.'
+                        : 'Try adjusting your search query or date range filter above.'}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 12.5 }}>
+                      <thead>
+                        <tr style={{ background: '#FAF9F6', borderBottom: '1px solid var(--border-color)' }}>
+                          <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', width: 40 }}>#</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)' }}>Date</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)' }}>Arrival Time</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)' }}>Reason for Delay</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)' }}>Recorded By</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)' }}>Officer Remarks</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', textAlign: 'right' }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredMyLateEntries.map((entry, idx) => {
+                          const isToday = entry.date === todayStr;
+                          return (
+                            <tr
+                              key={entry.id}
+                              style={{
+                                borderBottom: '1px solid var(--border-color)',
+                                background: isToday ? '#FFFDF8' : '#FFFFFF',
+                              }}
+                            >
+                              <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                                {idx + 1}
+                              </td>
+                              <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span>{entry.date}</span>
+                                  {isToday && (
+                                    <span
+                                      style={{
+                                        fontSize: 9,
+                                        fontWeight: 800,
+                                        padding: '1px 5px',
+                                        borderRadius: 3,
+                                        background: '#FDF1F0',
+                                        color: '#A83B38',
+                                        border: '1px solid #F5C6CB',
+                                      }}
+                                    >
+                                      TODAY
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td style={{ padding: '12px 14px' }}>
+                                <div
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                    padding: '3px 8px',
+                                    borderRadius: 4,
+                                    background: '#FDF1F0',
+                                    color: '#A83B38',
+                                    fontWeight: 700,
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  <Clock size={12} />
+                                  <span>{entry.time}</span>
+                                </div>
+                              </td>
+                              <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                                {entry.reason || 'Unspecified Delay'}
+                              </td>
+                              <td style={{ padding: '12px 14px', color: 'var(--neutral-dark)' }}>
+                                <div style={{ fontWeight: 600 }}>{entry.recorded_by_name || 'Gate Officer'}</div>
+                                <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
+                                  Duty Desk
+                                </div>
+                              </td>
+                              <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
+                                {entry.notes ? `"${entry.notes}"` : '—'}
+                              </td>
+                              <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                                <span
+                                  style={{
+                                    fontSize: 10.5,
+                                    fontWeight: 700,
+                                    padding: '2px 7px',
+                                    borderRadius: 4,
+                                    background: '#FDF1F0',
+                                    color: '#A83B38',
+                                    border: '1px solid #F5C6CB',
+                                  }}
+                                >
+                                  Late Arrival
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
         )}
         </>}
       </main>

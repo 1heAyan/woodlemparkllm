@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { UserProfile } from '@/lib/supabaseClient';
 import { SegmentedControl } from '@/components/UI/SegmentedControl';
+import { Search, ChevronDown } from 'lucide-react';
 
 interface SupportViewProps {
   currentUser: UserProfile;
@@ -49,7 +50,7 @@ const FAQ_ITEMS = [
     category: 'Technical Support',
     question: 'Who should I contact if I experience technical glitches or portal issues?',
     answer:
-      'You can reach out directly to the IT Helpdesk via email at it-helpdesk@woodlempark.ae or phone +971 6 740 9444 (Ext. 104).',
+      'You can reach out directly to the IT Helpdesk via email at wpsit@woodlempark.ae or phone +971 6 740 9444 (Ext. 104).',
   },
 ];
 
@@ -184,17 +185,17 @@ export const SupportView: React.FC<SupportViewProps> = () => {
               },
               {
                 title: 'IT Helpdesk & LMS Systems',
-                email: 'it-helpdesk@woodlempark.ae',
+                email: 'wpsit@woodlempark.ae',
                 phone: '+971 6 740 9444 (Ext. 104)',
                 hours: 'Mon – Thu: 7:30 AM – 4:00 PM | Fri: 7:30 AM – 12:00 PM',
                 desc: 'Student/Teacher portal accounts, password resets, classroom connectivity, and digital learning support.',
               },
               {
-                title: 'Academic Affairs & Examinations',
-                email: 'academics@woodlempark.ae',
+                title: 'Internal Assessments - Ms. Jeya Prabha Nethaji',
+                email: 'head.assessment@woodlempark.ae',
                 phone: '+971 6 740 9444 (Ext. 108)',
                 hours: 'Mon – Thu: 7:45 AM – 3:45 PM | Fri: 7:45 AM – 11:45 AM',
-                desc: 'CBSE curriculum coverage, assessment schedules, report cards, topic syllabi, and academic records.',
+                desc: 'Internal assessments, CBSE exam schedules, term marks evaluations, topic syllabi, and academic records.',
               },
               {
                 title: 'Finance & Accounts Department',
@@ -218,11 +219,11 @@ export const SupportView: React.FC<SupportViewProps> = () => {
                 desc: 'Bus route allocation, GPS bus tracking inquiries, bus supervisor coordination, and timings.',
               },
               {
-                title: 'Pastoral Care & Well-being Office',
+                title: 'Pastoral Care & Well-being Office - Mr. Abdul Rouf-head of discipline',
                 email: 'wellbeing@woodlempark.ae',
                 phone: '+971 6 740 9444 (Ext. 115)',
                 hours: 'Mon – Thu: 7:30 AM – 3:30 PM | Fri: 7:30 AM – 11:30 AM',
-                desc: 'Student behavioral counseling, pastoral development, special educational needs, and holistic guidance.',
+                desc: 'Student discipline, behavioral counseling, pastoral development, special educational needs, and holistic guidance.',
               },
             ].map((dept, i) => (
               <div
@@ -238,23 +239,9 @@ export const SupportView: React.FC<SupportViewProps> = () => {
                   boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                    {dept.title}
-                  </h4>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: '#2C6E6A',
-                      background: '#EAF3EF',
-                      padding: '2px 7px',
-                      borderRadius: 4,
-                    }}
-                  >
-                    Al Jurf Campus
-                  </span>
-                </div>
+                <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)', lineHeight: 1.35 }}>
+                  {dept.title}
+                </h4>
 
                 <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
                   {dept.desc}
@@ -288,58 +275,91 @@ export const SupportView: React.FC<SupportViewProps> = () => {
           {/* FAQ Search & Category Filter */}
           <div
             style={{
-              background: 'var(--surface)',
+              background: '#FAF9F6',
               border: '1px solid var(--border-color)',
               borderRadius: 8,
-              padding: '16px 20px',
+              padding: '10px 14px',
               display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+              flexWrap: 'wrap',
             }}
           >
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <input
-                type="text"
-                placeholder="Search knowledge base articles and guides..."
-                value={faqSearch}
-                onChange={(e) => setFaqSearch(e.target.value)}
-                style={{
-                  flex: 1,
-                  minWidth: 240,
-                  height: 32,
-                  padding: '0 12px',
-                  fontSize: 12,
-                  borderRadius: 6,
-                  border: '1px solid #E5E3DF',
-                  background: '#FFFFFF',
-                  color: '#1A1A1A',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
-
-            {/* Category Filter Pills */}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {['All', 'Account & Password', 'Classroom & Homework', 'Classroom & Resources', 'Attendance & Records', 'Parent Documents', 'Technical Support'].map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setSelectedFaqCategory(cat)}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+              {/* Search Bar with Theme Icon */}
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: 280, flexShrink: 0 }}>
+                <Search size={14} style={{ position: 'absolute', left: 10, color: '#8C8A84', pointerEvents: 'none' }} />
+                <input
+                  type="text"
+                  placeholder="Search articles & guides..."
+                  value={faqSearch}
+                  onChange={(e) => setFaqSearch(e.target.value)}
                   style={{
-                    padding: '5px 12px',
-                    fontSize: 11.5,
-                    fontWeight: selectedFaqCategory === cat ? 700 : 500,
-                    borderRadius: 20,
-                    border: selectedFaqCategory === cat ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
-                    background: selectedFaqCategory === cat ? '#2D2C2A' : '#FFFFFF',
-                    color: selectedFaqCategory === cat ? '#FFFFFF' : 'var(--neutral-dark)',
+                    height: 32,
+                    width: '100%',
+                    paddingLeft: 30,
+                    paddingRight: 10,
+                    fontSize: 12,
+                    borderRadius: 6,
+                    border: '1px solid #E5E3DF',
+                    background: '#FFFFFF',
+                    color: '#1A1A1A',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              {/* Theme-Aligned SegmentedControl for Categories */}
+              <div style={{ overflowX: 'auto', maxWidth: '100%', flexShrink: 0 }}>
+                <SegmentedControl
+                  value={selectedFaqCategory}
+                  onChange={(cat) => setSelectedFaqCategory(cat)}
+                  options={[
+                    { value: 'All', label: 'All' },
+                    { value: 'Account & Password', label: 'Accounts' },
+                    { value: 'Classroom & Homework', label: 'Homework' },
+                    { value: 'Classroom & Resources', label: 'Resources' },
+                    { value: 'Attendance & Records', label: 'Attendance' },
+                    { value: 'Parent Documents', label: 'Parent Docs' },
+                    { value: 'Grades & Sections', label: 'Cohorts' },
+                    { value: 'Technical Support', label: 'Technical' },
+                  ]}
+                  height={32}
+                  textTransform="uppercase"
+                />
+              </div>
+
+              {/* Reset Filter Button */}
+              {(faqSearch || selectedFaqCategory !== 'All') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFaqSearch('');
+                    setSelectedFaqCategory('All');
+                  }}
+                  style={{
+                    height: 28,
+                    padding: '0 9px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#A83B38',
+                    background: '#FDF1F0',
+                    border: '1px solid #F5C6CB',
+                    borderRadius: 5,
                     cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
                   }}
                 >
-                  {cat}
+                  Reset Filters
                 </button>
-              ))}
+              )}
+            </div>
+
+            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', flexShrink: 0 }}>
+              Showing <strong>{filteredFaqs.length}</strong> guide{filteredFaqs.length !== 1 ? 's' : ''}
             </div>
           </div>
 
@@ -406,9 +426,15 @@ export const SupportView: React.FC<SupportViewProps> = () => {
                           {faq.question}
                         </span>
                       </div>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)' }}>
-                        {isOpen ? '−' : '+'}
-                      </span>
+                      <ChevronDown
+                        size={15}
+                        style={{
+                          transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                          color: '#8C8A84',
+                          flexShrink: 0,
+                        }}
+                      />
                     </button>
 
                     {isOpen && (

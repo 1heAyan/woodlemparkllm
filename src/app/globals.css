@@ -94,6 +94,19 @@
 .scroll-visible::-webkit-scrollbar-thumb:hover {
     background: rgba(80, 80, 75, 0.65);
 }
+
+/* Hide scrollbar completely for compact dropdowns (e.g. time selectors) */
+.custom-select-compact,
+.custom-select-compact * {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+}
+.custom-select-compact::-webkit-scrollbar,
+.custom-select-compact *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+}
 body, html {
     height: 100vh;
     height: 100dvh;
