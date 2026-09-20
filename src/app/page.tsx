@@ -70,7 +70,6 @@ import { AiChatbot } from '@/components/Shared/AiChatbot';
 import { PortalNavigationProvider } from '@/lib/PortalNavigationContext';
 import { getCachedPassword, resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
-import { generateParentLinkCode } from '@/lib/parentCodeHelper';
 import {
   extractStudentAdditionalInfoFromHub,
   persistStudentAdditionalInfo,
@@ -1053,7 +1052,6 @@ export default function WoodlemApp() {
         assigned_class: userData.assignedClass ?? null,
       };
       if (userData.role === 'student') {
-        dbProfile.parent_link_code = generateParentLinkCode(profileId, cleanCode);
         if (cleanParentEmail) dbProfile.parent_email = cleanParentEmail;
         if (cleanHouseColour) dbProfile.house_colour = cleanHouseColour;
       }
@@ -1482,7 +1480,6 @@ export default function WoodlemApp() {
         subject: updatedUser.subject ?? null,
         assigned_class: updatedUser.assigned_class ?? null,
         linked_student_ids: updatedUser.linked_student_ids ?? [],
-        parent_link_code: updatedUser.parent_link_code ?? undefined,
         parent_email: updatedUser.role === 'student' ? (updatedUser.parent_email?.trim().toLowerCase() || undefined) : undefined,
         house_colour: updatedUser.role === 'student' ? (updatedUser.house_colour?.trim() || undefined) : undefined,
       };
@@ -1549,9 +1546,6 @@ export default function WoodlemApp() {
         assigned_class: updatedUser.assigned_class ?? null,
         linked_student_ids: updatedUser.linked_student_ids ?? [],
       };
-      if (updatedUser.parent_link_code) {
-        dbPayload.parent_link_code = updatedUser.parent_link_code.trim();
-      }
       if (updatedUser.is_deactivated !== undefined) {
         dbPayload.is_deactivated = updatedUser.is_deactivated;
         dbPayload.deactivated_at = updatedUser.deactivated_at ?? (updatedUser.is_deactivated ? new Date().toISOString() : null);
@@ -3493,68 +3487,6 @@ export default function WoodlemApp() {
     }
   };
 
-  // 7b. Parent-Student Link Requests (Teacher Verified & Instant Link)
-  const handleCreateLinkRequest = async (data: {
-    studentId: string;
-    studentName: string;
-    studentAdmissionNumber: string;
-    studentGrade: string;
-    relationship: string;
-    notes?: string;
-  }) => {
-    if (!currentUser) return;
-    try {
-      // 1. Add student to parent's linked_student_ids
-      const currentLinks = currentUser.linked_student_ids || [];
-      const updatedLinks = currentLinks.includes(data.studentId)
-        ? currentLinks
-        : [...currentLinks, data.studentId];
-
-      const { error: profErr } = await supabase
-        .from('profiles')
-        .update({ linked_student_ids: updatedLinks })
-        .eq('id', currentUser.id);
-
-      if (profErr) {
-        console.warn('Parent profile link update notice:', profErr.message);
-      }
-
-      // Update state immediately
-      setCurrentUser((prev) => (prev ? { ...prev, linked_student_ids: updatedLinks } : null));
-      setProfiles((prev) =>
-        prev.map((p) => (p.id === currentUser.id ? { ...p, linked_student_ids: updatedLinks } : p))
-      );
-
-      // 2. Record approved link request in parent_student_link_requests
-      try {
-        await supabase.from('parent_student_link_requests').upsert(
-          [
-            {
-              parent_id: currentUser.id,
-              parent_name: currentUser.name,
-              parent_email: currentUser.email,
-              student_id: data.studentId,
-              student_name: data.studentName,
-              student_admission_number: data.studentAdmissionNumber,
-              student_grade: data.studentGrade,
-              relationship: data.relationship,
-              notes: data.notes || 'Verified via Class Teacher Parent Link Code',
-              status: 'approved',
-              updated_at: new Date().toISOString(),
-            },
-          ],
-          { onConflict: 'parent_id,student_id' }
-        );
-      } catch (e) {}
-
-      alert(`Success! "${data.studentName}" (${data.studentAdmissionNumber}) is now linked to your parent portal.`);
-      loadAllData();
-    } catch (err: any) {
-      console.error('Link child error:', err);
-      alert('Unable to link child account. Please try again.');
-    }
-  };
-
 
 
   // 7. Class Resources (Full-Page Inline - Pure Supabase)
@@ -4057,7 +3989,6 @@ export default function WoodlemApp() {
           onUploadDoc={handleUploadParentDocument}
           onRemoveDoc={handleRemoveParentDocument}
           onOpenVideoModal={(act) => setSelectedVideoActivity(act)}
-          onRequestChildLink={handleCreateLinkRequest}
           onApplyLeave={handleApplyLeave}
           onDeleteLeave={handleDeleteLeave}
           onUpdateCurrentUser={handleUpdateCurrentUser}

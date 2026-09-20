@@ -8,8 +8,7 @@ import { resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/pass
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import { isPrincipalUser } from '@/lib/specialRolesHelper';
 import { sanitizeUserCode } from '@/lib/userCodeHelper';
-import { Eye, EyeOff, Lock, FileText, CheckCircle2, Clock, AlertCircle, AlertTriangle, Crown, KeyRound, Copy, RotateCcw } from 'lucide-react';
-import { getOrGenerateStudentParentCode, generateParentLinkCode } from '@/lib/parentCodeHelper';
+import { Eye, EyeOff, Lock, FileText, CheckCircle2, Clock, AlertCircle, AlertTriangle, Crown } from 'lucide-react';
 
 const GRADES = ['9', '10', '11', '12'] as const;
 const SECTIONS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)); // A through Z

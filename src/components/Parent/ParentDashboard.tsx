@@ -69,14 +69,6 @@ interface ParentDashboardProps {
   onUploadDoc: (docType: string, fileName: string, studentId: string, fileDataUrl?: string) => void;
   onRemoveDoc: (docType: string, studentId: string) => void;
   onOpenVideoModal: (activity: HubActivity) => void;
-  onRequestChildLink: (data: {
-    studentId: string;
-    studentName: string;
-    studentAdmissionNumber: string;
-    studentGrade: string;
-    relationship: string;
-    notes?: string;
-  }) => Promise<void>;
   onApplyLeave?: (
     data: {
       id?: string;
@@ -121,7 +113,6 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   onUploadDoc,
   onRemoveDoc,
   onOpenVideoModal,
-  onRequestChildLink,
   onApplyLeave,
   onDeleteLeave,
   onUpdateCurrentUser,

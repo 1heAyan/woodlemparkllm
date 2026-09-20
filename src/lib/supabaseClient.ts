@@ -36,7 +36,6 @@ export interface UserProfile {
   subject?: string | null;       // Teacher's subject (e.g. "English", "Math")
   assigned_class?: string | null; // Class teacher assignment (e.g. "10-D") or null
   linked_student_ids?: string[]; // For Parent: array of linked student IDs
-  parent_link_code?: string;   // Deprecated: legacy manual link code
   parent_email?: string;       // For Student: Parent's registered email address for automatic linking
   house_colour?: string;       // For Student: House colour (e.g. Ruby, Sapphire, Emerald, Topaz)
   additional_info?: Record<string, any>; // Extensible student/user attributes for future fields
