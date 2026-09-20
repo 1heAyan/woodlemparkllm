@@ -27,6 +27,12 @@ import {
 } from '@/lib/supabaseClient';
 import { loadLateEntries, loadAuthorizedStaffIds, fetchCloudAuthorizedStaffIds } from '@/lib/lateEntryHelper';
 import {
+  BehaviorIncidentRecord,
+  loadBehaviorIncidents,
+  saveBehaviorIncident,
+  deleteBehaviorIncident,
+} from '@/lib/behaviorHelper';
+import {
   saveCsQuestionToCloud,
   deleteCsQuestionFromCloud,
   saveCsSubmissionToCloud,
@@ -127,6 +133,7 @@ export default function WoodlemApp() {
   const [classResources, setClassResources] = useState<ClassResource[]>([]);
   const [classBroadcasts, setClassBroadcasts] = useState<ClassBroadcast[]>([]);
   const [lateEntries, setLateEntries] = useState<LateEntryRecord[]>([]);
+  const [behaviorIncidents, setBehaviorIncidents] = useState<BehaviorIncidentRecord[]>([]);
   const [schemaError, setSchemaError] = useState<string | null>(null);
 
   // Modals state
@@ -685,6 +692,9 @@ export default function WoodlemApp() {
       const loadedLate = await loadLateEntries();
       setLateEntries(loadedLate);
       fetchCloudAuthorizedStaffIds().catch(() => {});
+
+      const loadedBehavior = await loadBehaviorIncidents();
+      setBehaviorIncidents(loadedBehavior);
 
       // CS Lab data (hybrid cloud: native tables if available, else hub_activities + localStorage)
       const {
@@ -3314,6 +3324,19 @@ export default function WoodlemApp() {
     loadAllData();
   };
 
+  // Student Behavior Management (Points & Conduct)
+  const handleRecordBehaviorIncident = async (incident: BehaviorIncidentRecord) => {
+    const updated = await saveBehaviorIncident(incident);
+    setBehaviorIncidents(updated);
+  };
+
+  const handleDeleteBehaviorIncident = async (incidentId: string) => {
+    const success = await deleteBehaviorIncident(incidentId);
+    if (success) {
+      setBehaviorIncidents((prev) => prev.filter((item) => item.id !== incidentId));
+    }
+  };
+
   // 6. Holistic Hub
   const handleCreateHubActivity = async (data: {
     title: string;
@@ -3839,6 +3862,7 @@ export default function WoodlemApp() {
           leaveRequests={leaveRequests}
           attendance={attendance}
           lateEntries={lateEntries}
+          behaviorIncidents={behaviorIncidents}
           hubActivities={hubActivities}
           subjectClasses={subjectClasses}
           classResources={classResources}
@@ -3876,6 +3900,9 @@ export default function WoodlemApp() {
           achievements={achievements}
           attendance={attendance}
           lateEntries={lateEntries}
+          behaviorIncidents={behaviorIncidents}
+          onRecordBehaviorIncident={handleRecordBehaviorIncident}
+          onDeleteBehaviorIncident={handleDeleteBehaviorIncident}
           hubActivities={hubActivities}
           subjectClasses={subjectClasses}
           classResources={classResources}
@@ -3983,6 +4010,7 @@ export default function WoodlemApp() {
           parentDocuments={parentDocuments}
           hubActivities={hubActivities}
           achievements={achievements}
+          behaviorIncidents={behaviorIncidents}
           leaveRequests={leaveRequests}
           classBroadcasts={classBroadcasts}
           subjectClasses={subjectClasses}

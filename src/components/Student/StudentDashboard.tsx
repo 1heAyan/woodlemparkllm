@@ -39,6 +39,14 @@ import { openFileInNewTab, downloadFile, formatShortFileName } from '@/lib/fileH
 import { sanitizeUserCode } from '@/lib/userCodeHelper';
 import { isCsStudent } from '@/lib/csLabHelper';
 import { ApplyLeaveModal } from '../Modals/ApplyLeaveModal';
+import { ShieldAlert, ShieldCheck } from 'lucide-react';
+import {
+  BehaviorIncidentRecord,
+  computeStudentBehaviorScore,
+  computeStudentTotalDeductions,
+  getBehaviorTier,
+  BASE_BEHAVIOR_SCORE,
+} from '@/lib/behaviorHelper';
 
 interface StudentDashboardProps {
   currentStudent: UserProfile;
@@ -49,6 +57,7 @@ interface StudentDashboardProps {
   leaveRequests?: LeaveRequest[];
   attendance: Record<string, Record<string, string>>; // date -> studentId -> status
   lateEntries?: LateEntryRecord[];
+  behaviorIncidents?: BehaviorIncidentRecord[];
   hubActivities: HubActivity[];
   subjectClasses: SubjectClass[];
   classResources?: ClassResource[];
@@ -95,6 +104,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   leaveRequests = [],
   attendance,
   lateEntries = [],
+  behaviorIncidents = [],
   hubActivities,
   subjectClasses,
   classResources = [],
@@ -122,8 +132,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   onDeleteCsLabSession,
   onSaveCsSubmission,
 }) => {
-  // Navigation mode: 'class' | 'homeroom_circulars' | 'awards' | 'attendance' | 'hub' | 'cslab' | 'settings' | 'support'
-  const [activeNavType, setActiveNavType] = useState<'class' | 'homeroom_circulars' | 'awards' | 'attendance' | 'hub' | 'cslab' | 'settings' | 'support'>('class');
+  // Navigation mode: 'class' | 'homeroom_circulars' | 'awards' | 'attendance' | 'behavior' | 'hub' | 'cslab' | 'settings' | 'support'
+  const [activeNavType, setActiveNavType] = useState<'class' | 'homeroom_circulars' | 'awards' | 'attendance' | 'behavior' | 'hub' | 'cslab' | 'settings' | 'support'>('class');
   const [isCsLabStudent, setIsCsLabStudent] = useState(false);
   
   // Tabs inside a subject classroom: 'broadcasts' | 'resources' | 'tasks' | 'syllabus'
@@ -711,6 +721,28 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime());
   }, [leaveRequests, achievements, currentStudent.id, currentStudent.email]);
 
+  // Student Behavior Score & Incidents
+  const myBehaviorIncidents = useMemo(() => {
+    if (!currentStudent?.id) return [];
+    return (behaviorIncidents || []).filter(
+      (inc) => inc.student_id === currentStudent.id || (currentStudent.email && inc.student_id === currentStudent.email)
+    );
+  }, [behaviorIncidents, currentStudent.id, currentStudent.email]);
+
+  const myBehaviorScore = useMemo(() => {
+    if (!currentStudent?.id) return BASE_BEHAVIOR_SCORE;
+    return computeStudentBehaviorScore(currentStudent.id, behaviorIncidents || []);
+  }, [currentStudent.id, behaviorIncidents]);
+
+  const myTotalDeductions = useMemo(() => {
+    if (!currentStudent?.id) return 0;
+    return computeStudentTotalDeductions(currentStudent.id, behaviorIncidents || []);
+  }, [currentStudent.id, behaviorIncidents]);
+
+  const myBehaviorTier = useMemo(() => {
+    return getBehaviorTier(myBehaviorScore);
+  }, [myBehaviorScore]);
+
   const handleTopicCheck = (termId: string, topicId: string, title: string, isChecked: boolean) => {
     onToggleTopicCheck(termId, topicId, 'student', isChecked, currentStudent.id);
   };
@@ -852,6 +884,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 ? 'Achievements'
                 : activeNavType === 'attendance'
                 ? 'Attendance'
+                : activeNavType === 'behavior'
+                ? 'Behavior Score'
                 : activeNavType === 'hub'
                 ? 'Co-Curricular'
                 : activeNavType === 'cslab'
@@ -1037,6 +1071,18 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               >
                 <Calendar size={16} style={{ color: activeNavType === 'attendance' ? '#FFFFFF' : '#2C6E6A', flexShrink: 0 }} />
                 <span>Attendance Record</span>
+              </button>
+
+              <button
+                type="button"
+                className={`mobile-drawer-item ${activeNavType === 'behavior' ? 'active' : ''}`}
+                onClick={() => {
+                  setActiveNavType('behavior');
+                  setIsMobileDrawerOpen(false);
+                }}
+              >
+                <ShieldAlert size={16} style={{ color: activeNavType === 'behavior' ? '#FFFFFF' : myBehaviorTier.color, flexShrink: 0 }} />
+                <span>Behavior Score ({myBehaviorScore}/80)</span>
               </button>
 
               <button
@@ -1374,6 +1420,35 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               />
             )}
             {sidebar.isCollapsed && <div className="sidebar-tooltip">Attendance Record{studentTodayLate ? ' (Late Today)' : ''}</div>}
+          </div>
+
+          {/* BEHAVIOR SCORE */}
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`nav-item ${activeNavType === 'behavior' ? 'active' : ''}`}
+              onClick={() => { setActiveNavType('behavior'); sidebar.handleNavClick(); }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <ShieldAlert size={15} className="icon" style={{ color: activeNavType === 'behavior' ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text" style={{ flex: 1, color: activeNavType === 'behavior' ? '#FFFFFF' : 'inherit' }}>Behavior Score</span>
+                {!sidebar.isCollapsed && (
+                  <span
+                    style={{
+                      background: activeNavType === 'behavior' ? '#FFFFFF' : myBehaviorTier.badgeBg,
+                      color: myBehaviorTier.color,
+                      fontSize: 10,
+                      fontWeight: 800,
+                      padding: '1px 6px',
+                      borderRadius: 10,
+                      border: `1px solid ${myBehaviorTier.badgeBorder}`,
+                    }}
+                  >
+                    {myBehaviorScore}/80
+                  </span>
+                )}
+              </div>
+            </button>
+            {sidebar.isCollapsed && <div className="sidebar-tooltip">Behavior Score ({myBehaviorScore}/80)</div>}
           </div>
 
           {/* HOLISTIC HUB */}
@@ -3472,6 +3547,344 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   )}
                 </div>
               )}
+            </div>
+          </>
+        )}
+
+        {/* VIEW: STUDENT BEHAVIOR & CONDUCT MANAGEMENT */}
+        {activeNavType === 'behavior' && (
+          <>
+            <header className="content-header">
+              <div className="header-top" style={{ flexWrap: 'wrap', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#2C6E6A', letterSpacing: '0.06em' }}>
+                    STUDENT CONDUCT & DISCIPLINE
+                  </div>
+                  <h1 className="page-title" style={{ margin: '2px 0 0' }}>
+                    Student Behavior Profile
+                  </h1>
+                  <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--text-secondary)' }}>
+                    Track your annual conduct score, recorded infractions, and teacher feedback
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '6px 14px',
+                    borderRadius: 20,
+                    background: myBehaviorTier.bg,
+                    border: `1px solid ${myBehaviorTier.border}`,
+                    color: myBehaviorTier.color,
+                    fontWeight: 700,
+                    fontSize: 13,
+                  }}>
+                    <ShieldAlert size={16} />
+                    <span>Standing: {myBehaviorTier.label}</span>
+                  </div>
+                </div>
+              </div>
+            </header>
+
+            <div className="content-body" style={{ padding: '0 24px 24px' }}>
+              {/* TOP KPI CARDS */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: 16,
+                marginBottom: 24,
+              }}>
+                {/* CARD 1: CURRENT SCORE */}
+                <div style={{
+                  background: '#FFFFFF',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 10,
+                  padding: '18px 20px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Current Score
+                    </span>
+                    <span style={{
+                      fontSize: 10.5,
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: 10,
+                      background: myBehaviorTier.bg,
+                      color: myBehaviorTier.color,
+                      border: `1px solid ${myBehaviorTier.border}`,
+                    }}>
+                      {myBehaviorTier.label}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 10 }}>
+                    <span style={{ fontSize: 36, fontWeight: 800, color: myBehaviorTier.color, lineHeight: 1 }}>
+                      {myBehaviorScore}
+                    </span>
+                    <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      / 80 pts
+                    </span>
+                  </div>
+                  {/* Progress bar */}
+                  <div style={{ height: 6, width: '100%', background: '#F0EFEA', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${Math.min(100, Math.max(0, (myBehaviorScore / 80) * 100))}%`,
+                      background: myBehaviorTier.color,
+                      borderRadius: 3,
+                      transition: 'width 0.3s ease',
+                    }} />
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
+                    {myBehaviorScore >= 75 ? 'Excellent standing across all classes' : myBehaviorScore >= 60 ? 'Good standing; avoid further deductions' : 'Needs attention; speak with your class teacher'}
+                  </div>
+                </div>
+
+                {/* CARD 2: STARTING BASELINE */}
+                <div style={{
+                  background: '#FFFFFF',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 10,
+                  padding: '18px 20px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                    Standard Baseline
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 8 }}>
+                    <span style={{ fontSize: 36, fontWeight: 800, color: 'var(--neutral-dark)', lineHeight: 1 }}>
+                      80
+                    </span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      points
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                    Standard score awarded to all students at start of academic term.
+                  </p>
+                </div>
+
+                {/* CARD 3: TOTAL DEDUCTIONS */}
+                <div style={{
+                  background: '#FFFFFF',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 10,
+                  padding: '18px 20px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                    Total Deductions
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 8 }}>
+                    <span style={{ fontSize: 36, fontWeight: 800, color: myTotalDeductions > 0 ? '#A83B38' : '#2C6E6A', lineHeight: 1 }}>
+                      {myTotalDeductions > 0 ? `-${myTotalDeductions}` : '0'}
+                    </span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      points
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                    From {myBehaviorIncidents.length} recorded conduct observation{myBehaviorIncidents.length === 1 ? '' : 's'}.
+                  </p>
+                </div>
+
+                {/* CARD 4: CONDUCT GUIDANCE */}
+                <div style={{
+                  background: '#FFFFFF',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 10,
+                  padding: '18px 20px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                    Conduct Standing
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 18, fontWeight: 700, color: myBehaviorTier.color }}>
+                      {myBehaviorTier.label}
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                    {myBehaviorScore >= 75
+                      ? 'Role model discipline. Eligible for student council and term honors.'
+                      : myBehaviorScore >= 60
+                      ? 'Acceptable conduct. Maintain vigilance with homework and punctuality.'
+                      : 'Requires immediate behavior turnaround. Regular counseling may be scheduled.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* ITEMIZED INCIDENT LOG */}
+              <div style={{
+                background: '#FFFFFF',
+                border: '1px solid var(--border-color)',
+                borderRadius: 10,
+                overflow: 'hidden',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                marginBottom: 24,
+              }}>
+                <div style={{
+                  padding: '16px 20px',
+                  borderBottom: '1px solid var(--border-color)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: '#FAF9F6',
+                }}>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                      Itemized Conduct Observations & Deductions
+                    </h2>
+                    <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                      Complete digital record of infractions logged by homeroom and subject teachers
+                    </p>
+                  </div>
+                  <span style={{
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    padding: '4px 10px',
+                    borderRadius: 12,
+                    background: '#F0EFEA',
+                    color: 'var(--text-secondary)',
+                  }}>
+                    {myBehaviorIncidents.length} record{myBehaviorIncidents.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+
+                {myBehaviorIncidents.length === 0 ? (
+                  <div style={{ padding: '48px 24px', textAlign: 'center' }}>
+                    <div style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: '50%',
+                      background: '#F0F9F8',
+                      color: '#2C6E6A',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      margin: '0 auto 12px',
+                    }}>
+                      <CheckCircle2 size={28} />
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 4 }}>
+                      Clean Conduct Record!
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', maxWidth: 440, margin: '0 auto' }}>
+                      You currently have 0 recorded behavior deductions and maintain a full <strong>80/80</strong> score. Thank you for demonstrating excellent responsibility and respect!
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                      <thead>
+                        <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Date & Time</th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Infraction Reason</th>
+                          <th style={{ textAlign: 'center', padding: '10px 16px', fontWeight: 700 }}>Deduction</th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Recorded By</th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Context / Subject</th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Notes & Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {myBehaviorIncidents.map((inc, i) => (
+                          <tr
+                            key={inc.id || i}
+                            style={{
+                              borderBottom: i < myBehaviorIncidents.length - 1 ? '1px solid #ECEAE5' : 'none',
+                              background: i % 2 === 0 ? '#FFFFFF' : '#FAFAF9',
+                            }}
+                          >
+                            <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                              <div>{inc.incident_date}</div>
+                              {inc.incident_time && (
+                                <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>{inc.incident_time}</div>
+                              )}
+                            </td>
+                            <td style={{ padding: '12px 16px' }}>
+                              <div style={{ fontWeight: 700, color: '#A83B38' }}>{inc.reason}</div>
+                              {inc.category && (
+                                <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                                  Category: {inc.category.replace('_', ' ')}
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              <span style={{
+                                display: 'inline-block',
+                                padding: '3px 10px',
+                                borderRadius: 12,
+                                background: '#FDF1F0',
+                                color: '#A83B38',
+                                fontWeight: 800,
+                                fontSize: 12,
+                                border: '1px solid #F5C6CB',
+                              }}>
+                                -{inc.points_deducted} pts
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                              <div style={{ fontWeight: 600, color: 'var(--neutral-dark)' }}>{inc.teacher_name}</div>
+                              <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                                {inc.teacher_role ? inc.teacher_role.replace('_', ' ') : 'Teacher'}
+                              </div>
+                            </td>
+                            <td style={{ padding: '12px 16px' }}>
+                              {inc.subject_name ? (
+                                <span style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  padding: '2px 8px',
+                                  borderRadius: 6,
+                                  background: '#F0EFEA',
+                                  color: 'var(--neutral-dark)',
+                                }}>
+                                  {inc.subject_name}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Homeroom</span>
+                              )}
+                            </td>
+                            <td style={{ padding: '12px 16px', maxWidth: 280 }}>
+                              {inc.notes ? (
+                                <div style={{ color: 'var(--neutral-dark)', fontStyle: 'italic', marginBottom: 2 }}>
+                                  "{inc.notes}"
+                                </div>
+                              ) : null}
+                              {inc.action_taken ? (
+                                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                  <strong>Action:</strong> {inc.action_taken}
+                                </div>
+                              ) : !inc.notes && (
+                                <span style={{ color: 'var(--text-secondary)' }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* BEHAVIOR POLICY & APPEAL NOTE */}
+              <div style={{
+                background: '#F4F9F8',
+                border: '1px solid #BCE3DE',
+                borderRadius: 10,
+                padding: '16px 20px',
+                display: 'flex',
+                gap: 14,
+                alignItems: 'flex-start',
+              }}>
+                <ShieldAlert size={20} style={{ color: '#2C6E6A', marginTop: 2, flexShrink: 0 }} />
+                <div style={{ fontSize: 12, lineHeight: 1.5, color: '#1B4A47' }}>
+                  <strong>Woodlem School Conduct Standard:</strong> All students receive an 80-point behavior allocation annually. Subject and class teachers record deductions in line with the school conduct rubric. If you believe a deduction was logged in error, please consult directly with your class teacher during advisory hours.
+                </div>
+              </div>
             </div>
           </>
         )}

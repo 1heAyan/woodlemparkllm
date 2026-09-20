@@ -47,7 +47,16 @@ import {
   ScoreDistributionChart,
   SubjectComparisonChart,
 } from '@/components/UI/AnalyticsCharts';
-import { ShieldCheck, Layers, Crown, Terminal } from 'lucide-react';
+import { ShieldCheck, Layers, Crown, Terminal, ShieldAlert, Scale, AlertCircle } from 'lucide-react';
+import {
+  BehaviorIncidentRecord,
+  computeStudentBehaviorScore,
+  computeStudentTotalDeductions,
+  getBehaviorTier,
+  BASE_BEHAVIOR_SCORE,
+  exportBehaviorToCSV,
+} from '@/lib/behaviorHelper';
+import { RecordBehaviorIncidentModal } from '../Modals/RecordBehaviorIncidentModal';
 
 interface TeacherDashboardProps {
   currentUser: UserProfile;
@@ -58,6 +67,9 @@ interface TeacherDashboardProps {
   achievements: Achievement[];
   attendance: Record<string, Record<string, string>>; // date -> studentId -> status
   lateEntries?: LateEntryRecord[];
+  behaviorIncidents?: BehaviorIncidentRecord[];
+  onRecordBehaviorIncident?: (incident: BehaviorIncidentRecord) => Promise<void> | void;
+  onDeleteBehaviorIncident?: (incidentId: string) => Promise<void> | void;
   hubActivities: HubActivity[];
   subjectClasses: SubjectClass[];
   classResources?: ClassResource[];
@@ -139,6 +151,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   achievements,
   attendance,
   lateEntries = [],
+  behaviorIncidents = [],
+  onRecordBehaviorIncident,
+  onDeleteBehaviorIncident,
   hubActivities,
   subjectClasses,
   classResources = [],
@@ -187,12 +202,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [selectedReviewTest, setSelectedReviewTest] = useState<TestItem | null>(null);
   const [selectedGradeAssignment, setSelectedGradeAssignment] = useState<AssignmentItem | null>(null);
   const [isMarkEntryOpen, setIsMarkEntryOpen] = useState(false);
-  // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub' | 'cs_lab' | 'late_entry' | 'my_attendance'
+  // Navigation mode: 'class' | 'homeroom_attendance' | 'homeroom_awards' | 'homeroom_resources' | 'homeroom_behavior' | 'hub' | 'settings' | 'support' | 'hod_hub' | 'coordinator_hub' | 'cs_lab' | 'late_entry' | 'my_attendance'
   const [activeNavMode, setActiveNavMode] = useState<
     | 'class'
     | 'homeroom_attendance'
     | 'homeroom_awards'
     | 'homeroom_resources'
+    | 'homeroom_behavior'
     | 'hub'
     | 'settings'
     | 'support'
@@ -383,8 +399,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     }
   }, [currentUser.id, currentUser.email]);
 
-  // Sub-tabs inside a subject classroom: 'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'students'
-  const [classSubTab, setClassSubTab] = useState<'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'students'>('broadcasts');
+  // Sub-tabs inside a subject classroom: 'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'students' | 'behavior'
+  const [classSubTab, setClassSubTab] = useState<'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'students' | 'behavior'>('broadcasts');
 
   // Broadcasts Composer State (Full-Page Inline)
   const [broadcastTitle, setBroadcastTitle] = useState('');
@@ -607,6 +623,88 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [hrResFileSize, setHrResFileSize] = useState('');
   const [hrResExternalLink, setHrResExternalLink] = useState('');
   const [hrResTopicTag, setHrResTopicTag] = useState('');
+
+  // Behavior Management State
+  const [isRecordBehaviorModalOpen, setIsRecordBehaviorModalOpen] = useState(false);
+  const [behaviorTargetStudentId, setBehaviorTargetStudentId] = useState<string | undefined>(undefined);
+  const [behaviorTargetRole, setBehaviorTargetRole] = useState<'class_teacher' | 'subject_teacher'>('class_teacher');
+  const [behaviorDefaultSubject, setBehaviorDefaultSubject] = useState<string>('');
+  const [behaviorSearchQuery, setBehaviorSearchQuery] = useState('');
+  const [behaviorTierFilter, setBehaviorTierFilter] = useState<'all' | 'deductions_only' | 'at_risk'>('all');
+  const [behaviorSubTab, setBehaviorSubTab] = useState<'roster' | 'incidents'>('roster');
+  const [selectedStudentForHistoryModal, setSelectedStudentForHistoryModal] = useState<UserProfile | null>(null);
+  const [behaviorActionStatus, setBehaviorActionStatus] = useState<string | null>(null);
+
+  // Homeroom Behavior Memos
+  const homeroomStudentIdSet = useMemo(() => new Set(homeroomStudents.map((s) => s.id)), [homeroomStudents]);
+
+  const homeroomBehaviorIncidents = useMemo(() => {
+    return behaviorIncidents.filter((inc) => homeroomStudentIdSet.has(inc.student_id));
+  }, [behaviorIncidents, homeroomStudentIdSet]);
+
+  const homeroomAvgScore = useMemo(() => {
+    if (homeroomStudents.length === 0) return BASE_BEHAVIOR_SCORE;
+    const sum = homeroomStudents.reduce(
+      (total, st) => total + computeStudentBehaviorScore(st.id, behaviorIncidents),
+      0
+    );
+    return (sum / homeroomStudents.length).toFixed(1);
+  }, [homeroomStudents, behaviorIncidents]);
+
+  const homeroomAtRiskCount = useMemo(() => {
+    return homeroomStudents.filter((st) => {
+      const score = computeStudentBehaviorScore(st.id, behaviorIncidents);
+      return score < 65;
+    }).length;
+  }, [homeroomStudents, behaviorIncidents]);
+
+  const homeroomExemplaryCount = useMemo(() => {
+    return homeroomStudents.filter((st) => {
+      const score = computeStudentBehaviorScore(st.id, behaviorIncidents);
+      return score >= 75;
+    }).length;
+  }, [homeroomStudents, behaviorIncidents]);
+
+  // Filtered homeroom students for behavior roster
+  const filteredHomeroomBehaviorStudents = useMemo(() => {
+    return homeroomStudents.filter((st) => {
+      const q = behaviorSearchQuery.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        st.name.toLowerCase().includes(q) ||
+        (st.admission_number && st.admission_number.toLowerCase().includes(q)) ||
+        (st.user_code && st.user_code.toLowerCase().includes(q));
+      if (!matchesSearch) return false;
+
+      const score = computeStudentBehaviorScore(st.id, behaviorIncidents);
+      if (behaviorTierFilter === 'deductions_only') {
+        return score < BASE_BEHAVIOR_SCORE;
+      }
+      if (behaviorTierFilter === 'at_risk') {
+        return score < 65;
+      }
+      return true;
+    });
+  }, [homeroomStudents, behaviorSearchQuery, behaviorTierFilter, behaviorIncidents]);
+
+
+
+  const handleRecordBehaviorIncident = async (incident: BehaviorIncidentRecord) => {
+    if (onRecordBehaviorIncident) {
+      await onRecordBehaviorIncident(incident);
+    }
+    setBehaviorActionStatus(`Recorded deduction of ${incident.points_deducted} points for ${incident.student_name}.`);
+    setTimeout(() => setBehaviorActionStatus(null), 4000);
+  };
+
+  const handleDeleteBehaviorIncident = async (incidentId: string) => {
+    if (!confirm('Are you sure you want to void this behavior incident? Points will be restored to the student.')) return;
+    if (onDeleteBehaviorIncident) {
+      await onDeleteBehaviorIncident(incidentId);
+    }
+    setBehaviorActionStatus('Incident voided. Student behavior score updated.');
+    setTimeout(() => setBehaviorActionStatus(null), 4000);
+  };
   const [hrIsResourceFormExpanded, setHrIsResourceFormExpanded] = useState(false);
   const [hrIsUploadingResource, setHrIsUploadingResource] = useState(false);
   const [hrResSearchQuery, setHrResSearchQuery] = useState('');
@@ -710,6 +808,27 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       return false;
     });
   }, [activeClassObj, profiles]);
+
+  // Active Subject Class Behavior Incidents
+  const thisClassBehaviorIncidents = useMemo(() => {
+    if (!activeClassObj) return [];
+    const classStudentIdSet = new Set(classStudents.map((s) => s.id));
+    return behaviorIncidents.filter((inc) => {
+      const matchesSubject =
+        (inc.subject && activeClassObj.subject && inc.subject.toLowerCase().includes(activeClassObj.subject.toLowerCase())) ||
+        (inc.subject && activeClassObj.name && inc.subject.toLowerCase().includes(activeClassObj.name.toLowerCase()));
+      return classStudentIdSet.has(inc.student_id) && (matchesSubject || inc.teacher_id === currentUser.id);
+    });
+  }, [behaviorIncidents, activeClassObj, classStudents, currentUser.id]);
+
+  const thisClassAvgScore = useMemo(() => {
+    if (classStudents.length === 0) return BASE_BEHAVIOR_SCORE;
+    const sum = classStudents.reduce(
+      (total, st) => total + computeStudentBehaviorScore(st.id, behaviorIncidents),
+      0
+    );
+    return (sum / classStudents.length).toFixed(1);
+  }, [classStudents, behaviorIncidents]);
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [dailyRecords, setDailyRecords] = useState<Record<string, string>>({});
@@ -1673,6 +1792,39 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             )}
           </div>
 
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className={`nav-item ${activeNavMode === 'homeroom_behavior' && !isMarkEntryOpen ? 'active' : ''}`}
+              onClick={() => {
+                setIsMarkEntryOpen(false);
+                setActiveNavMode('homeroom_behavior');
+                sidebar.handleNavClick();
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <ShieldAlert size={15} className="icon" style={{ color: activeNavMode === 'homeroom_behavior' && !isMarkEntryOpen ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
+                <span className="sidebar-text" style={{ flex: 1 }}>Student Behavior</span>
+                {homeroomAtRiskCount > 0 && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: '1px 6px',
+                      borderRadius: 10,
+                      background: activeNavMode === 'homeroom_behavior' ? '#FFFFFF' : '#FEE2E2',
+                      color: activeNavMode === 'homeroom_behavior' ? '#A83B38' : '#DC2626',
+                    }}
+                  >
+                    {homeroomAtRiskCount}
+                  </span>
+                )}
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">Student Behavior & Conduct</div>
+            )}
+          </div>
+
           {/* 2. SUBJECT CLASSROOMS */}
           <div className="sidebar-nav-divider" />
           <div style={{ padding: '4px 4px' }}>
@@ -1908,6 +2060,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 >
                   Students
                   <span className="tab-count">{classStudents.length}</span>
+                </button>
+                <button
+                  className={`tab-btn ${classSubTab === 'behavior' ? 'active' : ''}`}
+                  onClick={() => setClassSubTab('behavior')}
+                >
+                  Behavior
+                  <span className="tab-count">{thisClassBehaviorIncidents.length}</span>
                 </button>
               </div>
             </header>
@@ -3335,55 +3494,301 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                                 <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
                                   EMAIL
                                 </th>
+                                <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                  BEHAVIOR SCORE
+                                </th>
                                 <th style={{ textAlign: 'right', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
                                   ACTIONS
                                 </th>
                               </tr>
                             </thead>
                             <tbody>
-                              {classStudents.map((st, idx) => (
-                                <tr key={st.id || idx} style={{ borderBottom: '1px solid #F0EFEA' }}>
-                                  <td style={{ padding: '10px 16px', fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                                    {st.name}
-                                  </td>
-                                  <td style={{ padding: '10px 16px', fontSize: 12, color: '#65635E' }}>
-                                    {st.admission_number || st.user_code || '—'}
-                                  </td>
-                                  <td style={{ padding: '10px 16px', fontSize: 12, color: '#65635E' }}>
-                                    Grade {st.grade || '—'}{st.class_letter ? `-${st.class_letter}` : ''}
-                                  </td>
-                                  <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-secondary)' }}>
-                                    {st.email || '—'}
-                                  </td>
-                                  <td style={{ padding: '10px 16px', textAlign: 'right' }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const remainingIds = (activeClassObj.enrolled_student_ids || []).filter(
-                                          (id) => id !== st.id && id !== st.email
-                                        );
-                                        onUpdateClassEnrollment(activeClassObj.id, remainingIds);
-                                      }}
-                                      style={{
-                                        padding: '3px 8px',
-                                        fontSize: 10.5,
-                                        fontWeight: 600,
-                                        background: '#FDF1F0',
-                                        border: '1px solid #F5C6CB',
-                                        color: '#A83B38',
-                                        borderRadius: 4,
-                                        cursor: 'pointer',
-                                      }}
-                                    >
-                                      Remove
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
+                              {classStudents.map((st, idx) => {
+                                const score = computeStudentBehaviorScore(st.id, behaviorIncidents);
+                                const tier = getBehaviorTier(score);
+                                return (
+                                  <tr key={st.id || idx} style={{ borderBottom: '1px solid #F0EFEA' }}>
+                                    <td style={{ padding: '10px 16px', fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                      {st.name}
+                                    </td>
+                                    <td style={{ padding: '10px 16px', fontSize: 12, color: '#65635E' }}>
+                                      {st.admission_number || st.user_code || '—'}
+                                    </td>
+                                    <td style={{ padding: '10px 16px', fontSize: 12, color: '#65635E' }}>
+                                      Grade {st.grade || '—'}{st.class_letter ? `-${st.class_letter}` : ''}
+                                    </td>
+                                    <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-secondary)' }}>
+                                      {st.email || '—'}
+                                    </td>
+                                    <td style={{ padding: '10px 16px' }}>
+                                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                        <span style={{ fontSize: 13, fontWeight: 800, color: tier.color }}>
+                                          {score}/80
+                                        </span>
+                                        <span
+                                          style={{
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            padding: '1px 5px',
+                                            borderRadius: 4,
+                                            background: tier.badgeBg,
+                                            color: tier.color,
+                                            border: `1px solid ${tier.badgeBorder}`,
+                                          }}
+                                        >
+                                          {tier.tag}
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '10px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setBehaviorTargetStudentId(st.id);
+                                          setBehaviorTargetRole('subject_teacher');
+                                          setBehaviorDefaultSubject(activeClassObj.subject || activeClassObj.name || currentUser.subject || 'Faculty');
+                                          setIsRecordBehaviorModalOpen(true);
+                                        }}
+                                        style={{
+                                          padding: '4px 9px',
+                                          fontSize: 11,
+                                          fontWeight: 600,
+                                          background: '#FDF1F0',
+                                          border: '1px solid #F5C6CB',
+                                          color: '#A83B38',
+                                          borderRadius: 6,
+                                          cursor: 'pointer',
+                                          marginRight: 6,
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: 4,
+                                        }}
+                                        title="Record behavior incident for this student"
+                                      >
+                                        <ShieldAlert size={12} />
+                                        - Deduct
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const remainingIds = (activeClassObj.enrolled_student_ids || []).filter(
+                                            (id) => id !== st.id && id !== st.email
+                                          );
+                                          onUpdateClassEnrollment(activeClassObj.id, remainingIds);
+                                        }}
+                                        style={{
+                                          padding: '4px 8px',
+                                          fontSize: 11,
+                                          fontWeight: 600,
+                                          background: '#FAF9F6',
+                                          border: '1px solid #E5E3DF',
+                                          color: '#73716D',
+                                          borderRadius: 6,
+                                          cursor: 'pointer',
+                                        }}
+                                      >
+                                        Remove
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         )}
                       </div>
+                    </div>
+                  )}
+
+                  {/* SUBTAB 6: SUBJECT BEHAVIOR INCIDENTS */}
+                  {classSubTab === 'behavior' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                      <div
+                        style={{
+                          background: '#FFFFFF',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 12,
+                          padding: '20px 24px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: 16,
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#FDF1F0', color: '#A83B38', border: '1px solid #F5C6CB', textTransform: 'uppercase' }}>
+                              Subject Conduct Record
+                            </span>
+                            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                              {activeClassObj.name} ({activeClassObj.subject || currentUser.subject || 'Faculty'})
+                            </span>
+                          </div>
+                          <h3 style={{ fontSize: 16, fontWeight: 800, margin: 0, color: 'var(--neutral-dark)' }}>
+                            Classroom Behavior Incidents
+                          </h3>
+                          <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                            Record disciplinary incidents and point deductions occurring specifically within this subject class.
+                          </p>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <div style={{ textAlign: 'right', marginRight: 8 }}>
+                            <span style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Class Average</span>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: '#2D6E5D' }}>{thisClassAvgScore} <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' }}>/ 80 pts</span></div>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn-primary"
+                            onClick={() => {
+                              setBehaviorTargetStudentId(undefined);
+                              setBehaviorTargetRole('subject_teacher');
+                              setBehaviorDefaultSubject(activeClassObj.subject || activeClassObj.name || currentUser.subject || 'Faculty');
+                              setIsRecordBehaviorModalOpen(true);
+                            }}
+                            style={{
+                              padding: '8px 16px',
+                              fontSize: 12.5,
+                              background: '#A83B38',
+                              borderColor: '#8C312E',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                            }}
+                          >
+                            <ShieldAlert size={14} />
+                            + Record Incident
+                          </button>
+                        </div>
+                      </div>
+
+                      {thisClassBehaviorIncidents.length === 0 ? (
+                        <div
+                          style={{
+                            padding: '60px 24px',
+                            background: '#FFFFFF',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 12,
+                            textAlign: 'center',
+                          }}
+                        >
+                          <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#EAF3EF', color: '#2D6E5D', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+                            <ShieldCheck size={24} />
+                          </div>
+                          <h4 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px', color: 'var(--neutral-dark)' }}>
+                            Exemplary Classroom Behavior
+                          </h4>
+                          <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: 0, maxWidth: 420, marginInline: 'auto' }}>
+                            No behavior deductions recorded in this subject class. All enrolled students maintain their starting score.
+                          </p>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                          {thisClassBehaviorIncidents.map((inc) => (
+                            <div
+                              key={inc.id}
+                              style={{
+                                background: '#FFFFFF',
+                                border: '1px solid #E5E3DF',
+                                borderRadius: 12,
+                                padding: '16px 20px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'flex-start',
+                                gap: 16,
+                                boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
+                              }}
+                            >
+                              <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                                <div
+                                  style={{
+                                    padding: '6px 10px',
+                                    borderRadius: 8,
+                                    background: '#FEE2E2',
+                                    color: '#DC2626',
+                                    fontWeight: 800,
+                                    fontSize: 14,
+                                    textAlign: 'center',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  -{inc.points_deducted} pts
+                                </div>
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
+                                    <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--neutral-dark)' }}>
+                                      {inc.student_name}
+                                    </span>
+                                    {inc.student_admission_number && (
+                                      <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                        ({inc.student_admission_number})
+                                      </span>
+                                    )}
+                                    <span
+                                      style={{
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        padding: '1px 6px',
+                                        borderRadius: 4,
+                                        background: '#F9F8F6',
+                                        color: '#65635E',
+                                        border: '1px solid #E5E3DF',
+                                      }}
+                                    >
+                                      {inc.reason}
+                                    </span>
+                                    {inc.action_taken && (
+                                      <span
+                                        style={{
+                                          fontSize: 11,
+                                          fontWeight: 600,
+                                          padding: '1px 6px',
+                                          borderRadius: 4,
+                                          background: '#EFF6FF',
+                                          color: '#1D4ED8',
+                                          border: '1px solid #BFDBFE',
+                                        }}
+                                      >
+                                        Action: {inc.action_taken}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {inc.notes && (
+                                    <p style={{ margin: '4px 0 8px', fontSize: 12.5, color: '#374151', lineHeight: 1.5, background: '#FAF9F6', padding: '8px 12px', borderRadius: 6 }}>
+                                      {inc.notes}
+                                    </p>
+                                  )}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                                    <span>Recorded by <strong>{inc.teacher_name}</strong></span>
+                                    <span>•</span>
+                                    <span>{inc.date} {inc.incident_time ? `at ${inc.incident_time}` : ''}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteBehaviorIncident(inc.id)}
+                                title="Void incident and restore points"
+                                style={{
+                                  padding: '4px 8px',
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  background: 'transparent',
+                                  border: '1px solid #E5E3DF',
+                                  color: '#A83B38',
+                                  borderRadius: 6,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Void / Delete
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
@@ -5308,6 +5713,596 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           )
         )}
 
+        {/* VIEW 4B: HOMEROOM STUDENT BEHAVIOR & CONDUCT MANAGEMENT */}
+        {activeNavMode === 'homeroom_behavior' && (
+          !homeroomClassInfo.isClassTeacher ? (
+            renderHomeroomNotice()
+          ) : (
+          <>
+            <header className="content-header">
+              <div className="header-top" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#FDF1F0', color: '#A83B38', border: '1px solid #F5C6CB', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      CLASS TEACHER PORTAL
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                      {homeroomLabel} • 80 Baseline Score System
+                    </span>
+                  </div>
+                  <h1 className="page-title" style={{ margin: 0 }}>
+                    Student Behavior &amp; Conduct
+                  </h1>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => exportBehaviorToCSV(homeroomBehaviorIncidents, `woodlem_behavior_${homeroomGrade}_${homeroomSection}.csv`)}
+                    className="btn-secondary"
+                    style={{ padding: '8px 14px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    title="Export homeroom behavior records to CSV"
+                  >
+                    <Download size={14} />
+                    Export CSV
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => {
+                      setBehaviorTargetStudentId(undefined);
+                      setBehaviorTargetRole('class_teacher');
+                      setBehaviorDefaultSubject('Homeroom');
+                      setIsRecordBehaviorModalOpen(true);
+                    }}
+                    style={{
+                      padding: '8px 18px',
+                      fontSize: 12.5,
+                      background: '#A83B38',
+                      borderColor: '#8C312E',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <ShieldAlert size={15} />
+                    + Record Incident
+                  </button>
+                </div>
+              </div>
+
+              {/* Status Banner */}
+              {behaviorActionStatus && (
+                <div
+                  style={{
+                    marginTop: 14,
+                    padding: '10px 16px',
+                    borderRadius: 8,
+                    background: '#EAF3EF',
+                    color: '#2D6E5D',
+                    border: '1px solid #C7E4D8',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <Check size={16} />
+                  {behaviorActionStatus}
+                </div>
+              )}
+
+              {/* Nav Subtabs */}
+              <div className="tabs" style={{ marginTop: 16 }}>
+                <button
+                  className={`tab-btn ${behaviorSubTab === 'roster' ? 'active' : ''}`}
+                  onClick={() => setBehaviorSubTab('roster')}
+                >
+                  Student Roster &amp; Scores
+                  <span className="tab-count">{homeroomStudents.length}</span>
+                </button>
+                <button
+                  className={`tab-btn ${behaviorSubTab === 'incidents' ? 'active' : ''}`}
+                  onClick={() => setBehaviorSubTab('incidents')}
+                >
+                  Class Incident Log
+                  <span className="tab-count">{homeroomBehaviorIncidents.length}</span>
+                </button>
+              </div>
+            </header>
+
+            <div className="content-body" style={{ padding: '24px 32px' }}>
+              {/* KPI Summary Cards */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: 16,
+                  marginBottom: 24,
+                }}
+              >
+                <div
+                  style={{
+                    background: '#FFFFFF',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 12,
+                    padding: '16px 20px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Class Average Score
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                    <span style={{ fontSize: 24, fontWeight: 800, color: Number(homeroomAvgScore) >= 70 ? '#2D6E5D' : '#D97706' }}>
+                      {homeroomAvgScore}
+                    </span>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>/ 80 pts</span>
+                  </div>
+                  <div style={{ marginTop: 8, height: 5, background: '#E5E3DF', borderRadius: 4, overflow: 'hidden' }}>
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${Math.min(100, (Number(homeroomAvgScore) / 80) * 100)}%`,
+                        background: Number(homeroomAvgScore) >= 70 ? '#2D6E5D' : '#D97706',
+                        borderRadius: 4,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#FFFFFF',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 12,
+                    padding: '16px 20px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Exemplary Conduct (≥75)
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                    <span style={{ fontSize: 24, fontWeight: 800, color: '#2D6E5D' }}>
+                      {homeroomExemplaryCount}
+                    </span>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>/ {homeroomStudents.length} Students</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#2D6E5D', marginTop: 6, fontWeight: 600 }}>
+                    {homeroomStudents.length > 0 ? `${Math.round((homeroomExemplaryCount / homeroomStudents.length) * 100)}% of class in top tier` : '—'}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#FFFFFF',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 12,
+                    padding: '16px 20px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Total Incidents Logged
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                    <span style={{ fontSize: 24, fontWeight: 800, color: '#A83B38' }}>
+                      {homeroomBehaviorIncidents.length}
+                    </span>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>recorded incidents</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 6 }}>
+                    Across all subject classes &amp; homeroom
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: '#FFFFFF',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 12,
+                    padding: '16px 20px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Intervention Required (&lt;65)
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                    <span style={{ fontSize: 24, fontWeight: 800, color: homeroomAtRiskCount > 0 ? '#DC2626' : '#2D6E5D' }}>
+                      {homeroomAtRiskCount}
+                    </span>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>students</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: homeroomAtRiskCount > 0 ? '#DC2626' : '#2D6E5D', marginTop: 6, fontWeight: 600 }}>
+                    {homeroomAtRiskCount > 0 ? 'Requires guardian / counselor consultation' : 'All students in healthy standing'}
+                  </div>
+                </div>
+              </div>
+
+              {/* TAB 1: STUDENT ROSTER & SCORES */}
+              {behaviorSubTab === 'roster' && (
+                <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 12, padding: '20px 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                  {/* Search and Filters bar */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginBottom: 20 }}>
+                    <div style={{ position: 'relative', width: 280 }}>
+                      <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                      <input
+                        type="text"
+                        placeholder="Search student or admission no..."
+                        value={behaviorSearchQuery}
+                        onChange={(e) => setBehaviorSearchQuery(e.target.value)}
+                        className="form-input"
+                        style={{ paddingLeft: 34, fontSize: 12.5, height: 38 }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      {[
+                        { id: 'all', label: `All (${homeroomStudents.length})` },
+                        { id: 'deductions_only', label: 'With Deductions' },
+                        { id: 'at_risk', label: `At Risk (${homeroomAtRiskCount})` },
+                      ].map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setBehaviorTierFilter(tab.id as any)}
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            borderRadius: 6,
+                            border: behaviorTierFilter === tab.id ? '1.5px solid #A83B38' : '1px solid #E5E3DF',
+                            background: behaviorTierFilter === tab.id ? '#FDF1F0' : '#FFFFFF',
+                            color: behaviorTierFilter === tab.id ? '#A83B38' : '#73716D',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {filteredHomeroomBehaviorStudents.length === 0 ? (
+                    <div style={{ padding: '50px 24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
+                      No students match the current filter.
+                    </div>
+                  ) : (
+                    <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ background: '#F8F9FA', borderBottom: '1px solid var(--border-color)' }}>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', width: 40 }}>
+                            #
+                          </th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                            STUDENT NAME
+                          </th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                            ADMISSION NO
+                          </th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', minWidth: 160 }}>
+                            BEHAVIOR SCORE (OUT OF 80)
+                          </th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                            DEDUCTIONS
+                          </th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                            INCIDENTS
+                          </th>
+                          <th style={{ textAlign: 'right', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                            ACTIONS
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredHomeroomBehaviorStudents.map((st, idx) => {
+                          const score = computeStudentBehaviorScore(st.id, behaviorIncidents);
+                          const totalDeducted = computeStudentTotalDeductions(st.id, behaviorIncidents);
+                          const studentIncidents = homeroomBehaviorIncidents.filter((inc) => inc.student_id === st.id);
+                          const tier = getBehaviorTier(score);
+
+                          return (
+                            <tr key={st.id} style={{ borderBottom: '1px solid #F0EFEA' }}>
+                              <td style={{ padding: '12px 16px', fontSize: 12, color: '#73716D' }}>
+                                {idx + 1}
+                              </td>
+                              <td style={{ padding: '12px 16px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                  <div
+                                    style={{
+                                      width: 32,
+                                      height: 32,
+                                      borderRadius: '50%',
+                                      background: '#2D6E5D',
+                                      color: '#FFFFFF',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      fontSize: 12,
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    {st.name.charAt(0)}
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                      {st.name}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                      {st.email || ''}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td style={{ padding: '12px 16px', fontSize: 12, color: '#65635E', fontWeight: 600 }}>
+                                {st.admission_number || st.user_code || '—'}
+                              </td>
+                              <td style={{ padding: '12px 16px' }}>
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                    <span style={{ fontSize: 15, fontWeight: 800, color: tier.color }}>
+                                      {score}
+                                    </span>
+                                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>/ 80</span>
+                                    <span
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: 700,
+                                        padding: '1px 6px',
+                                        borderRadius: 4,
+                                        background: tier.badgeBg,
+                                        color: tier.color,
+                                        border: `1px solid ${tier.badgeBorder}`,
+                                      }}
+                                    >
+                                      {tier.tag}
+                                    </span>
+                                  </div>
+                                  <div style={{ height: 4, background: '#E5E3DF', borderRadius: 4, width: 140, overflow: 'hidden' }}>
+                                    <div
+                                      style={{
+                                        height: '100%',
+                                        width: `${Math.min(100, (score / 80) * 100)}%`,
+                                        background: tier.color,
+                                        borderRadius: 4,
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              </td>
+                              <td style={{ padding: '12px 16px' }}>
+                                {totalDeducted > 0 ? (
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: '#DC2626' }}>
+                                    -{totalDeducted} pts
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: 12, color: '#2D6E5D', fontWeight: 600 }}>
+                                    0 pts (Clean)
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px 16px' }}>
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    padding: '2px 8px',
+                                    borderRadius: 6,
+                                    background: studentIncidents.length > 0 ? '#FEF3C7' : '#F9F8F6',
+                                    color: studentIncidents.length > 0 ? '#92400E' : '#73716D',
+                                  }}
+                                >
+                                  {studentIncidents.length}
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setBehaviorTargetStudentId(st.id);
+                                    setBehaviorTargetRole('class_teacher');
+                                    setBehaviorDefaultSubject('Homeroom');
+                                    setIsRecordBehaviorModalOpen(true);
+                                  }}
+                                  style={{
+                                    padding: '5px 11px',
+                                    fontSize: 11.5,
+                                    fontWeight: 600,
+                                    background: '#FDF1F0',
+                                    border: '1px solid #F5C6CB',
+                                    color: '#A83B38',
+                                    borderRadius: 6,
+                                    cursor: 'pointer',
+                                    marginRight: 6,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                  }}
+                                >
+                                  <ShieldAlert size={12} />
+                                  - Deduct
+                                </button>
+                                {studentIncidents.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedStudentForHistoryModal(st)}
+                                    style={{
+                                      padding: '5px 10px',
+                                      fontSize: 11.5,
+                                      fontWeight: 600,
+                                      background: '#FFFFFF',
+                                      border: '1px solid var(--border-color)',
+                                      color: 'var(--neutral-dark)',
+                                      borderRadius: 6,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    History ({studentIncidents.length})
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 2: CLASS INCIDENT LOG */}
+              {behaviorSubTab === 'incidents' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {homeroomBehaviorIncidents.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '60px 24px',
+                        background: '#FFFFFF',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 12,
+                        textAlign: 'center',
+                      }}
+                    >
+                      <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#EAF3EF', color: '#2D6E5D', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+                        <ShieldCheck size={24} />
+                      </div>
+                      <h4 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px', color: 'var(--neutral-dark)' }}>
+                        Exemplary Homeroom Behavior
+                      </h4>
+                      <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, maxWidth: 450, marginInline: 'auto' }}>
+                        No behavior incidents or point deductions have been recorded for {homeroomLabel}. All {homeroomStudents.length} students have 80/80 points.
+                      </p>
+                    </div>
+                  ) : (
+                    homeroomBehaviorIncidents.map((inc) => (
+                      <div
+                        key={inc.id}
+                        style={{
+                          background: '#FFFFFF',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 12,
+                          padding: '18px 22px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start',
+                          gap: 16,
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+                          <div
+                            style={{
+                              padding: '8px 12px',
+                              borderRadius: 8,
+                              background: '#FEE2E2',
+                              color: '#DC2626',
+                              fontWeight: 800,
+                              fontSize: 15,
+                              textAlign: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            -{inc.points_deducted} pts
+                          </div>
+
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+                              <span style={{ fontSize: 14.5, fontWeight: 800, color: 'var(--neutral-dark)' }}>
+                                {inc.student_name}
+                              </span>
+                              {inc.student_admission_number && (
+                                <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                                  ({inc.student_admission_number})
+                                </span>
+                              )}
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  padding: '2px 7px',
+                                  borderRadius: 4,
+                                  background: '#F9F8F6',
+                                  color: '#4B5563',
+                                  border: '1px solid #E5E3DF',
+                                }}
+                              >
+                                {inc.reason}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  padding: '2px 7px',
+                                  borderRadius: 4,
+                                  background: '#EFF6FF',
+                                  color: '#1D4ED8',
+                                  border: '1px solid #BFDBFE',
+                                }}
+                              >
+                                Context: {inc.subject || 'Homeroom'}
+                              </span>
+                              {inc.action_taken && (
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    padding: '2px 7px',
+                                    borderRadius: 4,
+                                    background: '#FEF3C7',
+                                    color: '#92400E',
+                                    border: '1px solid #FDE68A',
+                                  }}
+                                >
+                                  Action: {inc.action_taken}
+                                </span>
+                              )}
+                            </div>
+
+                            {inc.notes && (
+                              <p style={{ margin: '6px 0 10px', fontSize: 13, color: '#374151', lineHeight: 1.55, background: '#FAF9F6', padding: '10px 14px', borderRadius: 8, border: '1px solid #ECEAE5' }}>
+                                {inc.notes}
+                              </p>
+                            )}
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, color: 'var(--text-secondary)' }}>
+                              <span>Recorded by <strong>{inc.teacher_name}</strong> ({inc.teacher_role === 'class_teacher' ? 'Class Teacher' : 'Subject Teacher'})</span>
+                              <span>•</span>
+                              <span>{inc.date} {inc.incident_time ? `at ${inc.incident_time}` : ''}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBehaviorIncident(inc.id)}
+                          title="Void incident and restore points"
+                          style={{
+                            padding: '5px 10px',
+                            fontSize: 11.5,
+                            fontWeight: 600,
+                            background: '#FFFFFF',
+                            border: '1px solid #F5C6CB',
+                            color: '#A83B38',
+                            borderRadius: 6,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Void / Delete
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+          )
+        )}
+
 
 
         {/* ══════════════════════════════════════════════════════════════════════ */}
@@ -6233,6 +7228,214 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         onSave={(classId, updatedData) => onUpdateSubjectClass(classId, updatedData)}
         onDelete={(classId) => onDeleteSubjectClass(classId)}
       />
+
+      {/* RECORD BEHAVIOR INCIDENT MODAL */}
+      <RecordBehaviorIncidentModal
+        isOpen={isRecordBehaviorModalOpen}
+        onClose={() => {
+          setIsRecordBehaviorModalOpen(false);
+          setBehaviorTargetStudentId(undefined);
+        }}
+        onRecordIncident={handleRecordBehaviorIncident}
+        availableStudents={behaviorTargetRole === 'class_teacher' ? homeroomStudents : classStudents}
+        preselectedStudentId={behaviorTargetStudentId}
+        currentUser={currentUser}
+        teacherRole={behaviorTargetRole}
+        defaultSubject={behaviorDefaultSubject}
+        allIncidents={behaviorIncidents}
+      />
+
+      {/* STUDENT BEHAVIOR HISTORY MODAL */}
+      {selectedStudentForHistoryModal && (
+        <div className="modal-overlay active" onClick={() => setSelectedStudentForHistoryModal(null)} style={{ zIndex: 9999 }}>
+          <div
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 580, width: '92%', borderRadius: 16, overflow: 'hidden', padding: 0 }}
+          >
+            <div
+              style={{
+                background: '#2D6E5D',
+                color: '#FFFFFF',
+                padding: '20px 24px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 10,
+                    background: 'rgba(255, 255, 255, 0.18)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <ShieldCheck size={20} color="#FFFFFF" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#FFFFFF' }}>
+                    {selectedStudentForHistoryModal.name} — Conduct Record
+                  </h2>
+                  <p style={{ margin: 0, fontSize: 12, color: 'rgba(255, 255, 255, 0.85)' }}>
+                    Admission: {selectedStudentForHistoryModal.admission_number || selectedStudentForHistoryModal.user_code || '—'} • Gr {selectedStudentForHistoryModal.grade || '?'}-{selectedStudentForHistoryModal.class_letter || '?'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="close-modal"
+                onClick={() => setSelectedStudentForHistoryModal(null)}
+                style={{ color: '#FFFFFF', fontSize: 24, background: 'transparent', border: 'none', cursor: 'pointer' }}
+              >
+                &times;
+              </button>
+            </div>
+
+            <div style={{ padding: '20px 24px', maxHeight: '75vh', overflowY: 'auto' }}>
+              {(() => {
+                const score = computeStudentBehaviorScore(selectedStudentForHistoryModal.id, behaviorIncidents);
+                const totalDeducted = computeStudentTotalDeductions(selectedStudentForHistoryModal.id, behaviorIncidents);
+                const studentIncidents = behaviorIncidents.filter((inc) => inc.student_id === selectedStudentForHistoryModal.id);
+                const tier = getBehaviorTier(score);
+
+                return (
+                  <div>
+                    {/* Score summary badge */}
+                    <div
+                      style={{
+                        background: '#F9F8F6',
+                        border: '1px solid #E5E3DF',
+                        borderRadius: 12,
+                        padding: '14px 18px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: 18,
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                          Current Behavior Score
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                          <span style={{ fontSize: 22, fontWeight: 800, color: tier.color }}>
+                            {score}
+                          </span>
+                          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>/ 80 pts</span>
+                          <span
+                            style={{
+                              fontSize: 10.5,
+                              fontWeight: 700,
+                              padding: '1px 6px',
+                              borderRadius: 4,
+                              background: tier.badgeBg,
+                              color: tier.color,
+                              border: `1px solid ${tier.badgeBorder}`,
+                            }}
+                          >
+                            {tier.tag}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                          Total Deductions
+                        </div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: totalDeducted > 0 ? '#DC2626' : '#2D6E5D', marginTop: 2 }}>
+                          {totalDeducted > 0 ? `-${totalDeducted} pts` : '0 pts (Clean)'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Incident list */}
+                    <h4 style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', margin: '0 0 12px', color: 'var(--neutral-dark)' }}>
+                      Itemized Deductions &amp; Violations ({studentIncidents.length})
+                    </h4>
+
+                    {studentIncidents.length === 0 ? (
+                      <div style={{ padding: '30px 20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13, background: '#FAF9F6', borderRadius: 8 }}>
+                        No behavior incidents recorded. Student has an immaculate conduct record!
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        {studentIncidents.map((inc) => (
+                          <div
+                            key={inc.id}
+                            style={{
+                              border: '1px solid #E5E3DF',
+                              borderRadius: 10,
+                              padding: '14px 16px',
+                              background: '#FFFFFF',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 13, fontWeight: 800, color: '#DC2626' }}>
+                                    -{inc.points_deducted} pts
+                                  </span>
+                                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                    {inc.reason}
+                                  </span>
+                                  <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: '#F3EFFA', color: '#6D28D9', fontWeight: 600 }}>
+                                    {inc.subject || 'Homeroom'}
+                                  </span>
+                                </div>
+                                {inc.notes && (
+                                  <p style={{ margin: '6px 0 0', fontSize: 12.5, color: '#374151', lineHeight: 1.5, background: '#FAF9F6', padding: '8px 10px', borderRadius: 6 }}>
+                                    {inc.notes}
+                                  </p>
+                                )}
+                                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
+                                  Recorded by {inc.teacher_name} ({inc.teacher_role === 'class_teacher' ? 'Class Teacher' : 'Subject Teacher'}) on {inc.date} {inc.incident_time ? `at ${inc.incident_time}` : ''}
+                                  {inc.action_taken && ` • Action: ${inc.action_taken}`}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteBehaviorIncident(inc.id)}
+                                style={{
+                                  padding: '3px 8px',
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  background: 'transparent',
+                                  border: '1px solid #F5C6CB',
+                                  color: '#A83B38',
+                                  borderRadius: 4,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Void
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div style={{ padding: '12px 24px', borderTop: '1px solid #E5E3DF', textAlign: 'right', background: '#FAF9F6' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setSelectedStudentForHistoryModal(null)}
+                style={{ padding: '6px 16px', fontSize: 12.5 }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

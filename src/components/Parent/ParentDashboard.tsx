@@ -26,9 +26,16 @@ import {
   CheckCircle,
   Menu,
   X,
+  ShieldAlert,
 } from 'lucide-react';
 import { WoodlemLogo, WoodlemEmblemSVG } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
+import {
+  BehaviorIncidentRecord,
+  computeStudentBehaviorScore,
+  computeStudentTotalDeductions,
+  getBehaviorTier,
+} from '@/lib/behaviorHelper';
 import {
   supabase,
   UserProfile,
@@ -66,6 +73,7 @@ interface ParentDashboardProps {
   leaveRequests?: LeaveRequest[];
   classBroadcasts?: ClassBroadcast[];
   subjectClasses?: SubjectClass[];
+  behaviorIncidents?: BehaviorIncidentRecord[];
   onUploadDoc: (docType: string, fileName: string, studentId: string, fileDataUrl?: string) => void;
   onRemoveDoc: (docType: string, studentId: string) => void;
   onOpenVideoModal: (activity: HubActivity) => void;
@@ -110,6 +118,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   leaveRequests = [],
   classBroadcasts = [],
   subjectClasses = [],
+  behaviorIncidents = [],
   onUploadDoc,
   onRemoveDoc,
   onOpenVideoModal,
@@ -120,7 +129,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   onSignOut,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'progress' | 'attendance' | 'broadcasts' | 'achievements' | 'documents' | 'hub' | 'settings' | 'support'
+    'progress' | 'attendance' | 'behavior' | 'broadcasts' | 'achievements' | 'documents' | 'hub' | 'settings' | 'support'
   >('progress');
 
   // Sidebar profile photo (synced with Supabase cloud & local cache)
@@ -437,6 +446,26 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
     });
   }, [hubActivities, activeChild]);
 
+  // Behavior metrics for active child
+  const childBehaviorIncidents = useMemo(() => {
+    if (!activeChild?.id) return [];
+    return behaviorIncidents.filter((inc) => inc.student_id === activeChild.id);
+  }, [behaviorIncidents, activeChild?.id]);
+
+  const childBehaviorScore = useMemo(() => {
+    if (!activeChild?.id) return 80;
+    return computeStudentBehaviorScore(activeChild.id, behaviorIncidents);
+  }, [activeChild?.id, behaviorIncidents]);
+
+  const childTotalDeductions = useMemo(() => {
+    if (!activeChild?.id) return 0;
+    return computeStudentTotalDeductions(activeChild.id, behaviorIncidents);
+  }, [activeChild?.id, behaviorIncidents]);
+
+  const childBehaviorTier = useMemo(() => {
+    return getBehaviorTier(childBehaviorScore);
+  }, [childBehaviorScore]);
+
   const handleFileInputChange = (docType: string, e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0] && activeChild) {
       const file = e.target.files[0];
@@ -700,6 +729,29 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
               >
                 <Calendar size={16} style={{ color: activeTab === 'attendance' ? '#FFFFFF' : '#2C6E6A', flexShrink: 0 }} />
                 <span>Attendance Record</span>
+              </button>
+
+              <button
+                type="button"
+                className={`mobile-drawer-item ${activeTab === 'behavior' ? 'active' : ''}`}
+                onClick={() => {
+                  setActiveTab('behavior');
+                  setIsMobileDrawerOpen(false);
+                }}
+              >
+                <ShieldAlert size={16} style={{ color: activeTab === 'behavior' ? '#FFFFFF' : childBehaviorTier.color, flexShrink: 0 }} />
+                <span>Behavior & Conduct</span>
+                <span style={{
+                  marginLeft: 'auto',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  borderRadius: 10,
+                  background: activeTab === 'behavior' ? 'rgba(255,255,255,0.2)' : childBehaviorTier.bg,
+                  color: activeTab === 'behavior' ? '#FFFFFF' : childBehaviorTier.color,
+                }}>
+                  {childBehaviorScore}/80
+                </span>
               </button>
 
               <button
@@ -1033,6 +1085,49 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
           <div className="sidebar-tooltip-wrapper">
             <button
+              className={`nav-item ${activeTab === 'behavior' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveTab('behavior');
+                sidebar.handleNavClick();
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <ShieldAlert
+                  size={15}
+                  className="icon"
+                  style={{
+                    color: activeTab === 'behavior' ? '#2C6E6A' : childBehaviorScore < 75 ? childBehaviorTier.color : 'var(--text-secondary)',
+                    flexShrink: 0,
+                  }}
+                />
+                <span className="sidebar-text">Behavior & Conduct</span>
+                {!sidebar.isCollapsed && (
+                  <span
+                    style={{
+                      marginLeft: 'auto',
+                      fontSize: 10.5,
+                      fontWeight: 700,
+                      padding: '1px 6px',
+                      borderRadius: 10,
+                      background: childBehaviorTier.bg,
+                      color: childBehaviorTier.color,
+                      border: `1px solid ${childBehaviorTier.border}`,
+                    }}
+                  >
+                    {childBehaviorScore}/80
+                  </span>
+                )}
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">
+                Behavior ({childBehaviorScore}/80)
+              </div>
+            )}
+          </div>
+
+          <div className="sidebar-tooltip-wrapper">
+            <button
               className={`nav-item ${activeTab === 'broadcasts' ? 'active' : ''}`}
               onClick={() => {
                 setActiveTab('broadcasts');
@@ -1221,6 +1316,8 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                   ? 'Academic Progress'
                   : activeTab === 'attendance'
                   ? 'Attendance & Leave Records'
+                  : activeTab === 'behavior'
+                  ? 'Student Conduct & Behavior'
                   : activeTab === 'broadcasts'
                   ? 'Classroom Notices & Circulars'
                   : activeTab === 'achievements'
@@ -1238,6 +1335,8 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                   ? 'Live marks, syllabus coverage & assessments.'
                   : activeTab === 'attendance'
                   ? 'Daily roll-call & verified absence logs.'
+                  : activeTab === 'behavior'
+                  ? 'Annual conduct score, recorded observations & teacher notes.'
                   : activeTab === 'broadcasts'
                   ? `Official notices from Class Teachers for Grade ${activeChild?.grade || '12'}.`
                   : activeTab === 'achievements'
@@ -2233,6 +2332,307 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                     })}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* VIEW: STUDENT BEHAVIOR & CONDUCT (PARENT VIEW) */}
+          {activeChild && activeTab === 'behavior' && (
+            <div>
+              {/* TOP KPI SCORE CARDS */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: 16,
+                marginBottom: 24,
+              }}>
+                {/* CARD 1: CURRENT CONDUCT SCORE */}
+                <div style={{
+                  background: '#FFFFFF',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 10,
+                  padding: '18px 20px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Current Score
+                    </span>
+                    <span style={{
+                      fontSize: 10.5,
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: 10,
+                      background: childBehaviorTier.bg,
+                      color: childBehaviorTier.color,
+                      border: `1px solid ${childBehaviorTier.border}`,
+                    }}>
+                      {childBehaviorTier.label}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 10 }}>
+                    <span style={{ fontSize: 36, fontWeight: 800, color: childBehaviorTier.color, lineHeight: 1 }}>
+                      {childBehaviorScore}
+                    </span>
+                    <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      / 80 pts
+                    </span>
+                  </div>
+                  <div style={{ height: 6, width: '100%', background: '#F0EFEA', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${Math.min(100, Math.max(0, (childBehaviorScore / 80) * 100))}%`,
+                      background: childBehaviorTier.color,
+                      borderRadius: 3,
+                      transition: 'width 0.3s ease',
+                    }} />
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
+                    {childBehaviorScore >= 75 ? 'Exemplary discipline across all classes' : childBehaviorScore >= 60 ? 'Satisfactory conduct' : 'Needs attention; counseling recommended'}
+                  </div>
+                </div>
+
+                {/* CARD 2: STANDARD BASELINE */}
+                <div style={{
+                  background: '#FFFFFF',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 10,
+                  padding: '18px 20px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                    Standard Baseline
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 8 }}>
+                    <span style={{ fontSize: 36, fontWeight: 800, color: 'var(--neutral-dark)', lineHeight: 1 }}>
+                      80
+                    </span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      points
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                    Standard school-wide baseline allocated at the start of the academic year.
+                  </p>
+                </div>
+
+                {/* CARD 3: TOTAL DEDUCTIONS */}
+                <div style={{
+                  background: '#FFFFFF',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 10,
+                  padding: '18px 20px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                    Total Deductions
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 8 }}>
+                    <span style={{ fontSize: 36, fontWeight: 800, color: childTotalDeductions > 0 ? '#A83B38' : '#2C6E6A', lineHeight: 1 }}>
+                      {childTotalDeductions > 0 ? `-${childTotalDeductions}` : '0'}
+                    </span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      points
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                    From {childBehaviorIncidents.length} recorded conduct observation{childBehaviorIncidents.length === 1 ? '' : 's'}.
+                  </p>
+                </div>
+
+                {/* CARD 4: CONDUCT STANDING */}
+                <div style={{
+                  background: '#FFFFFF',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 10,
+                  padding: '18px 20px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                    Conduct Standing
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 18, fontWeight: 700, color: childBehaviorTier.color }}>
+                      {childBehaviorTier.label}
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                    {childBehaviorScore >= 75
+                      ? 'Complies with all Woodlem behavioral standards. In good standing.'
+                      : childBehaviorScore >= 60
+                      ? 'Minor infractions noted. Encouraged to improve classroom focus.'
+                      : 'Multiple disciplinary notes logged. Please contact the class teacher.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* CONDUCT LOG & INCIDENT HISTORY TABLE */}
+              <div style={{
+                background: '#FFFFFF',
+                border: '1px solid var(--border-color)',
+                borderRadius: 10,
+                overflow: 'hidden',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                marginBottom: 24,
+              }}>
+                <div style={{
+                  padding: '16px 20px',
+                  borderBottom: '1px solid var(--border-color)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: '#FAF9F6',
+                }}>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                      Conduct Observations & Disciplinary Records
+                    </h2>
+                    <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                      Complete transparent log recorded by class teachers and subject faculty
+                    </p>
+                  </div>
+                  <span style={{
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    padding: '4px 10px',
+                    borderRadius: 12,
+                    background: '#F0EFEA',
+                    color: 'var(--text-secondary)',
+                  }}>
+                    {childBehaviorIncidents.length} observation{childBehaviorIncidents.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+
+                {childBehaviorIncidents.length === 0 ? (
+                  <div style={{ padding: '48px 24px', textAlign: 'center' }}>
+                    <div style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: '50%',
+                      background: '#F0F9F8',
+                      color: '#2C6E6A',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      margin: '0 auto 12px',
+                    }}>
+                      <CheckCircle2 size={28} />
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 4 }}>
+                      Exemplary Conduct Record
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', maxWidth: 440, margin: '0 auto' }}>
+                      {activeChild.name} has 0 recorded conduct infractions on file and maintains a full <strong>80/80</strong> behavior score.
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                      <thead>
+                        <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Date & Time</th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Infraction Reason</th>
+                          <th style={{ textAlign: 'center', padding: '10px 16px', fontWeight: 700 }}>Deduction</th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Recorded By</th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Context / Subject</th>
+                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Teacher Notes & Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {childBehaviorIncidents.map((inc, i) => (
+                          <tr
+                            key={inc.id || i}
+                            style={{
+                              borderBottom: i < childBehaviorIncidents.length - 1 ? '1px solid #ECEAE5' : 'none',
+                              background: i % 2 === 0 ? '#FFFFFF' : '#FAFAF9',
+                            }}
+                          >
+                            <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                              <div>{inc.incident_date}</div>
+                              {inc.incident_time && (
+                                <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>{inc.incident_time}</div>
+                              )}
+                            </td>
+                            <td style={{ padding: '12px 16px' }}>
+                              <div style={{ fontWeight: 700, color: '#A83B38' }}>{inc.reason}</div>
+                              {inc.category && (
+                                <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                                  Category: {inc.category.replace('_', ' ')}
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              <span style={{
+                                display: 'inline-block',
+                                padding: '3px 10px',
+                                borderRadius: 12,
+                                background: '#FDF1F0',
+                                color: '#A83B38',
+                                fontWeight: 800,
+                                fontSize: 12,
+                                border: '1px solid #F5C6CB',
+                              }}>
+                                -{inc.points_deducted} pts
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                              <div style={{ fontWeight: 600, color: 'var(--neutral-dark)' }}>{inc.teacher_name}</div>
+                              <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                                {inc.teacher_role ? inc.teacher_role.replace('_', ' ') : 'Teacher'}
+                              </div>
+                            </td>
+                            <td style={{ padding: '12px 16px' }}>
+                              {inc.subject_name ? (
+                                <span style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  padding: '2px 8px',
+                                  borderRadius: 6,
+                                  background: '#F0EFEA',
+                                  color: 'var(--neutral-dark)',
+                                }}>
+                                  {inc.subject_name}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Homeroom</span>
+                              )}
+                            </td>
+                            <td style={{ padding: '12px 16px', maxWidth: 280 }}>
+                              {inc.notes ? (
+                                <div style={{ color: 'var(--neutral-dark)', fontStyle: 'italic', marginBottom: 2 }}>
+                                  "{inc.notes}"
+                                </div>
+                              ) : null}
+                              {inc.action_taken ? (
+                                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                  <strong>Action Taken:</strong> {inc.action_taken}
+                                </div>
+                              ) : !inc.notes && (
+                                <span style={{ color: 'var(--text-secondary)' }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* PARENT GUIDANCE NOTICE */}
+              <div style={{
+                background: '#F4F9F8',
+                border: '1px solid #BCE3DE',
+                borderRadius: 10,
+                padding: '16px 20px',
+                display: 'flex',
+                gap: 14,
+                alignItems: 'flex-start',
+              }}>
+                <ShieldAlert size={20} style={{ color: '#2C6E6A', marginTop: 2, flexShrink: 0 }} />
+                <div style={{ fontSize: 12, lineHeight: 1.5, color: '#1B4A47' }}>
+                  <strong>Parent Advisory Note:</strong> Woodlem maintains an 80-point standard behavior score for every student to encourage positive discipline, punctuality, and respect. If you would like to discuss any logged observation or disciplinary note with {activeChild.name}'s class teacher, please book an appointment during parent-teacher conference hours.
+                </div>
               </div>
             </div>
           )}
