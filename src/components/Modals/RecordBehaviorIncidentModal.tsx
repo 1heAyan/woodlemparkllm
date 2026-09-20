@@ -10,7 +10,7 @@ import {
   getBehaviorTier,
   BASE_BEHAVIOR_SCORE,
 } from '@/lib/behaviorHelper';
-import { ShieldAlert, AlertTriangle, ArrowRight, UserCheck } from 'lucide-react';
+import { ShieldAlert, ArrowRight, User, AlertCircle, FileText, CheckCircle2 } from 'lucide-react';
 
 interface RecordBehaviorIncidentModalProps {
   isOpen: boolean;
@@ -39,9 +39,9 @@ export const RecordBehaviorIncidentModal: React.FC<RecordBehaviorIncidentModalPr
   const [category, setCategory] = useState<BehaviorViolationCategory>('disruptive_behavior');
   const [customReason, setCustomReason] = useState<string>('');
   const [pointsDeducted, setPointsDeducted] = useState<number>(4);
-  const [subjectContext, setSubjectContext] = useState<string>(defaultSubject || '');
   const [incidentDate, setIncidentDate] = useState<string>('');
   const [incidentTime, setIncidentTime] = useState<string>('');
+  const [subjectContext, setSubjectContext] = useState<string>('');
   const [actionTaken, setActionTaken] = useState<string>('Verbal Warning');
   const [customAction, setCustomAction] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
@@ -67,15 +67,34 @@ export const RecordBehaviorIncidentModal: React.FC<RecordBehaviorIncidentModalPr
 
       setSubjectContext(defaultSubject || (teacherRole === 'class_teacher' ? 'Homeroom' : (currentUser.subject || 'Faculty')));
       setCategory('disruptive_behavior');
+      setCustomReason('');
       setPointsDeducted(4);
       setActionTaken('Verbal Warning');
-      setCustomReason('');
       setCustomAction('');
       setNotes('');
+      setIsSubmitting(false);
     }
-  }, [isOpen, preselectedStudentId, availableStudents, defaultSubject, teacherRole, currentUser]);
+  }, [isOpen, preselectedStudentId, availableStudents, defaultSubject, teacherRole, currentUser.subject]);
 
-  // When category changes, auto-populate recommended deduction points
+  const selectedStudent = useMemo(() => {
+    return availableStudents.find((s) => s.id === selectedStudentId) || null;
+  }, [availableStudents, selectedStudentId]);
+
+  // Current behavior score before deduction
+  const currentScore = useMemo(() => {
+    if (!selectedStudent) return BASE_BEHAVIOR_SCORE;
+    return computeStudentBehaviorScore(selectedStudent.id, allIncidents);
+  }, [selectedStudent, allIncidents]);
+
+  // Projected behavior score after deduction
+  const projectedScore = useMemo(() => {
+    const points = Math.max(1, Number(pointsDeducted) || 1);
+    return Math.max(0, currentScore - points);
+  }, [currentScore, pointsDeducted]);
+
+  const currentTier = useMemo(() => getBehaviorTier(currentScore), [currentScore]);
+  const projectedTier = useMemo(() => getBehaviorTier(projectedScore), [projectedScore]);
+
   const handleCategoryChange = (newCat: BehaviorViolationCategory) => {
     setCategory(newCat);
     const preset = VIOLATION_PRESETS.find((p) => p.id === newCat);
@@ -84,25 +103,11 @@ export const RecordBehaviorIncidentModal: React.FC<RecordBehaviorIncidentModalPr
     }
   };
 
-  const selectedStudent = useMemo(() => {
-    return availableStudents.find((s) => s.id === selectedStudentId);
-  }, [availableStudents, selectedStudentId]);
-
-  // Calculate student's current score and projected score after this deduction
-  const currentScore = useMemo(() => {
-    if (!selectedStudentId) return BASE_BEHAVIOR_SCORE;
-    return computeStudentBehaviorScore(selectedStudentId, allIncidents);
-  }, [selectedStudentId, allIncidents]);
-
-  const projectedScore = Math.max(0, currentScore - (Number(pointsDeducted) || 0));
-  const currentTier = getBehaviorTier(currentScore);
-  const projectedTier = getBehaviorTier(projectedScore);
-
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedStudentId || !selectedStudent) {
+    if (!selectedStudent) {
       alert('Please select a student.');
       return;
     }
@@ -137,7 +142,9 @@ export const RecordBehaviorIncidentModal: React.FC<RecordBehaviorIncidentModalPr
       teacher_name: currentUser.name,
       teacher_role: teacherRole,
       subject: subjectContext.trim() || 'General Conduct',
+      subject_name: subjectContext.trim() || 'General Conduct',
       date: incidentDate || new Date().toISOString().slice(0, 10),
+      incident_date: incidentDate || new Date().toISOString().slice(0, 10),
       incident_time: incidentTime,
       created_at: new Date().toISOString(),
     };
@@ -155,322 +162,357 @@ export const RecordBehaviorIncidentModal: React.FC<RecordBehaviorIncidentModalPr
   };
 
   return (
-    <div className="modal-overlay active" onClick={onClose} style={{ zIndex: 9999 }}>
-      <div
-        className="modal-content"
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 560, width: '92%', borderRadius: 16, overflow: 'hidden', padding: 0 }}
-      >
-        {/* Header */}
-        <div
-          style={{
-            background: '#A83B38',
-            color: '#FFFFFF',
-            padding: '20px 24px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div
-              style={{
-                width: 38,
-                height: 38,
-                borderRadius: 10,
-                background: 'rgba(255, 255, 255, 0.18)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <ShieldAlert size={20} color="#FFFFFF" />
-            </div>
-            <div>
-              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#FFFFFF' }}>
-                Record Behavior Incident
-              </h2>
-              <p style={{ margin: 0, fontSize: 12, color: 'rgba(255, 255, 255, 0.82)' }}>
-                {teacherRole === 'class_teacher' ? 'Class Teacher Homeroom Conduct' : `Subject Class: ${subjectContext || 'Course'}`}
-              </p>
-            </div>
+    <div className="modal-overlay active" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        {/* Standard Woodlem Page Modal Header */}
+        <div className="modal-header">
+          <div>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#A83B38', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Student Conduct &amp; Discipline
+            </span>
+            <h2 className="modal-title" style={{ margin: '2px 0 0' }}>
+              Record Behavior Incident
+            </h2>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
+              {teacherRole === 'class_teacher'
+                ? 'Class Teacher Homeroom Conduct Logging (80-Point Annual Standard)'
+                : `Subject Class: ${subjectContext || 'Course Faculty'} (80-Point Annual Standard)`}
+            </p>
           </div>
-          <button
-            type="button"
-            className="close-modal"
-            onClick={onClose}
-            style={{ color: '#FFFFFF', fontSize: 24, background: 'transparent', border: 'none', cursor: 'pointer' }}
-          >
+          <button type="button" className="close-modal" onClick={onClose}>
             &times;
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ padding: '20px 24px 24px 24px', maxHeight: '82vh', overflowY: 'auto' }}>
-          {/* Student Selector */}
-          <div className="form-group" style={{ marginBottom: 16 }}>
-            <label className="form-label" style={{ fontWeight: 600, fontSize: 13 }}>
-              Student <span style={{ color: '#DC2626' }}>*</span>
-            </label>
-            <select
-              className="form-input"
-              value={selectedStudentId}
-              onChange={(e) => setSelectedStudentId(e.target.value)}
-              required
-              disabled={!!preselectedStudentId}
-              style={{ fontSize: 13, height: 42, background: preselectedStudentId ? '#F9F8F6' : '#FFFFFF' }}
-            >
-              <option value="" disabled>Select Student…</option>
-              {availableStudents.map((st) => (
-                <option key={st.id} value={st.id}>
-                  {st.name} {st.admission_number || st.user_code ? `(${st.admission_number || st.user_code})` : ''} — Gr {st.grade || '?'}-{st.class_letter || '?'}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Live Score Projection Banner */}
-          {selectedStudent && (
-            <div
-              style={{
-                background: '#F9F8F6',
-                border: '1px solid #E5E3DF',
-                borderRadius: 12,
-                padding: '12px 16px',
-                marginBottom: 18,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <div>
-                <span style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.04em' }}>
-                  Current Score
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                  <span style={{ fontSize: 18, fontWeight: 800, color: currentTier.color }}>
-                    {currentScore}
-                  </span>
-                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>/ 80 pts</span>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      padding: '1px 6px',
-                      borderRadius: 4,
-                      background: currentTier.badgeBg,
-                      color: currentTier.color,
-                      border: `1px solid ${currentTier.badgeBorder}`,
-                    }}
-                  >
-                    {currentTier.tag}
-                  </span>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#DC2626' }}>
-                  -{pointsDeducted}
-                </span>
-                <ArrowRight size={14} color="var(--text-secondary)" />
-              </div>
-
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.04em' }}>
-                  Projected Score
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, marginTop: 2 }}>
-                  <span style={{ fontSize: 18, fontWeight: 800, color: projectedTier.color }}>
-                    {projectedScore}
-                  </span>
-                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>/ 80 pts</span>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      padding: '1px 6px',
-                      borderRadius: 4,
-                      background: projectedTier.badgeBg,
-                      color: projectedTier.color,
-                      border: `1px solid ${projectedTier.badgeBorder}`,
-                    }}
-                  >
-                    {projectedTier.tag}
-                  </span>
-                </div>
-              </div>
+        {/* Centered Scrollable Form Body */}
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            maxWidth: 740,
+            width: '100%',
+            margin: '0 auto',
+            padding: '32px 36px 64px',
+            overflowY: 'auto',
+            flex: 1,
+            boxSizing: 'border-box',
+          }}
+        >
+          {/* CARD 1: Student Selection & Live Score Impact */}
+          <div
+            style={{
+              background: '#FFFFFF',
+              border: '1px solid var(--border-color)',
+              borderRadius: 12,
+              padding: '22px 24px',
+              marginBottom: 20,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <User size={16} style={{ color: '#2C6E6A' }} />
+              <span>Select Student</span>
             </div>
-          )}
 
-          {/* Violation Category / Reason */}
-          <div className="form-group" style={{ marginBottom: 16 }}>
-            <label className="form-label" style={{ fontWeight: 600, fontSize: 13 }}>
-              Violation Reason &amp; Category <span style={{ color: '#DC2626' }}>*</span>
-            </label>
-            <select
-              className="form-input"
-              value={category}
-              onChange={(e) => handleCategoryChange(e.target.value as BehaviorViolationCategory)}
-              style={{ fontSize: 13, height: 42 }}
-            >
-              {VIOLATION_PRESETS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label} (Recommended: -{p.defaultPoints} pts)
-                </option>
-              ))}
-            </select>
-            {category && (
-              <p style={{ margin: '4px 0 0 0', fontSize: 11.5, color: 'var(--text-secondary)' }}>
-                {VIOLATION_PRESETS.find((p) => p.id === category)?.description}
-              </p>
+            <div className="form-group" style={{ marginBottom: 16 }}>
+              <label className="form-label" style={{ fontWeight: 600, fontSize: 12.5 }}>
+                Student Name &amp; Section <span style={{ color: '#DC2626' }}>*</span>
+              </label>
+              <select
+                className="form-input"
+                value={selectedStudentId}
+                onChange={(e) => setSelectedStudentId(e.target.value)}
+                required
+                disabled={!!preselectedStudentId}
+                style={{ fontSize: 13, height: 42, background: preselectedStudentId ? '#F9F8F6' : '#FFFFFF' }}
+              >
+                <option value="" disabled>Select Student…</option>
+                {availableStudents.map((st) => (
+                  <option key={st.id} value={st.id}>
+                    {st.name} {st.admission_number || st.user_code ? `(${st.admission_number || st.user_code})` : ''} — Grade {st.grade || '?'}-{st.class_letter || '?'}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Live Score Projection Preview */}
+            {selectedStudent && (
+              <div
+                style={{
+                  background: '#FBFBFA',
+                  border: '1px solid #ECEAE5',
+                  borderRadius: 10,
+                  padding: '16px 20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                }}
+              >
+                {/* Current */}
+                <div>
+                  <span style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.04em' }}>
+                    Current Score
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <span style={{ fontSize: 22, fontWeight: 800, color: currentTier.color }}>
+                      {currentScore}
+                    </span>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>/ 80</span>
+                    <span
+                      style={{
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        padding: '1px 7px',
+                        borderRadius: 10,
+                        background: currentTier.badgeBg,
+                        color: currentTier.color,
+                        border: `1px solid ${currentTier.badgeBorder}`,
+                      }}
+                    >
+                      {currentTier.tag}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Arrow */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', background: '#FDF1F0', borderRadius: 20, border: '1px solid #F5C6CB' }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: '#A83B38' }}>
+                    -{pointsDeducted} pts
+                  </span>
+                  <ArrowRight size={14} style={{ color: '#A83B38' }} />
+                </div>
+
+                {/* Projected */}
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.04em' }}>
+                    Projected Score
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, marginTop: 4 }}>
+                    <span style={{ fontSize: 22, fontWeight: 800, color: projectedTier.color }}>
+                      {projectedScore}
+                    </span>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>/ 80</span>
+                    <span
+                      style={{
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        padding: '1px 7px',
+                        borderRadius: 10,
+                        background: projectedTier.badgeBg,
+                        color: projectedTier.color,
+                        border: `1px solid ${projectedTier.badgeBorder}`,
+                      }}
+                    >
+                      {projectedTier.tag}
+                    </span>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
 
-          {category === 'other' && (
-            <div className="form-group" style={{ marginBottom: 16 }}>
-              <label className="form-label" style={{ fontWeight: 600, fontSize: 13 }}>
-                Custom Violation Title <span style={{ color: '#DC2626' }}>*</span>
+          {/* CARD 2: Infraction Category & Point Deduction */}
+          <div
+            style={{
+              background: '#FFFFFF',
+              border: '1px solid var(--border-color)',
+              borderRadius: 12,
+              padding: '22px 24px',
+              marginBottom: 20,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ShieldAlert size={16} style={{ color: '#A83B38' }} />
+              <span>Violation Reason &amp; Point Deduction</span>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 14 }}>
+              <label className="form-label" style={{ fontWeight: 600, fontSize: 12.5 }}>
+                Violation Category <span style={{ color: '#DC2626' }}>*</span>
               </label>
-              <input
-                type="text"
+              <select
                 className="form-input"
-                placeholder="e.g. Failure to submit laboratory safety contract"
-                value={customReason}
-                onChange={(e) => setCustomReason(e.target.value)}
+                value={category}
+                onChange={(e) => handleCategoryChange(e.target.value as BehaviorViolationCategory)}
+                style={{ fontSize: 13, height: 42 }}
+              >
+                {VIOLATION_PRESETS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label} (Recommended: -{p.defaultPoints} pts)
+                  </option>
+                ))}
+              </select>
+              {category && (
+                <p style={{ margin: '6px 0 0 0', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                  {VIOLATION_PRESETS.find((p) => p.id === category)?.description}
+                </p>
+              )}
+            </div>
+
+            {category === 'other' && (
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: 12.5 }}>
+                  Custom Infraction Title <span style={{ color: '#DC2626' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Failure to submit laboratory safety contract"
+                  value={customReason}
+                  onChange={(e) => setCustomReason(e.target.value)}
+                  required
+                  style={{ fontSize: 13 }}
+                />
+              </div>
+            )}
+
+            {/* Points deduction row */}
+            <div className="form-group" style={{ margin: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: 12.5, margin: 0 }}>
+                  Points to Deduct <span style={{ color: '#DC2626' }}>*</span>
+                </label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {[2, 4, 5, 10].map((pt) => (
+                    <button
+                      key={pt}
+                      type="button"
+                      onClick={() => setPointsDeducted(pt)}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        borderRadius: 6,
+                        border: pointsDeducted === pt ? '1.5px solid #A83B38' : '1px solid var(--border-color)',
+                        background: pointsDeducted === pt ? '#FDF1F0' : '#FFFFFF',
+                        color: pointsDeducted === pt ? '#A83B38' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      -{pt} pts
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <input
+                type="number"
+                min={1}
+                max={40}
+                className="form-input"
+                value={pointsDeducted}
+                onChange={(e) => setPointsDeducted(Math.max(1, parseInt(e.target.value, 10) || 1))}
                 required
-                style={{ fontSize: 13 }}
+                style={{ fontSize: 15, fontWeight: 800, color: '#A83B38', height: 42, maxWidth: 180 }}
               />
             </div>
-          )}
+          </div>
 
-          {/* Points to Deduct with Quick Presets */}
-          <div className="form-group" style={{ marginBottom: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <label className="form-label" style={{ fontWeight: 600, fontSize: 13, margin: 0 }}>
-                Points to Deduct <span style={{ color: '#DC2626' }}>*</span>
-              </label>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {[2, 4, 5, 10].map((pt) => (
-                  <button
-                    key={pt}
-                    type="button"
-                    onClick={() => setPointsDeducted(pt)}
-                    style={{
-                      padding: '2px 8px',
-                      fontSize: 11,
-                      fontWeight: 700,
-                      borderRadius: 6,
-                      border: pointsDeducted === pt ? '1.5px solid #DC2626' : '1px solid #E5E3DF',
-                      background: pointsDeducted === pt ? '#FEE2E2' : '#FFFFFF',
-                      color: pointsDeducted === pt ? '#DC2626' : 'var(--text-secondary)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    -{pt}
-                  </button>
-                ))}
+          {/* CARD 3: Context, Action Taken & Notes */}
+          <div
+            style={{
+              background: '#FFFFFF',
+              border: '1px solid var(--border-color)',
+              borderRadius: 12,
+              padding: '22px 24px',
+              marginBottom: 24,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <FileText size={16} style={{ color: '#2C6E6A' }} />
+              <span>Context &amp; Disciplinary Notes</span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 16 }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: 12.5 }}>
+                  Subject / Classroom Context
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Physics, Mathematics, Homeroom"
+                  value={subjectContext}
+                  onChange={(e) => setSubjectContext(e.target.value)}
+                  style={{ fontSize: 13 }}
+                />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontWeight: 600, fontSize: 12.5 }}>
+                  Incident Date
+                </label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={incidentDate}
+                  onChange={(e) => setIncidentDate(e.target.value)}
+                  required
+                  style={{ fontSize: 13 }}
+                />
               </div>
             </div>
-            <input
-              type="number"
-              min={1}
-              max={40}
-              className="form-input"
-              value={pointsDeducted}
-              onChange={(e) => setPointsDeducted(Math.max(1, parseInt(e.target.value, 10) || 1))}
-              required
-              style={{ fontSize: 14, fontWeight: 700, color: '#DC2626', height: 42 }}
-            />
-          </div>
 
-          {/* Context & Date/Time Row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontWeight: 600, fontSize: 13 }}>
-                Subject / Class Context
-              </label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="e.g. Grade 12 Physics"
-                value={subjectContext}
-                onChange={(e) => setSubjectContext(e.target.value)}
-                style={{ fontSize: 13 }}
-              />
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label" style={{ fontWeight: 600, fontSize: 13 }}>
-                Incident Date
-              </label>
-              <input
-                type="date"
-                className="form-input"
-                value={incidentDate}
-                onChange={(e) => setIncidentDate(e.target.value)}
-                required
-                style={{ fontSize: 13 }}
-              />
-            </div>
-          </div>
-
-          {/* Action Taken */}
-          <div className="form-group" style={{ marginBottom: 16 }}>
-            <label className="form-label" style={{ fontWeight: 600, fontSize: 13 }}>
-              Disciplinary / Restorative Action Taken
-            </label>
-            <select
-              className="form-input"
-              value={actionTaken}
-              onChange={(e) => setActionTaken(e.target.value)}
-              style={{ fontSize: 13, height: 42 }}
-            >
-              <option value="Verbal Warning">Verbal Warning</option>
-              <option value="Counseling Session">Counseling Session</option>
-              <option value="Parent Notified">Parent Notified (Call / Message)</option>
-              <option value="After-School Detention">After-School Detention</option>
-              <option value="Referred to Class Teacher">Referred to Class Teacher</option>
-              <option value="Referred to Academic Coordinator">Referred to Academic Coordinator</option>
-              <option value="Behavior Contract Issued">Behavior Contract Issued</option>
-              <option value="Other">Other Action…</option>
-            </select>
-          </div>
-
-          {actionTaken === 'Other' && (
             <div className="form-group" style={{ marginBottom: 16 }}>
-              <input
-                type="text"
+              <label className="form-label" style={{ fontWeight: 600, fontSize: 12.5 }}>
+                Restorative / Disciplinary Action Taken
+              </label>
+              <select
                 className="form-input"
-                placeholder="Specify action taken…"
-                value={customAction}
-                onChange={(e) => setCustomAction(e.target.value)}
-                required
-                style={{ fontSize: 13 }}
+                value={actionTaken}
+                onChange={(e) => setActionTaken(e.target.value)}
+                style={{ fontSize: 13, height: 42 }}
+              >
+                <option value="Verbal Warning">Verbal Warning</option>
+                <option value="Counseling Session">Counseling Session</option>
+                <option value="Parent Notified">Parent Notified (Call / Message)</option>
+                <option value="After-School Detention">After-School Detention</option>
+                <option value="Referred to Class Teacher">Referred to Class Teacher</option>
+                <option value="Referred to Academic Coordinator">Referred to Academic Coordinator</option>
+                <option value="Behavior Contract Issued">Behavior Contract Issued</option>
+                <option value="Other">Other Action…</option>
+              </select>
+            </div>
+
+            {actionTaken === 'Other' && (
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Specify action taken…"
+                  value={customAction}
+                  onChange={(e) => setCustomAction(e.target.value)}
+                  required
+                  style={{ fontSize: 13 }}
+                />
+              </div>
+            )}
+
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label" style={{ fontWeight: 600, fontSize: 12.5 }}>
+                Observations &amp; Incident Description
+              </label>
+              <textarea
+                className="form-input"
+                rows={3}
+                placeholder="Detail the event, context, student response, and any follow-up required..."
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                style={{ fontSize: 13, resize: 'vertical' }}
               />
             </div>
-          )}
-
-          {/* Detailed Incident Notes */}
-          <div className="form-group" style={{ marginBottom: 20 }}>
-            <label className="form-label" style={{ fontWeight: 600, fontSize: 13 }}>
-              Incident Notes &amp; Observations
-            </label>
-            <textarea
-              className="form-input"
-              rows={3}
-              placeholder="Describe what occurred, context, student response, and any follow-up required..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              style={{ fontSize: 13, resize: 'vertical' }}
-            />
           </div>
 
-          {/* Footer actions */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 8, borderTop: '1px solid #E5E3DF' }}>
+          {/* Action Footer */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, alignItems: 'center' }}>
             <button
               type="button"
               className="btn-secondary"
               onClick={onClose}
               disabled={isSubmitting}
-              style={{ padding: '8px 16px', fontSize: 13 }}
+              style={{ padding: '10px 20px', fontSize: 13.5 }}
             >
               Cancel
             </button>
@@ -479,16 +521,18 @@ export const RecordBehaviorIncidentModal: React.FC<RecordBehaviorIncidentModalPr
               className="btn-primary"
               disabled={isSubmitting}
               style={{
-                padding: '8px 20px',
-                fontSize: 13,
+                padding: '10px 24px',
+                fontSize: 13.5,
+                fontWeight: 700,
                 background: '#A83B38',
                 borderColor: '#8C312E',
-                display: 'flex',
+                color: '#FFFFFF',
+                display: 'inline-flex',
                 alignItems: 'center',
                 gap: 8,
               }}
             >
-              <ShieldAlert size={15} />
+              <ShieldAlert size={16} />
               {isSubmitting ? 'Recording…' : `Deduct ${pointsDeducted} Points`}
             </button>
           </div>

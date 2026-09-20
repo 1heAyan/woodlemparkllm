@@ -7247,56 +7247,40 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
       {/* STUDENT BEHAVIOR HISTORY MODAL */}
       {selectedStudentForHistoryModal && (
-        <div className="modal-overlay active" onClick={() => setSelectedStudentForHistoryModal(null)} style={{ zIndex: 9999 }}>
-          <div
-            className="modal-content"
-            onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: 580, width: '92%', borderRadius: 16, overflow: 'hidden', padding: 0 }}
-          >
-            <div
-              style={{
-                background: '#2D6E5D',
-                color: '#FFFFFF',
-                padding: '20px 24px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div
-                  style={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: 10,
-                    background: 'rgba(255, 255, 255, 0.18)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <ShieldCheck size={20} color="#FFFFFF" />
-                </div>
-                <div>
-                  <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#FFFFFF' }}>
-                    {selectedStudentForHistoryModal.name} — Conduct Record
-                  </h2>
-                  <p style={{ margin: 0, fontSize: 12, color: 'rgba(255, 255, 255, 0.85)' }}>
-                    Admission: {selectedStudentForHistoryModal.admission_number || selectedStudentForHistoryModal.user_code || '—'} • Gr {selectedStudentForHistoryModal.grade || '?'}-{selectedStudentForHistoryModal.class_letter || '?'}
-                  </p>
-                </div>
+        <div className="modal-overlay active" onClick={() => setSelectedStudentForHistoryModal(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Student Conduct History
+                </span>
+                <h2 className="modal-title" style={{ margin: '2px 0 0' }}>
+                  {selectedStudentForHistoryModal.name} — Conduct Profile
+                </h2>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
+                  Admission: {selectedStudentForHistoryModal.admission_number || selectedStudentForHistoryModal.user_code || '—'} • Grade {selectedStudentForHistoryModal.grade || '?'}-{selectedStudentForHistoryModal.class_letter || '?'}
+                </p>
               </div>
               <button
                 type="button"
                 className="close-modal"
                 onClick={() => setSelectedStudentForHistoryModal(null)}
-                style={{ color: '#FFFFFF', fontSize: 24, background: 'transparent', border: 'none', cursor: 'pointer' }}
               >
                 &times;
               </button>
             </div>
 
-            <div style={{ padding: '20px 24px', maxHeight: '75vh', overflowY: 'auto' }}>
+            <div
+              style={{
+                maxWidth: 740,
+                width: '100%',
+                margin: '0 auto',
+                padding: '32px 36px 64px',
+                overflowY: 'auto',
+                flex: 1,
+                boxSizing: 'border-box',
+              }}
+            >
               {(() => {
                 const score = computeStudentBehaviorScore(selectedStudentForHistoryModal.id, behaviorIncidents);
                 const totalDeducted = computeStudentTotalDeductions(selectedStudentForHistoryModal.id, behaviorIncidents);
@@ -7305,133 +7289,157 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
                 return (
                   <div>
-                    {/* Score summary badge */}
+                    {/* Score summary card */}
                     <div
                       style={{
-                        background: '#F9F8F6',
-                        border: '1px solid #E5E3DF',
+                        background: '#FFFFFF',
+                        border: '1px solid var(--border-color)',
                         borderRadius: 12,
-                        padding: '14px 18px',
+                        padding: '18px 22px',
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        marginBottom: 18,
+                        marginBottom: 24,
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
                       }}
                     >
                       <div>
-                        <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                        <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.04em' }}>
                           Current Behavior Score
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                          <span style={{ fontSize: 22, fontWeight: 800, color: tier.color }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                          <span style={{ fontSize: 28, fontWeight: 800, color: tier.color, lineHeight: 1 }}>
                             {score}
                           </span>
-                          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>/ 80 pts</span>
+                          <span style={{ fontSize: 14, color: 'var(--text-secondary)', fontWeight: 600 }}>/ 80 pts</span>
                           <span
                             style={{
                               fontSize: 10.5,
                               fontWeight: 700,
-                              padding: '1px 6px',
-                              borderRadius: 4,
+                              padding: '2px 8px',
+                              borderRadius: 10,
                               background: tier.badgeBg,
                               color: tier.color,
                               border: `1px solid ${tier.badgeBorder}`,
                             }}
                           >
-                            {tier.tag}
+                            {tier.label}
                           </span>
                         </div>
                       </div>
 
                       <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                        <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.04em' }}>
                           Total Deductions
                         </div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: totalDeducted > 0 ? '#DC2626' : '#2D6E5D', marginTop: 2 }}>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: totalDeducted > 0 ? '#A83B38' : '#2C6E6A', marginTop: 4 }}>
                           {totalDeducted > 0 ? `-${totalDeducted} pts` : '0 pts (Clean)'}
                         </div>
                       </div>
                     </div>
 
                     {/* Incident list */}
-                    <h4 style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', margin: '0 0 12px', color: 'var(--neutral-dark)' }}>
-                      Itemized Deductions &amp; Violations ({studentIncidents.length})
-                    </h4>
-
-                    {studentIncidents.length === 0 ? (
-                      <div style={{ padding: '30px 20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13, background: '#FAF9F6', borderRadius: 8 }}>
-                        No behavior incidents recorded. Student has an immaculate conduct record!
+                    <div
+                      style={{
+                        background: '#FFFFFF',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 12,
+                        overflow: 'hidden',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          padding: '16px 20px',
+                          background: '#FAF9F6',
+                          borderBottom: '1px solid var(--border-color)',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: 'var(--neutral-dark)' }}>
+                          Itemized Deductions &amp; Violations ({studentIncidents.length})
+                        </h4>
+                        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                          Annual baseline: 80 points
+                        </span>
                       </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        {studentIncidents.map((inc) => (
-                          <div
-                            key={inc.id}
-                            style={{
-                              border: '1px solid #E5E3DF',
-                              borderRadius: 10,
-                              padding: '14px 16px',
-                              background: '#FFFFFF',
-                            }}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                              <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: 13, fontWeight: 800, color: '#DC2626' }}>
-                                    -{inc.points_deducted} pts
-                                  </span>
-                                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                                    {inc.reason}
-                                  </span>
-                                  <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 4, background: '#F3EFFA', color: '#6D28D9', fontWeight: 600 }}>
-                                    {inc.subject || 'Homeroom'}
-                                  </span>
-                                </div>
-                                {inc.notes && (
-                                  <p style={{ margin: '6px 0 0', fontSize: 12.5, color: '#374151', lineHeight: 1.5, background: '#FAF9F6', padding: '8px 10px', borderRadius: 6 }}>
-                                    {inc.notes}
-                                  </p>
-                                )}
-                                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
-                                  Recorded by {inc.teacher_name} ({inc.teacher_role === 'class_teacher' ? 'Class Teacher' : 'Subject Teacher'}) on {inc.date} {inc.incident_time ? `at ${inc.incident_time}` : ''}
-                                  {inc.action_taken && ` • Action: ${inc.action_taken}`}
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteBehaviorIncident(inc.id)}
+
+                      <div style={{ padding: '20px' }}>
+                        {studentIncidents.length === 0 ? (
+                          <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
+                            No behavior incidents recorded. Student maintains a clean 80/80 conduct record!
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            {studentIncidents.map((inc) => (
+                              <div
+                                key={inc.id}
                                 style={{
-                                  padding: '3px 8px',
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  background: 'transparent',
-                                  border: '1px solid #F5C6CB',
-                                  color: '#A83B38',
-                                  borderRadius: 4,
-                                  cursor: 'pointer',
+                                  border: '1px solid #ECEAE5',
+                                  borderRadius: 8,
+                                  padding: '14px 16px',
+                                  background: '#FAFAF9',
                                 }}
                               >
-                                Void
-                              </button>
-                            </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                                  <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                      <span style={{
+                                        fontSize: 12,
+                                        fontWeight: 800,
+                                        padding: '2px 8px',
+                                        borderRadius: 10,
+                                        background: '#FDF1F0',
+                                        color: '#A83B38',
+                                        border: '1px solid #F5C6CB',
+                                      }}>
+                                        -{inc.points_deducted} pts
+                                      </span>
+                                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                        {inc.reason}
+                                      </span>
+                                      <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, background: '#F0EFEA', color: 'var(--neutral-dark)', fontWeight: 600 }}>
+                                        {inc.subject || 'Homeroom'}
+                                      </span>
+                                    </div>
+                                    {inc.notes && (
+                                      <p style={{ margin: '8px 0 0', fontSize: 12.5, color: '#374151', lineHeight: 1.5, background: '#FFFFFF', padding: '8px 12px', borderRadius: 6, border: '1px solid #ECEAE5' }}>
+                                        "{inc.notes}"
+                                      </p>
+                                    )}
+                                    <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
+                                      Logged by {inc.teacher_name} ({inc.teacher_role === 'class_teacher' ? 'Class Teacher' : 'Subject Teacher'}) on {inc.date} {inc.incident_time ? `at ${inc.incident_time}` : ''}
+                                      {inc.action_taken && ` • Action: ${inc.action_taken}`}
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteBehaviorIncident(inc.id)}
+                                    style={{
+                                      padding: '4px 10px',
+                                      fontSize: 11.5,
+                                      fontWeight: 600,
+                                      background: '#FFFFFF',
+                                      border: '1px solid #F5C6CB',
+                                      color: '#A83B38',
+                                      borderRadius: 5,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    Void / Restore
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                        ))}
+                        )}
                       </div>
-                    )}
+                    </div>
                   </div>
                 );
               })()}
-            </div>
-
-            <div style={{ padding: '12px 24px', borderTop: '1px solid #E5E3DF', textAlign: 'right', background: '#FAF9F6' }}>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setSelectedStudentForHistoryModal(null)}
-                style={{ padding: '6px 16px', fontSize: 12.5 }}
-              >
-                Close
-              </button>
             </div>
           </div>
         </div>
