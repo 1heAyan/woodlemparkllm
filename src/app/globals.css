@@ -1407,6 +1407,13 @@ textarea.form-input { resize: vertical; }
   box-shadow: 0 0 0 3px rgba(45, 44, 42, 0.06);
 }
 
+.el-input:-webkit-autofill,
+.el-input:-webkit-autofill:hover,
+.el-input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 30px #F9F8F6 inset !important;
+  -webkit-text-fill-color: #2D2C2A !important;
+}
+
 .el-eye {
   position: absolute;
   right: 12px;

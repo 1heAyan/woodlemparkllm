@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { supabase, UserProfile } from '@/lib/supabaseClient';
 import { resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
 import { isPrincipalUser, isSltUser, DEFAULT_PRINCIPAL_RECORD } from '@/lib/specialRolesHelper';
-import { UserCheck, ShieldCheck, KeyRound, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 interface LoginViewProps {
   onLoginSuccess: (profile: UserProfile) => void;
@@ -385,26 +385,36 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
             </div>
           )}
 
-          <form onSubmit={handleSignInSubmit} className="el-form" noValidate>
+          <form onSubmit={handleSignInSubmit} className="el-form">
             <div className="el-field">
-              <label className="el-label" htmlFor="identifier">
-                Email Address or Admission / Employee ID
+              <label className="el-label" htmlFor="el-email">
+                Email or User ID
               </label>
               <div className="el-input-wrap">
-                <span className="el-input-icon">
-                  <UserCheck size={16} />
-                </span>
+                <svg
+                  className="el-input-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                  <polyline points="22,6 12,13 2,6" />
+                </svg>
                 <input
-                  id="identifier"
+                  id="el-email"
                   type="text"
                   className="el-input"
-                  placeholder="e.g. fatima@gmail.com, 1024, or TCH-102"
                   value={identifier}
                   onChange={(e) => {
                     setIdentifier(e.target.value);
                     if (errorMessage) setErrorMessage('');
                   }}
+                  placeholder="Enter your email or user ID"
                   autoComplete="username"
+                  disabled={loading}
                   autoFocus
                   required
                 />
@@ -412,40 +422,55 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
             </div>
 
             <div className="el-field">
-              <label className="el-label" htmlFor="password">
-                Password
-              </label>
+              <div className="el-label-row">
+                <label className="el-label" htmlFor="el-password">
+                  Password
+                </label>
+                <a href="mailto:it@woodlem.com" className="el-forgot">
+                  Need help?
+                </a>
+              </div>
               <div className="el-input-wrap">
-                <span className="el-input-icon">
-                  <KeyRound size={16} />
-                </span>
+                <svg
+                  className="el-input-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
                 <input
-                  id="password"
+                  id="el-password"
                   type={showPassword ? 'text' : 'password'}
                   className="el-input"
-                  placeholder="Enter your password"
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value);
                     if (errorMessage) setErrorMessage('');
                   }}
+                  placeholder="Enter your password"
                   autoComplete="current-password"
+                  disabled={loading}
                   required
                 />
                 <button
                   type="button"
-                  className="el-pw-toggle"
+                  className="el-eye"
                   onClick={() => setShowPassword(!showPassword)}
-                  tabIndex={-1}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label="Toggle password visibility"
+                  disabled={loading}
                 >
                   {showPassword ? (
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
                       <line x1="1" y1="1" x2="23" y2="23" />
                     </svg>
                   ) : (
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                       <circle cx="12" cy="12" r="3" />
                     </svg>
@@ -458,10 +483,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
               type="submit"
               className="el-submit"
               disabled={loading}
-              style={{
-                background: '#2D6E5D',
-                borderColor: '#2D6E5D',
-              }}
+              style={{ '--rc': '#2D6E5D' } as React.CSSProperties}
             >
               {loading ? (
                 <>
@@ -476,25 +498,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
               )}
             </button>
           </form>
-
-          {/* Direct Parent Sign-in Information Card */}
-          <div
-            style={{
-              marginTop: 20,
-              padding: '12px 14px',
-              borderRadius: 10,
-              background: '#F0F9F7',
-              border: '1px solid #C7E4D8',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-            }}
-          >
-            <ShieldCheck size={18} color="#2D6E5D" style={{ flexShrink: 0 }} />
-            <div style={{ fontSize: 12.5, color: '#20554E', lineHeight: 1.4 }}>
-              <strong>Parent Portal Access:</strong> Enter your registered parent email address to sign in. Your child&apos;s account is automatically connected.
-            </div>
-          </div>
 
           <p className="el-footer-note">
             Having trouble? <a href="mailto:it@woodlem.com">Contact School IT Support</a>
