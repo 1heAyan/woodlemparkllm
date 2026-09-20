@@ -46,9 +46,8 @@ import {
 import { getIcon } from '../Icons';
 import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
-import { usePortalNavigation } from '@/lib/PortalNavigationContext';
-import { RequestChildLinkModal } from '@/components/Modals/RequestChildLinkModal';
 import { ApplyLeaveModal } from '@/components/Modals/ApplyLeaveModal';
+import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 
 import { formatShortFileName, openFileInNewTab, downloadFile } from '@/lib/fileHelper';
@@ -180,25 +179,11 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isMobileChildPickerOpen, setIsMobileChildPickerOpen] = useState(false);
 
-  const [isRequestLinkModalOpen, setIsRequestLinkModalOpen] = useState(false);
   const [isApplyLeaveModalOpen, setIsApplyLeaveModalOpen] = useState(false);
   const [expandedClassIds, setExpandedClassIds] = useState<Record<string, boolean>>({});
 
   const toggleClassExpanded = (classId: string) => {
     setExpandedClassIds((prev) => ({ ...prev, [classId]: !prev[classId] }));
-  };
-
-  const handleRequestLinkSubmit = async (data: {
-    studentId: string;
-    studentName: string;
-    studentAdmissionNumber: string;
-    studentGrade: string;
-    relationship: string;
-    notes?: string;
-  }) => {
-    await onRequestChildLink(data);
-    setSelectedChildId(data.studentId);
-    setIsRequestLinkModalOpen(false);
   };
 
   // Sync selectedChildId when linkedStudents change
@@ -552,24 +537,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
               </span>
               <ChevronDown size={13} style={{ flexShrink: 0 }} />
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIsRequestLinkModalOpen(true)}
-              style={{
-                padding: '4px 10px',
-                borderRadius: 14,
-                background: '#2D6E5D',
-                color: '#FFFFFF',
-                fontSize: 11,
-                fontWeight: 700,
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              + Link Ward
-            </button>
-          )}
+          ) : null}
 
           {/* Profile / Settings Button */}
           <button
@@ -685,23 +653,6 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                 <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>
                   Linked Wards ({linkedStudents.length})
                 </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsMobileDrawerOpen(false);
-                    setIsRequestLinkModalOpen(true);
-                  }}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: '#2C6E6A',
-                    cursor: 'pointer',
-                  }}
-                >
-                  + Add Ward
-                </button>
               </div>
 
               {linkedStudents.map((child) => {
@@ -907,32 +858,6 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                   </button>
                 );
               })}
-
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMobileChildPickerOpen(false);
-                  setIsRequestLinkModalOpen(true);
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  padding: '12px 14px',
-                  borderRadius: 10,
-                  border: '1px dashed #265E5A',
-                  background: '#FFFFFF',
-                  color: '#265E5A',
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  marginTop: 4,
-                }}
-              >
-                <Plus size={16} />
-                Link Another Ward Account
-              </button>
             </div>
           </div>
         </div>
@@ -1394,33 +1319,6 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                   Apply for Leave
                 </button>
               )}
-
-              {activeTab === 'progress' && (
-                <button
-                  type="button"
-                  onClick={() => setIsRequestLinkModalOpen(true)}
-                  style={{
-                    height: 32,
-                    padding: '0 14px',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    background: '#2D2C2A',
-                    border: '1px solid #2D2C2A',
-                    color: '#FFFFFF',
-                    borderRadius: 6,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-                  }}
-                  title="Link another child or ward to your parent portal"
-                >
-                  <Plus size={13} strokeWidth={2.5} />
-                  <span>Add Child</span>
-                </button>
-              )}
             </div>
           </div>
         </header>
@@ -1456,30 +1354,11 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                 <UserCheck size={28} />
               </div>
               <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--neutral-dark)', margin: '0 0 8px' }}>
-                Welcome to Woodlem Parent Portal
+                No Student Linked to this Account
               </h2>
-              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 0, lineHeight: 1.5, maxWidth: 420, margin: '0 auto 20px' }}>
-                To view your child&apos;s grades, attendance records, circulars, and document clearance, connect their account using their school email &amp; Class Teacher Parent Link Code.
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 0, lineHeight: 1.5, maxWidth: 460, margin: '0 auto 12px' }}>
+                Parent portal access is automatically connected using your registered parent email address ({currentUser?.email}). If your child is enrolled at Woodlem Park School, please contact administration to verify your email is associated with your child&apos;s account.
               </p>
-              <button
-                onClick={() => setIsRequestLinkModalOpen(true)}
-                style={{
-                  padding: '10px 22px',
-                  background: '#2D2C2A',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: 6,
-                  fontWeight: 700,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
-                <Plus size={15} />
-                Link Your Child Account
-              </button>
             </div>
           )}
 
@@ -2835,15 +2714,6 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
       </main>
 
       {/* MODALS */}
-      {currentUser && (
-        <RequestChildLinkModal
-          isOpen={isRequestLinkModalOpen}
-          currentUser={currentUser}
-          students={allStudentProfiles}
-          onClose={() => setIsRequestLinkModalOpen(false)}
-          onSubmit={handleRequestLinkSubmit}
-        />
-      )}
 
       {activeChild && (
         <ApplyLeaveModal

@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { UserProfile } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 
 interface CreateSubjectClassModalProps {
   isOpen: boolean;
-  teacher: UserProfile;
+  teacher?: UserProfile | null;
   profiles: UserProfile[];
   onClose: () => void;
   onSubmit: (classData: {
@@ -16,6 +16,8 @@ interface CreateSubjectClassModalProps {
     section: string;
     room: string;
     enrolled_student_ids: string[];
+    teacher_id?: string;
+    teacher_name?: string;
   }) => void;
 }
 
@@ -26,18 +28,42 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
   onClose,
   onSubmit,
 }) => {
+  const facultyTeachers = useMemo(() => {
+    return profiles.filter((p) => p.role === 'teacher');
+  }, [profiles]);
+
   const [name, setName] = useState('');
-  const [subject, setSubject] = useState(teacher.subject || '');
-  const [grade, setGrade] = useState('12');
-  const [section, setSection] = useState('C');
+  const [selectedTeacherId, setSelectedTeacherId] = useState(teacher?.id || '');
+  const [subject, setSubject] = useState(teacher?.subject || '');
+  const [grade, setGrade] = useState('10');
+  const [section, setSection] = useState('A');
   const [room, setRoom] = useState('');
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [studentSearch, setStudentSearch] = useState('');
   const [rosterScope, setRosterScope] = useState<'section' | 'grade' | 'all'>('section');
 
+  useEffect(() => {
+    if (teacher?.id) {
+      setSelectedTeacherId(teacher.id);
+      if (teacher.subject) setSubject(teacher.subject);
+    } else if (facultyTeachers.length > 0 && !selectedTeacherId) {
+      setSelectedTeacherId(facultyTeachers[0].id);
+      if (facultyTeachers[0].subject) setSubject(facultyTeachers[0].subject);
+    }
+  }, [teacher, facultyTeachers]);
+
+  // When selected teacher changes in admin mode, auto-fill subject if available
+  const handleTeacherSelect = (teacherId: string) => {
+    setSelectedTeacherId(teacherId);
+    const found = facultyTeachers.find((t) => t.id === teacherId);
+    if (found?.subject && !subject) {
+      setSubject(found.subject);
+    }
+  };
+
   // All student profiles
   const allStudents = useMemo(() => {
-    return profiles.filter((p) => p.role === 'student');
+    return profiles.filter((p) => p.role === 'student' && !p.is_deactivated);
   }, [profiles]);
 
   // Students in selected grade
@@ -106,7 +132,9 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
     e.preventDefault();
     if (!name.trim()) return;
 
+    const assignedTeacher = facultyTeachers.find((t) => t.id === selectedTeacherId) || teacher;
     const classNameFormatted = `${grade}-${section}`;
+
     onSubmit({
       name: name.trim(),
       subject: subject.trim() || name.trim(),
@@ -114,6 +142,8 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
       section: `Section ${section}`,
       room: room.trim(),
       enrolled_student_ids: selectedStudentIds.length > 0 ? selectedStudentIds : sectionStudents.map((s) => s.id),
+      teacher_id: assignedTeacher?.id,
+      teacher_name: assignedTeacher?.name,
     });
 
     setName('');
@@ -122,13 +152,15 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
     onClose();
   };
 
+  const isTeacherLocked = !!teacher && teacher.role === 'teacher';
+
   return (
     <div className="modal-overlay active" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              Subject Classroom Setup
+              Centralized Academic Setup
             </span>
             <h2 className="modal-title" style={{ margin: '2px 0 0', fontSize: 16 }}>
               Create Subject Class
@@ -138,12 +170,40 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
         </div>
 
         <form onSubmit={handleSubmit} style={{ overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Teacher Assignment Field (Admin Selector or Fixed Teacher) */}
           <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label">Class / Subject Name</label>
+            <label className="form-label">
+              Assigned Teacher / Faculty <span style={{ color: '#DC2626' }}>*</span>
+            </label>
+            {isTeacherLocked ? (
+              <input
+                type="text"
+                className="form-input"
+                value={`${teacher.name} (${teacher.subject || 'Faculty'})`}
+                disabled
+                style={{ background: '#F5F5F3', cursor: 'not-allowed' }}
+              />
+            ) : (
+              <CustomSelect
+                value={selectedTeacherId}
+                onChange={handleTeacherSelect}
+                placeholder="Select a teacher to assign..."
+                options={facultyTeachers.map((t) => ({
+                  value: t.id,
+                  label: `${t.name} — ${t.subject || 'Faculty'} (${t.email})`,
+                }))}
+              />
+            )}
+          </div>
+
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">
+              Class / Subject Name <span style={{ color: '#DC2626' }}>*</span>
+            </label>
             <input
               type="text"
               className="form-input"
-              placeholder="e.g. AP Physics 1, Advanced Calculus, English Literature"
+              placeholder="e.g. Grade 10 English Literature, Grade 11 Chemistry, Grade 12 Computer Science"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
@@ -156,7 +216,7 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. Physics, Math, Chemistry"
+                placeholder="e.g. English, Physics, Chemistry, Computer Science"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
               />
@@ -166,7 +226,7 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. Lab 204, Room B-12"
+                placeholder="e.g. Room 102, Lab 4, Senior Hall"
                 value={room}
                 onChange={(e) => setRoom(e.target.value)}
               />
@@ -209,7 +269,7 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
                   Enroll Students ({selectedStudentIds.length} Selected)
                 </label>
                 <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                  Section {grade}-{section} has {sectionStudents.length} student{sectionStudents.length === 1 ? '' : 's'}
+                  Section {grade}-{section} has {sectionStudents.length} enrolled student{sectionStudents.length === 1 ? '' : 's'}
                 </span>
               </div>
 
@@ -219,14 +279,14 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
                   onClick={handleSelectAllSection}
                   style={{ padding: '4px 9px', fontSize: 11, fontWeight: 600, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', borderRadius: 4, cursor: 'pointer' }}
                 >
-                  + Add Section {grade}-{section}
+                  + Enroll Section {grade}-{section}
                 </button>
                 <button
                   type="button"
                   onClick={handleSelectAllGrade}
                   style={{ padding: '4px 9px', fontSize: 11, fontWeight: 600, background: '#FFFFFF', color: 'var(--neutral-dark)', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer' }}
                 >
-                  + Add All Gr. {grade}
+                  + Enroll All Gr. {grade}
                 </button>
                 {selectedStudentIds.length > 0 && (
                   <button
@@ -240,82 +300,74 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
               </div>
             </div>
 
-            {/* Scope Filter Tabs */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-              <button
-                type="button"
-                onClick={() => setRosterScope('section')}
-                style={{
-                  padding: '3px 10px',
-                  fontSize: 11,
-                  fontWeight: rosterScope === 'section' ? 700 : 500,
-                  borderRadius: 14,
-                  border: rosterScope === 'section' ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
-                  background: rosterScope === 'section' ? '#2D2C2A' : '#FFFFFF',
-                  color: rosterScope === 'section' ? '#FFFFFF' : 'var(--text-secondary)',
-                  cursor: 'pointer',
-                }}
-              >
-                Section {grade}-{section} ({sectionStudents.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setRosterScope('grade')}
-                style={{
-                  padding: '3px 10px',
-                  fontSize: 11,
-                  fontWeight: rosterScope === 'grade' ? 700 : 500,
-                  borderRadius: 14,
-                  border: rosterScope === 'grade' ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
-                  background: rosterScope === 'grade' ? '#2D2C2A' : '#FFFFFF',
-                  color: rosterScope === 'grade' ? '#FFFFFF' : 'var(--text-secondary)',
-                  cursor: 'pointer',
-                }}
-              >
-                All Grade {grade} ({gradeStudents.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setRosterScope('all')}
-                style={{
-                  padding: '3px 10px',
-                  fontSize: 11,
-                  fontWeight: rosterScope === 'all' ? 700 : 500,
-                  borderRadius: 14,
-                  border: rosterScope === 'all' ? '1px solid #2D2C2A' : '1px solid var(--border-color)',
-                  background: rosterScope === 'all' ? '#2D2C2A' : '#FFFFFF',
-                  color: rosterScope === 'all' ? '#FFFFFF' : 'var(--text-secondary)',
-                  cursor: 'pointer',
-                }}
-              >
-                All Students ({allStudents.length})
-              </button>
+            {/* Scope Toggle & Search */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <div style={{ display: 'flex', background: '#ECEAE5', borderRadius: 6, padding: 2 }}>
+                <button
+                  type="button"
+                  onClick={() => setRosterScope('section')}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    border: 'none',
+                    borderRadius: 4,
+                    background: rosterScope === 'section' ? '#FFFFFF' : 'transparent',
+                    color: rosterScope === 'section' ? '#2C6E6A' : '#73716D',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Section ({sectionStudents.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRosterScope('grade')}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    border: 'none',
+                    borderRadius: 4,
+                    background: rosterScope === 'grade' ? '#FFFFFF' : 'transparent',
+                    color: rosterScope === 'grade' ? '#2C6E6A' : '#73716D',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Grade ({gradeStudents.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRosterScope('all')}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    border: 'none',
+                    borderRadius: 4,
+                    background: rosterScope === 'all' ? '#FFFFFF' : 'transparent',
+                    color: rosterScope === 'all' ? '#2C6E6A' : '#73716D',
+                    cursor: 'pointer',
+                  }}
+                >
+                  All ({allStudents.length})
+                </button>
+              </div>
+
+              <input
+                type="text"
+                placeholder="Search students by name, email, or code..."
+                className="form-input"
+                style={{ fontSize: 12, padding: '4px 8px', flex: 1 }}
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+              />
             </div>
 
-            <input
-              type="text"
-              placeholder={`Search within ${rosterScope === 'section' ? `Section ${grade}-${section}` : rosterScope === 'grade' ? `Grade ${grade}` : 'all students'}...`}
-              className="form-input"
-              style={{ width: '100%', padding: '6px 10px', fontSize: 12, marginBottom: 8, background: '#FFFFFF' }}
-              value={studentSearch}
-              onChange={(e) => setStudentSearch(e.target.value)}
-            />
-
-            <div style={{ maxHeight: 170, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 6, padding: '6px 8px' }}>
+            {/* Student List Checkboxes */}
+            <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, background: '#FFFFFF', padding: 8, borderRadius: 6, border: '1px solid var(--border-color)' }}>
               {filteredStudents.length === 0 ? (
-                <div style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-secondary)' }}>
-                  No students found in {rosterScope === 'section' ? `Section ${grade}-${section}` : `Grade ${grade}`}.
-                  {rosterScope !== 'all' && (
-                    <div style={{ marginTop: 4 }}>
-                      <button
-                        type="button"
-                        onClick={() => setRosterScope('all')}
-                        style={{ color: '#2C6E6A', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontSize: 11.5 }}
-                      >
-                        View all school students
-                      </button>
-                    </div>
-                  )}
+                <div style={{ padding: '12px', textAlign: 'center', fontSize: 12, color: 'var(--text-secondary)' }}>
+                  No students found matching current criteria.
                 </div>
               ) : (
                 filteredStudents.map((st) => {
@@ -329,12 +381,11 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        padding: '6px 8px',
+                        padding: '5px 8px',
                         borderRadius: 4,
-                        background: isSelected ? '#EAF3EF' : 'transparent',
+                        background: isSelected ? '#F0F9F7' : 'transparent',
                         cursor: 'pointer',
                         fontSize: 12,
-                        transition: 'background 0.1s',
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -12,6 +12,8 @@ export interface BulkUserRow {
   grade?: string;
   classLetter?: string;
   password?: string;
+  parentEmail?: string;
+  houseColour?: string;
   linkedStudentCodes?: string[];
   isValid: boolean;
   isExistingUser?: boolean;
@@ -92,6 +94,15 @@ const LINKED_STUDENT_ALIASES = [
   'studentadmissionnumber', 'studentadmissionno', 'studentadm', 'childadmissionnumber',
   'childadmissionno', 'wardadmissionnumber', 'studentcode', 'linkedstudent',
   'linked_students', 'linkedchild'
+];
+
+const PARENT_EMAIL_ALIASES = [
+  'parentemail', 'parentemailid', 'parent_email', 'parent_email_id', 'guardianemail',
+  'fatheremail', 'motheremail', 'parentmail', 'parents_email', 'father_email', 'mother_email'
+];
+
+const HOUSE_COLOUR_ALIASES = [
+  'house', 'housecolour', 'housecolor', 'house_colour', 'house_color', 'studenthouse', 'schoolhouse'
 ];
 
 const isAdmissionHdr = (cleanHdr: string) => {
@@ -177,6 +188,8 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
           rawEmail: string;
           rawRole: string;
           rawLinked: string;
+          rawParentEmail?: string;
+          rawHouseColour?: string;
           sheetGrade?: string;
         }[] = [];
 
@@ -246,6 +259,8 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
           let colEmailIdx = -1;
           let colRoleIdx = -1;
           let colLinkedIdx = -1;
+          let colParentEmailIdx = -1;
+          let colHouseIdx = -1;
 
           if (headerRowIdx >= 0) {
             const headerRow = sheetAoA[headerRowIdx];
@@ -269,6 +284,10 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
                 colRoleIdx = colI;
               } else if (colLinkedIdx === -1 && LINKED_STUDENT_ALIASES.some((l) => cleanHdr === l)) {
                 colLinkedIdx = colI;
+              } else if (colParentEmailIdx === -1 && (PARENT_EMAIL_ALIASES.some((p) => cleanHdr === p) || cleanHdr.includes('parentemail') || cleanHdr.includes('fatheremail') || cleanHdr.includes('motheremail'))) {
+                colParentEmailIdx = colI;
+              } else if (colHouseIdx === -1 && (HOUSE_COLOUR_ALIASES.some((h) => cleanHdr === h) || cleanHdr.includes('house'))) {
+                colHouseIdx = colI;
               }
             });
           }
@@ -342,6 +361,8 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             let rawEmail = colEmailIdx >= 0 && row[colEmailIdx] !== undefined ? String(row[colEmailIdx]).trim() : '';
             let rawRole = colRoleIdx >= 0 && row[colRoleIdx] !== undefined ? String(row[colRoleIdx]).trim() : '';
             let rawLinked = colLinkedIdx >= 0 && row[colLinkedIdx] !== undefined ? String(row[colLinkedIdx]).trim() : '';
+            let rawParentEmail = colParentEmailIdx >= 0 && row[colParentEmailIdx] !== undefined ? String(row[colParentEmailIdx]).trim() : '';
+            let rawHouseColour = colHouseIdx >= 0 && row[colHouseIdx] !== undefined ? String(row[colHouseIdx]).trim() : '';
 
             // STRICT SANITY CHECK 1: If rawName is numeric and rawAdm has letters, SWAP THEM!
             if (isNumericString(rawName) && /[a-zA-Z]{2,}/.test(rawAdm)) {
@@ -397,6 +418,8 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
               rawEmail,
               rawRole,
               rawLinked,
+              rawParentEmail,
+              rawHouseColour,
               sheetGrade: gradeInSheet || undefined,
             });
           });
@@ -535,7 +558,9 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             userCode: extractedAdm || (role === 'parent' ? '' : (matchedProfile?.admission_number || '')),
             grade: gradeNum || undefined,
             classLetter: sectionStr || undefined,
-            password: 'woodlem123',
+            password: r.rawRole?.toLowerCase() === 'admin' ? 'admin123' : 'woodlem123',
+            parentEmail: r.rawParentEmail && r.rawParentEmail.includes('@') ? r.rawParentEmail.toLowerCase() : undefined,
+            houseColour: r.rawHouseColour || undefined,
             linkedStudentCodes,
             isValid,
             isExistingUser,

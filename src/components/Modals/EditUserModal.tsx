@@ -29,6 +29,15 @@ const SUBJECTS = [
   'Art & Design',
 ];
 
+const HOUSE_COLOURS = [
+  { value: '', label: 'Select House Colour (Optional)' },
+  { value: 'Ruby (Red)', label: 'Ruby (Red)' },
+  { value: 'Sapphire (Blue)', label: 'Sapphire (Blue)' },
+  { value: 'Emerald (Green)', label: 'Emerald (Green)' },
+  { value: 'Topaz (Yellow)', label: 'Topaz (Yellow)' },
+  { value: 'custom', label: 'Other / Custom House…' },
+];
+
 interface EditUserModalProps {
   isOpen: boolean;
   user: UserProfile | null;
@@ -56,8 +65,10 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [parentLinkCode, setParentLinkCode] = useState('');
-  const [copiedCode, setCopiedCode] = useState(false);
+  // Student Additional Info (Phase 1)
+  const [parentEmail, setParentEmail] = useState('');
+  const [houseColourSelect, setHouseColourSelect] = useState('');
+  const [customHouseColour, setCustomHouseColour] = useState('');
 
   // Student & Teacher Grade & Section
   const [grade, setGrade] = useState<'9' | '10' | '11' | '12'>('12');
@@ -110,7 +121,21 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       setSection(classInfo.section);
       setIsClassTeacher(classInfo.isClassTeacher);
       setSubject(user.subject || 'English');
-      setParentLinkCode(user.parent_link_code || getOrGenerateStudentParentCode(user));
+
+      // Student additional information
+      setParentEmail(user.parent_email || '');
+      const existingHouse = (user.house_colour || '').trim();
+      const isKnownHouse = HOUSE_COLOURS.some((h) => h.value === existingHouse && h.value !== '');
+      if (isKnownHouse) {
+        setHouseColourSelect(existingHouse);
+        setCustomHouseColour('');
+      } else if (existingHouse) {
+        setHouseColourSelect('custom');
+        setCustomHouseColour(existingHouse);
+      } else {
+        setHouseColourSelect('');
+        setCustomHouseColour('');
+      }
     }
   }, [user, subjectClasses]);
 
@@ -214,6 +239,10 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
     try {
       await saveUserPasswordToCloudAndLocal(user.id, cleanEmail, finalPassword);
 
+      const resolvedHouseColour = houseColourSelect === 'custom'
+        ? customHouseColour.trim()
+        : houseColourSelect.trim();
+
       await onSubmit({
         ...user,
         name: name.trim(),
@@ -227,7 +256,8 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
         subject: role === 'teacher' ? subject : null,
         assigned_class: assignedClassStr,
         linked_student_ids: role === 'parent' ? selectedStudentIds : user.linked_student_ids,
-        parent_link_code: role === 'student' ? (parentLinkCode.trim() || undefined) : undefined,
+        parent_email: role === 'student' ? (parentEmail.trim().toLowerCase() || undefined) : user.parent_email,
+        house_colour: role === 'student' ? (resolvedHouseColour || undefined) : user.house_colour,
       });
       onClose();
     } catch (err: any) {
@@ -522,65 +552,52 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                 Assigned Cohort: <strong>Grade {grade}-{section}</strong>
               </div>
 
-              {/* Student Parent Link Code Field */}
-              <div className="form-group" style={{ marginTop: 14, marginBottom: 0 }}>
-                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
-                  <KeyRound size={13} color="#2D6E5D" />
-                  Parent Verification Code (6-Digit Link Code)
-                </label>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={parentLinkCode}
-                    onChange={(e) => setParentLinkCode(e.target.value.toUpperCase())}
-                    style={{
-                      fontFamily: 'monospace',
-                      fontWeight: 700,
-                      letterSpacing: '0.08em',
-                      color: '#2D6E5D',
-                      background: '#F0F9F7',
-                      border: '1.5px solid #2D6E5D',
-                    }}
-                    placeholder="e.g. PL-748921"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (navigator.clipboard) {
-                        navigator.clipboard.writeText(parentLinkCode);
-                        setCopiedCode(true);
-                        setTimeout(() => setCopiedCode(false), 2000);
-                      }
-                    }}
-                    className="btn-copy-code"
-                    style={{ padding: '8px 12px' }}
-                    title="Copy Code"
-                  >
-                    {copiedCode ? <CheckCircle2 size={15} color="#059669" /> : <Copy size={15} />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const newCode = generateParentLinkCode(user?.id);
-                      setParentLinkCode(newCode);
-                    }}
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: 8,
-                      border: '1px solid var(--border-color)',
-                      background: '#FFFFFF',
-                      color: 'var(--text-secondary)',
-                      cursor: 'pointer',
-                    }}
-                    title="Generate New Code"
-                  >
-                    <RotateCcw size={15} />
-                  </button>
-                </div>
-                <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
-                  Parents will enter this code when registering or linking this student account.
+              {/* Student Additional Information — Parent Email & House Colour */}
+              <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid #E2E8F0' }}>
+                <p style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Additional Student Information
                 </p>
+
+                {/* Parent Email Address */}
+                <div className="form-group" style={{ marginBottom: 12 }}>
+                  <label className="form-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>Parent Email Address</span>
+                    <span style={{ fontSize: 10.5, color: '#16A34A', fontWeight: 600 }}>Automatic Portal Linking</span>
+                  </label>
+                  <input
+                    type="email"
+                    className="form-input"
+                    placeholder="e.g. parent.name@gmail.com"
+                    value={parentEmail}
+                    onChange={(e) => setParentEmail(e.target.value)}
+                  />
+                  <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                    Changing or updating this email automatically associates this student with the parent account for Parent Portal access.
+                  </p>
+                </div>
+
+                {/* House Colour */}
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">
+                    House Colour <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-secondary)' }}>(Optional)</span>
+                  </label>
+                  <CustomSelect
+                    value={houseColourSelect}
+                    onChange={(val) => setHouseColourSelect(val)}
+                    options={HOUSE_COLOURS}
+                  />
+
+                  {houseColourSelect === 'custom' && (
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Type custom house colour (e.g. Amber)"
+                      value={customHouseColour}
+                      onChange={(e) => setCustomHouseColour(e.target.value)}
+                      style={{ marginTop: 8 }}
+                    />
+                  )}
+                </div>
               </div>
             </div>
           )}

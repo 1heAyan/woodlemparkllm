@@ -45,6 +45,7 @@ interface AdminDashboardProps {
   lateEntries?: LateEntryRecord[];
   onOpenProvisionModal: () => void;
   onOpenBulkModal: () => void;
+  onOpenCreateSubjectClassModal?: () => void;
   onEditUser: (user: UserProfile) => void;
   onUpdateUser?: (updatedUser: UserProfile) => Promise<void> | void;
   onDeleteUser: (userId: string) => void;
@@ -123,6 +124,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   lateEntries = [],
   onOpenProvisionModal,
   onOpenBulkModal,
+  onOpenCreateSubjectClassModal,
   onEditUser,
   onUpdateUser,
   onDeleteUser,
@@ -143,6 +145,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserProfile | null>(null);
   const [activeMarkEntryClass, setActiveMarkEntryClass] = useState<SubjectClass | null>(null);
+  const [createdSections, setCreatedSections] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = localStorage.getItem('woodlem_created_sections_v1');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  const [isCreateSectionOpen, setIsCreateSectionOpen] = useState(false);
+  const [newSectionGrade, setNewSectionGrade] = useState('10');
+  const [newSectionLetter, setNewSectionLetter] = useState('A');
+  const [newSectionTeacherId, setNewSectionTeacherId] = useState('');
   const [dirScroll, setDirScroll] = useState<{ left: boolean; right: boolean }>({ left: false, right: false });
   const dirScrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -338,6 +353,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
       }
     });
+
+    // Add explicitly created sections
+    createdSections.forEach((s) => classSet.add(s));
 
     return Array.from(classSet).sort((a, b) => {
       const [ga, sa] = a.split('-');
@@ -1712,12 +1730,54 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const renderClasses = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
           <div>
             <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>Class Sections &amp; Class Teachers</span>
             <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
-              Woodlem Park active section distribution for Grades 9-12
+              Woodlem Park centralized class section management and subject distribution
             </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              onClick={() => setIsCreateSectionOpen(true)}
+              style={{
+                height: 32,
+                padding: '0 12px',
+                fontSize: 12,
+                fontWeight: 600,
+                background: '#FAF9F6',
+                border: '1px solid var(--border-color)',
+                borderRadius: 6,
+                color: 'var(--neutral-dark)',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              + Create Section
+            </button>
+            {onOpenCreateSubjectClassModal && (
+              <button
+                onClick={onOpenCreateSubjectClassModal}
+                style={{
+                  height: 32,
+                  padding: '0 14px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  background: '#2D2C2A',
+                  border: '1px solid #2D2C2A',
+                  borderRadius: 6,
+                  color: '#FFFFFF',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                + Create Subject Class
+              </button>
+            )}
           </div>
         </div>
 
@@ -1797,6 +1857,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const sectionSubjectClasses = subjectClasses.filter(
           sc => (sc.class_name || '').toUpperCase().trim() === selectedClassInspect.toUpperCase().trim()
         );
+        const ct = teachers.find((t) => {
+          const info = extractClassTeacherInfo(t, subjectClasses);
+          return info.isClassTeacher && info.classKey === selectedClassInspect;
+        });
 
         return (
           <div
@@ -1860,6 +1924,46 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 >
                   &times;
                 </button>
+              </div>
+
+              {/* Class Teacher Quick Assignment Bar */}
+              <div style={{ padding: '10px 20px', background: '#F5F5F3', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <UserCheck size={16} color="#2C6E6A" />
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                    Class Teacher: <strong style={{ color: ct ? '#2C6E6A' : '#9E9B95' }}>{ct ? `${ct.name} (${ct.subject || 'Faculty'})` : 'Unassigned'}</strong>
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Assign / Change:</span>
+                  <div style={{ width: 230 }}>
+                    <CustomSelect
+                      value={ct?.id || ''}
+                      placeholder="Select Class Teacher..."
+                      onChange={async (newTeacherId) => {
+                        if (ct && onUpdateUser) {
+                          await onUpdateUser({
+                            ...ct,
+                            assigned_class: null,
+                          });
+                        }
+                        if (newTeacherId) {
+                          const selectedT = teachers.find(t => t.id === newTeacherId);
+                          if (selectedT && onUpdateUser) {
+                            await onUpdateUser({
+                              ...selectedT,
+                              assigned_class: `Grade ${selectedClassInspect}`,
+                            });
+                          }
+                        }
+                      }}
+                      options={[
+                        { value: '', label: 'None (Unassigned)' },
+                        ...teachers.map(t => ({ value: t.id, label: `${t.name} (${t.subject || 'Faculty'})` }))
+                      ]}
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Modal Body */}
@@ -1935,11 +2039,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       padding: '9px 14px',
                       borderBottom: '1px solid var(--border-color)',
                       background: '#FAF9F6',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
                     }}
                   >
                     <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                      Subject Classes &amp; Assessment Registers
+                      Subject Classes ({sectionSubjectClasses.length})
                     </span>
+                    {onOpenCreateSubjectClassModal && (
+                      <button
+                        onClick={() => {
+                          setSelectedClassInspect(null);
+                          onOpenCreateSubjectClassModal();
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#2C6E6A',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        + Add Subject Class
+                      </button>
+                    )}
                   </div>
 
                   <div style={{ padding: 14, overflowY: 'auto', flex: 1, maxHeight: 400, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1991,6 +2116,139 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         );
       })()}
+
+      {/* CREATE NEW CLASS SECTION MODAL */}
+      {isCreateSectionOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+            padding: 20,
+          }}
+          onClick={() => setIsCreateSectionOpen(false)}
+        >
+          <div
+            style={{
+              background: '#FFFFFF',
+              borderRadius: 12,
+              width: '100%',
+              maxWidth: 480,
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#FAF9F6' }}>
+              <div>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Centralized Section Setup</span>
+                <h3 style={{ margin: '2px 0 0', fontSize: 15, fontWeight: 700, color: 'var(--neutral-dark)' }}>Create Class Section</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreateSectionOpen(false)}
+                style={{ background: 'none', border: 'none', fontSize: 22, color: 'var(--text-secondary)', cursor: 'pointer' }}
+              >
+                &times;
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const classKey = `${newSectionGrade}-${newSectionLetter}`;
+                if (!createdSections.includes(classKey)) {
+                  const updated = [...createdSections, classKey];
+                  setCreatedSections(updated);
+                  try {
+                    localStorage.setItem('woodlem_created_sections_v1', JSON.stringify(updated));
+                  } catch (err) {}
+                }
+                if (newSectionTeacherId && onUpdateUser) {
+                  const selectedT = teachers.find((t) => t.id === newSectionTeacherId);
+                  if (selectedT) {
+                    await onUpdateUser({
+                      ...selectedT,
+                      assigned_class: `Grade ${classKey}`,
+                    });
+                  }
+                }
+                setIsCreateSectionOpen(false);
+                setSelectedClassInspect(classKey);
+              }}
+              style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}
+            >
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--neutral-dark)', marginBottom: 6 }}>
+                    Grade
+                  </label>
+                  <CustomSelect
+                    value={newSectionGrade}
+                    onChange={(val) => setNewSectionGrade(val)}
+                    options={[
+                      { value: '9', label: 'Grade 9' },
+                      { value: '10', label: 'Grade 10' },
+                      { value: '11', label: 'Grade 11' },
+                      { value: '12', label: 'Grade 12' },
+                    ]}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--neutral-dark)', marginBottom: 6 }}>
+                    Section Letter
+                  </label>
+                  <CustomSelect
+                    value={newSectionLetter}
+                    onChange={(val) => setNewSectionLetter(val)}
+                    options={Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map((s) => ({
+                      value: s,
+                      label: `Section ${s}`,
+                    }))}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--neutral-dark)', marginBottom: 6 }}>
+                  Assign Class Teacher (Optional)
+                </label>
+                <CustomSelect
+                  value={newSectionTeacherId}
+                  onChange={(val) => setNewSectionTeacherId(val)}
+                  placeholder="Select Class Teacher..."
+                  options={[
+                    { value: '', label: 'None (Assign Later)' },
+                    ...teachers.map((t) => ({ value: t.id, label: `${t.name} (${t.subject || 'Faculty'})` })),
+                  ]}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setIsCreateSectionOpen(false)}
+                  style={{ padding: '8px 16px', fontSize: 12 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ padding: '8px 20px', fontSize: 12, fontWeight: 700 }}
+                >
+                  Create Section {newSectionGrade}-{newSectionLetter}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 

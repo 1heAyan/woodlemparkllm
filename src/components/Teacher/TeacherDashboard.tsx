@@ -92,7 +92,7 @@ interface TeacherDashboardProps {
   }) => void;
   onDeleteBroadcast?: (broadcastId: string) => void;
   onTogglePinBroadcast?: (broadcastId: string) => void;
-  onOpenCreateClassModal: () => void;
+
   onUpdateSubjectClass: (
     classId: string,
     updatedData: {
@@ -156,7 +156,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   onCreateBroadcast,
   onDeleteBroadcast,
   onTogglePinBroadcast,
-  onOpenCreateClassModal,
+
   onUpdateSubjectClass,
   onDeleteSubjectClass,
   onUpdateClassEnrollment,
@@ -529,8 +529,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             setActiveNavMode('class');
           }
         }
-      } else if (target.modalAction === 'create_class') {
-        onOpenCreateClassModal();
       } else if (target.modalAction === 'create_test') {
         onOpenCreateTestModal();
       } else if (target.modalAction === 'create_assignment') {
@@ -538,7 +536,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       }
     });
     return unsubscribe;
-  }, [subscribeToNavigation, teacherClasses, selectedClassId, onOpenCreateClassModal, onOpenCreateTestModal, onOpenCreateAssignmentModal]);
+  }, [subscribeToNavigation, teacherClasses, selectedClassId, onOpenCreateTestModal, onOpenCreateAssignmentModal]);
 
   useEffect(() => {
     if (teacherClasses.length > 0) {
@@ -1761,33 +1759,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             </span>
           </div>
 
-          {/* Quick Create Class button in sidebar */}
-          <div className="sidebar-tooltip-wrapper">
-            <button
-              className="nav-item"
-              onClick={() => {
-                onOpenCreateClassModal();
-                sidebar.handleNavClick();
-              }}
-              style={{
-                border: '1px dashed rgba(44, 110, 106, 0.35)',
-                background: 'rgba(44, 110, 106, 0.03)',
-                color: 'var(--primary)',
-                marginBottom: 4,
-                padding: sidebar.isCollapsed ? '8px 0' : '7px 10px',
-                justifyContent: sidebar.isCollapsed ? 'center' : 'flex-start',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', justifyContent: sidebar.isCollapsed ? 'center' : 'flex-start' }}>
-                <Plus size={15} className="icon" style={{ color: 'var(--primary)', flexShrink: 0 }} />
-                <span className="sidebar-text" style={{ fontWeight: 600, fontSize: 12 }}>Create Class</span>
-              </div>
-            </button>
-            {sidebar.isCollapsed && (
-              <div className="sidebar-tooltip">Create Subject Class</div>
-            )}
-          </div>
-
           {teacherClasses.length === 0 ? (
             <div className="sidebar-text" style={{ padding: '4px 8px 8px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 11 }}>
               No subject classrooms created yet.
@@ -2028,17 +1999,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px', color: 'var(--neutral-dark)' }}>No Subject Class Selected</h3>
                   <p style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 420, margin: '0 0 20px', lineHeight: 1.5 }}>
                     {teacherClasses.length === 0
-                      ? "You haven't created any subject classrooms yet. Create your first class to enroll students, assign homework/tests, and upload learning resources."
-                      : "Select a subject classroom from the left sidebar or create a new class to manage students, tests, and announcements."}
+                      ? "No subject classes have been assigned to your account yet. Contact school administration to assign your classes and subjects."
+                      : "Select an assigned subject classroom from the left sidebar to manage student work, tests, and announcements."}
                   </p>
-                  <button
-                    className="btn-primary"
-                    onClick={onOpenCreateClassModal}
-                    style={{ padding: '8px 18px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                  >
-                    <Plus size={15} />
-                    <span>Create Subject Class</span>
-                  </button>
                 </div>
               ) : (
                 <>

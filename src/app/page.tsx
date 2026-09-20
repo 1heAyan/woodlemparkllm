@@ -71,6 +71,10 @@ import { PortalNavigationProvider } from '@/lib/PortalNavigationContext';
 import { getCachedPassword, resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import { generateParentLinkCode } from '@/lib/parentCodeHelper';
+import {
+  extractStudentAdditionalInfoFromHub,
+  persistStudentAdditionalInfo,
+} from '@/lib/studentAdditionalInfoHelper';
 
 function getCachedAvatar(id?: string, email?: string): string | undefined {
   if (typeof window === 'undefined') return undefined;
@@ -254,6 +258,8 @@ export default function WoodlemApp() {
       if (profRes.error) {
         setSchemaError('The school portal is currently synchronizing. Please refresh the page if data does not appear immediately.');
       } else {
+        const studentInfoMap = extractStudentAdditionalInfoFromHub(hubRes.data || []);
+
         const loadedProfiles: UserProfile[] = (profRes.data || []).map((p: any) => {
           const emailLower = (p.email || '').toLowerCase().trim();
           let role = p.role;
@@ -318,6 +324,16 @@ export default function WoodlemApp() {
             ? sanitizeUserCode(p.admission_number || p.user_code, p.email)
             : (p.user_code || p.admission_number ? sanitizeUserCode(p.user_code || p.admission_number) : '');
 
+          const studentExtra = isStudent
+            ? (studentInfoMap[p.id] ||
+               studentInfoMap[p.id?.toLowerCase()] ||
+               (emailLower ? studentInfoMap[emailLower] : null) ||
+               (cleanCode ? studentInfoMap[cleanCode] : null))
+            : null;
+
+          const resolvedParentEmail = p.parent_email || studentExtra?.parent_email || undefined;
+          const resolvedHouseColour = p.house_colour || studentExtra?.house_colour || undefined;
+
           let cachedDeact = false;
           try {
             const deactStr = typeof window !== 'undefined' ? localStorage.getItem('woodlem_deactivated_user_ids_v1') : null;
@@ -341,6 +357,8 @@ export default function WoodlemApp() {
 
           return {
             ...p,
+            parent_email: resolvedParentEmail,
+            house_colour: resolvedHouseColour,
             can_manage_late_entry: lateEntryAccess,
             is_deactivated: isDeactivated,
             deactivated_at: p.deactivated_at || (isDeactivated ? (p.deactivated_at || new Date().toISOString()) : undefined),
@@ -382,6 +400,8 @@ export default function WoodlemApp() {
             role: freshRole,
             avatar_url: fresh.avatar_url || prev.avatar_url || getCachedAvatar(fresh.id, fresh.email),
             temp_password: fresh.temp_password || prev.temp_password || getCachedPassword(fresh.id, fresh.email),
+            parent_email: fresh.parent_email || prev.parent_email,
+            house_colour: fresh.house_colour || prev.house_colour,
           };
         });
       }
@@ -928,6 +948,8 @@ export default function WoodlemApp() {
     subject?: string | null;
     assignedClass?: string | null;
     linkedStudentIds?: string[];
+    parentEmail?: string;
+    houseColour?: string;
   }) => {
     try {
       // Create isolated client to avoid clearing active Admin auth session
@@ -1010,6 +1032,8 @@ export default function WoodlemApp() {
       const profileId = createdAuthUserId || existingProf?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'usr_' + Date.now());
 
       const cleanCode = userData.role === 'parent' ? null : (sanitizeUserCode(userData.userCode || userData.admissionNumber, userData.email) || null);
+      const cleanParentEmail = userData.parentEmail ? userData.parentEmail.trim().toLowerCase() : undefined;
+      const cleanHouseColour = userData.houseColour ? userData.houseColour.trim() : undefined;
 
       const dbProfile: any = {
         id: profileId,
@@ -1025,15 +1049,20 @@ export default function WoodlemApp() {
       };
       if (userData.role === 'student') {
         dbProfile.parent_link_code = generateParentLinkCode(profileId, cleanCode);
+        if (cleanParentEmail) dbProfile.parent_email = cleanParentEmail;
+        if (cleanHouseColour) dbProfile.house_colour = cleanHouseColour;
       }
       if (userData.linkedStudentIds && userData.linkedStudentIds.length > 0) {
         dbProfile.linked_student_ids = userData.linkedStudentIds;
       }
 
       let { error: profErr } = await supabase.from('profiles').upsert([dbProfile], { onConflict: 'email' });
-      if (profErr && dbProfile.linked_student_ids) {
+      if (profErr) {
+        // Fallback: strip potential missing custom columns and retry
         const stripped = { ...dbProfile };
         delete stripped.linked_student_ids;
+        delete stripped.parent_email;
+        delete stripped.house_colour;
         const retry = await supabase.from('profiles').upsert([stripped], { onConflict: 'email' });
         profErr = retry.error;
       }
@@ -1046,6 +1075,44 @@ export default function WoodlemApp() {
       // Persist password to cloud and local storage
       const assignedPwd = userData.password || 'woodlem123';
       await saveUserPasswordToCloudAndLocal(profileId, userData.email, assignedPwd);
+
+      // Persist student additional info (parent_email, house_colour) with multi-layer fallback
+      if (userData.role === 'student' && (cleanParentEmail || cleanHouseColour)) {
+        await persistStudentAdditionalInfo(profileId, {
+          studentId: profileId,
+          email: userData.email.trim().toLowerCase(),
+          admissionNumber: cleanCode || '',
+          parent_email: cleanParentEmail,
+          house_colour: cleanHouseColour,
+        });
+
+        // Auto-provision or link Parent account if parentEmail provided
+        if (cleanParentEmail) {
+          const existingParent = profiles.find((p) => p.email && p.email.toLowerCase() === cleanParentEmail);
+          if (!existingParent) {
+            const parentId = 'parent_' + cleanParentEmail.replace(/[^a-zA-Z0-9]/g, '_');
+            const autoParentProfile: any = {
+              id: parentId,
+              name: 'Parent / Guardian',
+              email: cleanParentEmail,
+              role: 'parent',
+              linked_student_ids: [profileId],
+            };
+            try {
+              await supabase.from('profiles').upsert([autoParentProfile], { onConflict: 'email' });
+            } catch (pe) {}
+            await saveUserPasswordToCloudAndLocal(parentId, cleanParentEmail, 'woodlem123');
+          } else if (existingParent.role === 'parent') {
+            const currentLinked = existingParent.linked_student_ids || [];
+            if (!currentLinked.includes(profileId)) {
+              const updatedLinked = [...currentLinked, profileId];
+              try {
+                await supabase.from('profiles').update({ linked_student_ids: updatedLinked }).eq('id', existingParent.id);
+              } catch (pe) {}
+            }
+          }
+        }
+      }
 
       alert(`User account for "${userData.name}" has been created successfully.`);
       await loadAllData();
@@ -1267,6 +1334,37 @@ export default function WoodlemApp() {
         saveUserPasswordToCloudAndLocal(u.id, u.email, u.temp_password || 'woodlem123');
       }
 
+      // 4b. Persist student additional info (parent_email, house_colour) and auto-provision parent accounts
+      for (let i = 0; i < users.length; i++) {
+        const row = users[i];
+        const prof = processedProfiles[i];
+        if (row && prof && row.role === 'student' && (row.parentEmail || row.houseColour)) {
+          const pEm = row.parentEmail ? row.parentEmail.trim().toLowerCase() : undefined;
+          const hCol = row.houseColour ? row.houseColour.trim() : undefined;
+          persistStudentAdditionalInfo(prof.id, {
+            studentId: prof.id,
+            email: prof.email,
+            admissionNumber: prof.admission_number || '',
+            parent_email: pEm,
+            house_colour: hCol,
+          });
+
+          if (pEm) {
+            const parentId = 'parent_' + pEm.replace(/[^a-zA-Z0-9]/g, '_');
+            supabase.from('profiles').upsert([
+              {
+                id: parentId,
+                name: 'Parent / Guardian',
+                email: pEm,
+                role: 'parent',
+                linked_student_ids: [prof.id],
+              }
+            ], { onConflict: 'email' }).then(() => {});
+            saveUserPasswordToCloudAndLocal(parentId, pEm, 'woodlem123');
+          }
+        }
+      }
+
       // 5. Background sync with Supabase Auth (non-blocking)
       setTimeout(async () => {
         const isolatedClient = createIsolatedSupabaseClient();
@@ -1380,7 +1478,45 @@ export default function WoodlemApp() {
         assigned_class: updatedUser.assigned_class ?? null,
         linked_student_ids: updatedUser.linked_student_ids ?? [],
         parent_link_code: updatedUser.parent_link_code ?? undefined,
+        parent_email: updatedUser.role === 'student' ? (updatedUser.parent_email?.trim().toLowerCase() || undefined) : undefined,
+        house_colour: updatedUser.role === 'student' ? (updatedUser.house_colour?.trim() || undefined) : undefined,
       };
+
+      // Persist student additional info to hub and cache
+      if (updatedUser.role === 'student') {
+        const studentParentEmail = updatedUser.parent_email ? updatedUser.parent_email.trim().toLowerCase() : undefined;
+        const studentHouseColour = updatedUser.house_colour ? updatedUser.house_colour.trim() : undefined;
+
+        persistStudentAdditionalInfo(profileId, {
+          studentId: profileId,
+          email: cleanEmail,
+          admissionNumber: (updatedUser.admission_number || updatedUser.user_code || '').trim(),
+          parent_email: studentParentEmail,
+          house_colour: studentHouseColour,
+        });
+
+        if (studentParentEmail) {
+          const existingParent = profiles.find((p) => p.email && p.email.toLowerCase() === studentParentEmail);
+          if (!existingParent) {
+            const parentId = 'parent_' + studentParentEmail.replace(/[^a-zA-Z0-9]/g, '_');
+            const autoParent: any = {
+              id: parentId,
+              name: 'Parent / Guardian',
+              email: studentParentEmail,
+              role: 'parent',
+              linked_student_ids: [profileId],
+            };
+            supabase.from('profiles').upsert([autoParent], { onConflict: 'email' }).then(() => {});
+            saveUserPasswordToCloudAndLocal(parentId, studentParentEmail, 'woodlem123');
+          } else if (existingParent.role === 'parent') {
+            const currentLinked = existingParent.linked_student_ids || [];
+            if (!currentLinked.includes(profileId)) {
+              const updatedLinked = [...currentLinked, profileId];
+              supabase.from('profiles').update({ linked_student_ids: updatedLinked }).eq('id', existingParent.id).then(() => {});
+            }
+          }
+        }
+      }
 
       // 1. Optimistically update local profiles state immediately
       setProfiles((prev) => {
@@ -2686,6 +2822,8 @@ export default function WoodlemApp() {
     section: string;
     room: string;
     enrolled_student_ids: string[];
+    teacher_id?: string;
+    teacher_name?: string;
   }) => {
     if (!currentUser) return;
 
@@ -2696,6 +2834,9 @@ export default function WoodlemApp() {
     // Merge with any manually passed IDs (deduplicated)
     const mergedIds = Array.from(new Set([...autoEnrolledIds, ...classData.enrolled_student_ids]));
 
+    const assignedTeacherId = classData.teacher_id || currentUser.id;
+    const assignedTeacherName = classData.teacher_name || currentUser.name;
+
     const newClass: SubjectClass = {
       id: `class-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: classData.name,
@@ -2703,8 +2844,8 @@ export default function WoodlemApp() {
       class_name: classData.class_name,
       section: classData.section,
       room: classData.room,
-      teacher_id: currentUser.id,
-      teacher_name: currentUser.name,
+      teacher_id: assignedTeacherId,
+      teacher_name: assignedTeacherName,
       enrolled_student_ids: mergedIds,
       created_at: new Date().toISOString(),
     };
@@ -3694,9 +3835,21 @@ export default function WoodlemApp() {
   // Compute linked students for active parent user
   const linkedStudentsForParent: Student[] = useMemo(() => {
     if (!currentUser || currentUser.role !== 'parent') return [];
+    const parentEmail = (currentUser.email || '').trim().toLowerCase();
     const ids = currentUser.linked_student_ids || [];
     return profiles
-      .filter((p) => !p.is_deactivated && p.role === 'student' && ids.includes(p.id))
+      .filter((p) => {
+        if (p.is_deactivated || p.role !== 'student') return false;
+        // Direct matching by parent_email (new automatic system)
+        if (p.parent_email && p.parent_email.trim().toLowerCase() === parentEmail) {
+          return true;
+        }
+        // Fallback: linked_student_ids match
+        if (ids.includes(p.id)) {
+          return true;
+        }
+        return false;
+      })
       .map((p) => ({
         id: p.id,
         name: p.name,
@@ -3705,6 +3858,8 @@ export default function WoodlemApp() {
         class_letter: p.class_letter,
         admission_number: p.admission_number || p.user_code,
         user_code: p.user_code,
+        parent_email: p.parent_email,
+        house_colour: p.house_colour,
       }));
   }, [currentUser, profiles]);
 
@@ -3795,7 +3950,6 @@ export default function WoodlemApp() {
           onCreateBroadcast={handleCreateBroadcast}
           onDeleteBroadcast={handleDeleteBroadcast}
           onTogglePinBroadcast={handleTogglePinBroadcast}
-          onOpenCreateClassModal={() => setIsCreateClassOpen(true)}
           onUpdateSubjectClass={handleUpdateSubjectClass}
           onDeleteSubjectClass={handleDeleteSubjectClass}
           onUpdateClassEnrollment={handleUpdateClassEnrollment}
@@ -3868,6 +4022,7 @@ export default function WoodlemApp() {
           testResults={testResults}
           onOpenProvisionModal={() => setIsProvisionUserOpen(true)}
           onOpenBulkModal={() => setIsBulkImportOpen(true)}
+          onOpenCreateSubjectClassModal={() => setIsCreateClassOpen(true)}
           onEditUser={(user) => setEditingUser(user)}
           onUpdateUser={handleUpdateUser}
           onDeleteUser={handleDeleteUser}
@@ -4014,8 +4169,8 @@ export default function WoodlemApp() {
       {currentUser && (
         <CreateSubjectClassModal
           isOpen={isCreateClassOpen}
-          teacher={currentUser}
-          profiles={activeProfiles}
+          teacher={currentUser.role === 'admin' ? null : currentUser}
+          profiles={profiles}
           onClose={() => setIsCreateClassOpen(false)}
           onSubmit={handleCreateSubjectClass}
         />

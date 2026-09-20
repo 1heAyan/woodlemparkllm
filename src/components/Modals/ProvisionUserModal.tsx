@@ -26,6 +26,15 @@ const SUBJECTS = [
   'Art & Design',
 ];
 
+const HOUSE_COLOURS = [
+  { value: '', label: 'Select House Colour (Optional)' },
+  { value: 'Ruby (Red)', label: 'Ruby (Red)' },
+  { value: 'Sapphire (Blue)', label: 'Sapphire (Blue)' },
+  { value: 'Emerald (Green)', label: 'Emerald (Green)' },
+  { value: 'Topaz (Yellow)', label: 'Topaz (Yellow)' },
+  { value: 'custom', label: 'Other / Custom House…' },
+];
+
 interface ProvisionUserModalProps {
   isOpen: boolean;
   profiles: UserProfile[];
@@ -40,6 +49,9 @@ interface ProvisionUserModalProps {
     admissionNumber?: string;
     grade?: string;
     classLetter?: string;
+    parentEmail?: string;
+    houseColour?: string;
+    additionalInfo?: Record<string, any>;
     subject?: string | null;
     assignedClass?: string | null;
     linkedStudentIds?: string[];
@@ -62,6 +74,11 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
   // Student & Teacher Grade & Section fields
   const [grade, setGrade] = useState<'9' | '10' | '11' | '12'>('12');
   const [section, setSection] = useState<string>('A');
+
+  // Student Additional Information (Phase 1)
+  const [parentEmail, setParentEmail] = useState('');
+  const [houseColourSelect, setHouseColourSelect] = useState('');
+  const [customHouseColour, setCustomHouseColour] = useState('');
 
   // Teacher specific fields
   const [subject, setSubject] = useState('English');
@@ -154,6 +171,23 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
     const finalGrade = role === 'student' ? grade : (role === 'teacher' && isClassTeacher ? grade : undefined);
     const finalSection = role === 'student' ? section : (role === 'teacher' && isClassTeacher ? section : undefined);
 
+    // Validate parent email for students
+    if (role === 'student') {
+      const cleanParent = parentEmail.trim().toLowerCase();
+      if (!cleanParent) {
+        alert('Parent Email Address is required for student registration so parents can access the Parent Portal.');
+        return;
+      }
+      if (!cleanParent.includes('@') || !cleanParent.includes('.')) {
+        alert('Please enter a valid Parent Email Address (e.g. parent.name@gmail.com).');
+        return;
+      }
+    }
+
+    const resolvedHouseColour = houseColourSelect === 'custom'
+      ? customHouseColour.trim()
+      : houseColourSelect.trim();
+
     onSubmit({
       name: name.trim(),
       email: fullEmail,
@@ -163,6 +197,8 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
       admissionNumber: cleanUserCode,
       grade: finalGrade,
       classLetter: finalSection,
+      parentEmail: role === 'student' ? parentEmail.trim().toLowerCase() : undefined,
+      houseColour: role === 'student' ? (resolvedHouseColour || undefined) : undefined,
       subject: role === 'teacher' ? subject : null,
       assignedClass: assignedClassStr,
       linkedStudentIds: role === 'parent' ? selectedStudentIds : undefined,
@@ -176,6 +212,9 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
     setAdmissionNumber('');
     setGrade('12');
     setSection('A');
+    setParentEmail('');
+    setHouseColourSelect('');
+    setCustomHouseColour('');
     setSubject('English');
     setIsClassTeacher(false);
     setSelectedStudentIds([]);
@@ -370,6 +409,56 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
                 <p style={{ fontSize: 12, color: '#64748B', marginTop: 8 }}>
                   Assigning student to: <strong>Grade {grade} — Section {section}</strong>
                 </p>
+              </div>
+
+              {/* ── ADDITIONAL STUDENT INFORMATION (EXTENSIBLE ARCHITECTURE) ── */}
+              <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid #E2E8F0' }}>
+                <p style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Additional Student Information
+                </p>
+
+                {/* Parent Email Address — Required */}
+                <div className="form-group" style={{ marginBottom: 12 }}>
+                  <label className="form-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>Parent Email Address <span style={{ color: '#DC2626' }}>*</span></span>
+                    <span style={{ fontSize: 10.5, color: '#16A34A', fontWeight: 600 }}>Automatic Portal Linking</span>
+                  </label>
+                  <input
+                    type="email"
+                    className="form-input"
+                    placeholder="e.g. parent.name@gmail.com"
+                    value={parentEmail}
+                    onChange={(e) => setParentEmail(e.target.value)}
+                    required
+                  />
+                  <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                    Required for parent portal access. The parent will log in using this email address and automatically view this student.
+                  </p>
+                </div>
+
+                {/* House Colour — Optional */}
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">
+                    House Colour <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-secondary)' }}>(Optional)</span>
+                  </label>
+                  <CustomSelect
+                    value={houseColourSelect}
+                    onChange={(val) => setHouseColourSelect(val)}
+                    options={HOUSE_COLOURS}
+                  />
+
+                  {houseColourSelect === 'custom' && (
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Type custom house colour (e.g. Amber)"
+                      value={customHouseColour}
+                      onChange={(e) => setCustomHouseColour(e.target.value)}
+                      style={{ marginTop: 8 }}
+                      autoFocus
+                    />
+                  )}
+                </div>
               </div>
             </div>
           )}
