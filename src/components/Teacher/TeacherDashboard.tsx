@@ -5240,25 +5240,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 200 }}>
                             <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)' }}>Priority Level:</span>
-                            <select
+                            <CustomSelect
                               value={hrBcPriority}
-                              onChange={(e) => setHrBcPriority(e.target.value as any)}
-                              style={{
-                                padding: '6px 12px',
-                                fontSize: 12,
-                                fontWeight: 600,
-                                borderRadius: 6,
-                                border: '1px solid var(--border-color)',
-                                background: '#FAF9F6',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              <option value="normal">Normal Notice</option>
-                              <option value="important">Important Circular</option>
-                              <option value="urgent">Urgent Action Required</option>
-                            </select>
+                              onChange={(val) => setHrBcPriority(val as any)}
+                              options={[
+                                { value: 'normal', label: 'Normal Notice' },
+                                { value: 'important', label: 'Important Circular' },
+                                { value: 'urgent', label: 'Urgent Action Required' },
+                              ]}
+                              compact={true}
+                            />
                           </div>
 
                           <label
@@ -5464,18 +5457,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                             style={{ fontSize: 13, fontWeight: 600, padding: '9px 12px' }}
                             required
                           />
-                          <select
-                            value={hrResType}
-                            onChange={(e) => setHrResType(e.target.value as any)}
-                            className="form-input"
-                            style={{ fontSize: 12.5, padding: '9px 12px' }}
-                          >
-                            <option value="pdf">PDF Document</option>
-                            <option value="doc">Word / Text Doc</option>
-                            <option value="slides">Presentation Slides</option>
-                            <option value="worksheet">Spreadsheet / Form</option>
-                            <option value="link">Web Link / Form URL</option>
-                          </select>
+                          <div style={{ minWidth: 180 }}>
+                            <CustomSelect
+                              value={hrResType}
+                              onChange={(val) => setHrResType(val as any)}
+                              options={[
+                                { value: 'pdf', label: 'PDF Document' },
+                                { value: 'doc', label: 'Word / Text Doc' },
+                                { value: 'slides', label: 'Presentation Slides' },
+                                { value: 'worksheet', label: 'Spreadsheet / Form' },
+                                { value: 'link', label: 'Web Link / Form URL' },
+                              ]}
+                              compact={true}
+                            />
+                          </div>
                         </div>
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

@@ -10,7 +10,8 @@ import {
   getBehaviorTier,
   BASE_BEHAVIOR_SCORE,
 } from '@/lib/behaviorHelper';
-import { ShieldAlert, ArrowRight, User, AlertCircle, FileText, CheckCircle2 } from 'lucide-react';
+import { CustomSelect, CustomSelectOption } from '@/components/UI/CustomSelect';
+import { ShieldAlert, ArrowRight, User, FileText } from 'lucide-react';
 
 interface RecordBehaviorIncidentModalProps {
   isOpen: boolean;
@@ -102,6 +103,36 @@ export const RecordBehaviorIncidentModal: React.FC<RecordBehaviorIncidentModalPr
       setPointsDeducted(preset.defaultPoints);
     }
   };
+
+  // CustomSelect Options for Students (Searchable)
+  const studentOptions: CustomSelectOption[] = useMemo(() => {
+    return availableStudents.map((st) => ({
+      value: st.id,
+      label: `${st.name} ${st.admission_number || st.user_code ? `(${st.admission_number || st.user_code})` : ''} — Grade ${st.grade || '?'}-${st.class_letter || '?'}`,
+      sublabel: `Adm: ${st.admission_number || st.user_code || 'N/A'} • Grade ${st.grade || '?'}-${st.class_letter || '?'}`,
+    }));
+  }, [availableStudents]);
+
+  // CustomSelect Options for Violation Presets
+  const categoryOptions: CustomSelectOption[] = useMemo(() => {
+    return VIOLATION_PRESETS.map((p) => ({
+      value: p.id,
+      label: `${p.label} (Recommended: -${p.defaultPoints} pts)`,
+      sublabel: p.description,
+    }));
+  }, []);
+
+  // CustomSelect Options for Action Taken
+  const actionOptions: CustomSelectOption[] = useMemo(() => [
+    { value: 'Verbal Warning', label: 'Verbal Warning' },
+    { value: 'Counseling Session', label: 'Counseling Session' },
+    { value: 'Parent Notified', label: 'Parent Notified (Call / Message)' },
+    { value: 'After-School Detention', label: 'After-School Detention' },
+    { value: 'Referred to Class Teacher', label: 'Referred to Class Teacher' },
+    { value: 'Referred to Academic Coordinator', label: 'Referred to Academic Coordinator' },
+    { value: 'Behavior Contract Issued', label: 'Behavior Contract Issued' },
+    { value: 'Other', label: 'Other Action…' },
+  ], []);
 
   if (!isOpen) return null;
 
@@ -217,21 +248,14 @@ export const RecordBehaviorIncidentModal: React.FC<RecordBehaviorIncidentModalPr
               <label className="form-label" style={{ fontWeight: 600, fontSize: 12.5 }}>
                 Student Name &amp; Section <span style={{ color: '#DC2626' }}>*</span>
               </label>
-              <select
-                className="form-input"
+              <CustomSelect
                 value={selectedStudentId}
-                onChange={(e) => setSelectedStudentId(e.target.value)}
-                required
+                onChange={(val) => setSelectedStudentId(val)}
+                options={studentOptions}
+                placeholder="Search and select student…"
                 disabled={!!preselectedStudentId}
-                style={{ fontSize: 13, height: 42, background: preselectedStudentId ? '#F9F8F6' : '#FFFFFF' }}
-              >
-                <option value="" disabled>Select Student…</option>
-                {availableStudents.map((st) => (
-                  <option key={st.id} value={st.id}>
-                    {st.name} {st.admission_number || st.user_code ? `(${st.admission_number || st.user_code})` : ''} — Grade {st.grade || '?'}-{st.class_letter || '?'}
-                  </option>
-                ))}
-              </select>
+                searchable={true}
+              />
             </div>
 
             {/* Live Score Projection Preview */}
@@ -332,20 +356,14 @@ export const RecordBehaviorIncidentModal: React.FC<RecordBehaviorIncidentModalPr
               <label className="form-label" style={{ fontWeight: 600, fontSize: 12.5 }}>
                 Violation Category <span style={{ color: '#DC2626' }}>*</span>
               </label>
-              <select
-                className="form-input"
+              <CustomSelect
                 value={category}
-                onChange={(e) => handleCategoryChange(e.target.value as BehaviorViolationCategory)}
-                style={{ fontSize: 13, height: 42 }}
-              >
-                {VIOLATION_PRESETS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label} (Recommended: -{p.defaultPoints} pts)
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => handleCategoryChange(val as BehaviorViolationCategory)}
+                options={categoryOptions}
+                placeholder="Select violation category…"
+              />
               {category && (
-                <p style={{ margin: '6px 0 0 0', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                <p style={{ margin: '8px 0 0 0', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
                   {VIOLATION_PRESETS.find((p) => p.id === category)?.description}
                 </p>
               )}
@@ -459,21 +477,12 @@ export const RecordBehaviorIncidentModal: React.FC<RecordBehaviorIncidentModalPr
               <label className="form-label" style={{ fontWeight: 600, fontSize: 12.5 }}>
                 Restorative / Disciplinary Action Taken
               </label>
-              <select
-                className="form-input"
+              <CustomSelect
                 value={actionTaken}
-                onChange={(e) => setActionTaken(e.target.value)}
-                style={{ fontSize: 13, height: 42 }}
-              >
-                <option value="Verbal Warning">Verbal Warning</option>
-                <option value="Counseling Session">Counseling Session</option>
-                <option value="Parent Notified">Parent Notified (Call / Message)</option>
-                <option value="After-School Detention">After-School Detention</option>
-                <option value="Referred to Class Teacher">Referred to Class Teacher</option>
-                <option value="Referred to Academic Coordinator">Referred to Academic Coordinator</option>
-                <option value="Behavior Contract Issued">Behavior Contract Issued</option>
-                <option value="Other">Other Action…</option>
-              </select>
+                onChange={(val) => setActionTaken(val)}
+                options={actionOptions}
+                placeholder="Select action taken…"
+              />
             </div>
 
             {actionTaken === 'Other' && (
