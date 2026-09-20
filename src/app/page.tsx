@@ -151,6 +151,11 @@ export default function WoodlemApp() {
   const [csLabSessions, setCsLabSessions] = useState<CsLabSession[]>(() => getLocalCachedCsSessions());
   const [subjectClasses, setSubjectClasses] = useState<SubjectClass[]>([]);
   const [isCreateClassOpen, setIsCreateClassOpen] = useState(false);
+  const [createClassPreset, setCreateClassPreset] = useState<{
+    grade?: string;
+    section?: string;
+    lockSection?: boolean;
+  } | null>(null);
 
   // Load All Cloud Data from Supabase
   const loadAllData = useCallback(async () => {
@@ -4022,7 +4027,10 @@ export default function WoodlemApp() {
           testResults={testResults}
           onOpenProvisionModal={() => setIsProvisionUserOpen(true)}
           onOpenBulkModal={() => setIsBulkImportOpen(true)}
-          onOpenCreateSubjectClassModal={() => setIsCreateClassOpen(true)}
+          onOpenCreateSubjectClassModal={(preset) => {
+            setCreateClassPreset(preset || null);
+            setIsCreateClassOpen(true);
+          }}
           onEditUser={(user) => setEditingUser(user)}
           onUpdateUser={handleUpdateUser}
           onDeleteUser={handleDeleteUser}
@@ -4171,8 +4179,18 @@ export default function WoodlemApp() {
           isOpen={isCreateClassOpen}
           teacher={currentUser.role === 'admin' ? null : currentUser}
           profiles={profiles}
-          onClose={() => setIsCreateClassOpen(false)}
-          onSubmit={handleCreateSubjectClass}
+          onClose={() => {
+            setIsCreateClassOpen(false);
+            setCreateClassPreset(null);
+          }}
+          onSubmit={async (classData) => {
+            await handleCreateSubjectClass(classData);
+            setIsCreateClassOpen(false);
+            setCreateClassPreset(null);
+          }}
+          presetGrade={createClassPreset?.grade}
+          presetSection={createClassPreset?.section}
+          lockSection={!!createClassPreset?.lockSection}
         />
       )}
 

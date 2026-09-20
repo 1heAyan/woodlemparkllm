@@ -45,7 +45,7 @@ interface AdminDashboardProps {
   lateEntries?: LateEntryRecord[];
   onOpenProvisionModal: () => void;
   onOpenBulkModal: () => void;
-  onOpenCreateSubjectClassModal?: () => void;
+  onOpenCreateSubjectClassModal?: (preset?: { grade?: string; section?: string; lockSection?: boolean }) => void;
   onEditUser: (user: UserProfile) => void;
   onUpdateUser?: (updatedUser: UserProfile) => Promise<void> | void;
   onDeleteUser: (userId: string) => void;
@@ -1759,7 +1759,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </button>
             {onOpenCreateSubjectClassModal && (
               <button
-                onClick={onOpenCreateSubjectClassModal}
+                onClick={() => onOpenCreateSubjectClassModal()}
                 style={{
                   height: 32,
                   padding: '0 14px',
@@ -2050,8 +2050,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     {onOpenCreateSubjectClassModal && (
                       <button
                         onClick={() => {
-                          setSelectedClassInspect(null);
-                          onOpenCreateSubjectClassModal();
+                          const [g, s] = (selectedClassInspect || '').split('-');
+                          onOpenCreateSubjectClassModal({
+                            grade: g,
+                            section: s,
+                            lockSection: true,
+                          });
                         }}
                         style={{
                           background: 'none',

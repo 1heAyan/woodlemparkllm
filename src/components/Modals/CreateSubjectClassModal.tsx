@@ -19,6 +19,9 @@ interface CreateSubjectClassModalProps {
     teacher_id?: string;
     teacher_name?: string;
   }) => void;
+  presetGrade?: string;
+  presetSection?: string;
+  lockSection?: boolean;
 }
 
 export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = ({
@@ -27,6 +30,9 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
   profiles,
   onClose,
   onSubmit,
+  presetGrade,
+  presetSection,
+  lockSection,
 }) => {
   const facultyTeachers = useMemo(() => {
     return profiles.filter((p) => p.role === 'teacher');
@@ -35,12 +41,37 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
   const [name, setName] = useState('');
   const [selectedTeacherId, setSelectedTeacherId] = useState(teacher?.id || '');
   const [subject, setSubject] = useState(teacher?.subject || '');
-  const [grade, setGrade] = useState('10');
-  const [section, setSection] = useState('A');
+  const [grade, setGrade] = useState(presetGrade || '10');
+  const [section, setSection] = useState(presetSection || 'A');
   const [room, setRoom] = useState('');
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [studentSearch, setStudentSearch] = useState('');
   const [rosterScope, setRosterScope] = useState<'section' | 'grade' | 'all'>('section');
+
+  // Reset and synchronize cohort whenever modal opens or preset changes
+  useEffect(() => {
+    if (isOpen) {
+      const activeGrade = (presetGrade || grade || '10').replace(/[^0-9]/g, '') || '10';
+      const activeSection = (presetSection || section || 'A').toUpperCase().trim() || 'A';
+
+      setGrade(activeGrade);
+      setSection(activeSection);
+      setName('');
+      setRoom('');
+      setStudentSearch('');
+      setRosterScope('section');
+
+      // Auto-enroll all students of the target section by default
+      const cohortStudents = profiles.filter((p) => {
+        if (p.role !== 'student' || p.is_deactivated) return false;
+        const g = (p.grade || '').replace(/[^0-9]/g, '');
+        const sec = (p.class_letter || '').toUpperCase().trim();
+        return g === activeGrade && sec === activeSection;
+      });
+
+      setSelectedStudentIds(cohortStudents.map((s) => s.id));
+    }
+  }, [isOpen, presetGrade, presetSection, profiles]);
 
   useEffect(() => {
     if (teacher?.id) {
@@ -56,8 +87,9 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
   const handleTeacherSelect = (teacherId: string) => {
     setSelectedTeacherId(teacherId);
     const found = facultyTeachers.find((t) => t.id === teacherId);
-    if (found?.subject && !subject) {
-      setSubject(found.subject);
+    if (found?.subject) {
+      if (!subject) setSubject(found.subject);
+      if (!name.trim()) setName(`Grade ${grade} ${found.subject}`);
     }
   };
 
@@ -233,33 +265,76 @@ export const CreateSubjectClassModal: React.FC<CreateSubjectClassModalProps> = (
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Target Grade (9-12)</label>
-              <CustomSelect
-                value={grade}
-                onChange={(val) => setGrade(val)}
-                options={[
-                  { value: '9', label: 'Grade 9' },
-                  { value: '10', label: 'Grade 10' },
-                  { value: '11', label: 'Grade 11' },
-                  { value: '12', label: 'Grade 12' },
-                ]}
-              />
+          {lockSection && presetGrade && presetSection ? (
+            <div
+              style={{
+                padding: '12px 16px',
+                borderRadius: 8,
+                background: '#F0F9F7',
+                border: '1.5px solid #2C6E6A',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div>
+                <span
+                  style={{
+                    fontSize: 10.5,
+                    fontWeight: 800,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    color: '#2C6E6A',
+                  }}
+                >
+                  Target Cohort Section
+                </span>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#1F2937', marginTop: 2 }}>
+                  Grade {grade} — Section {section}
+                </div>
+              </div>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: '#20554E',
+                  background: '#D1ECE5',
+                  padding: '5px 12px',
+                  borderRadius: 6,
+                }}
+              >
+                {sectionStudents.length} Students in Cohort (All Pre-selected)
+              </div>
             </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Target Grade (9-12)</label>
+                <CustomSelect
+                  value={grade}
+                  onChange={(val) => setGrade(val)}
+                  options={[
+                    { value: '9', label: 'Grade 9' },
+                    { value: '10', label: 'Grade 10' },
+                    { value: '11', label: 'Grade 11' },
+                    { value: '12', label: 'Grade 12' },
+                  ]}
+                />
+              </div>
 
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Section Letter (A-Z)</label>
-              <CustomSelect
-                value={section}
-                onChange={(val) => setSection(val)}
-                options={Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map((s) => ({
-                  value: s,
-                  label: `Section ${s}`,
-                }))}
-              />
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Section Letter (A-Z)</label>
+                <CustomSelect
+                  value={section}
+                  onChange={(val) => setSection(val)}
+                  options={Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map((s) => ({
+                    value: s,
+                    label: `Section ${s}`,
+                  }))}
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Student Roster Enrollment Box */}
           <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 14px', background: '#FAF9F6' }}>
