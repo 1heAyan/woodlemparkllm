@@ -1,7 +1,7 @@
 import { supabase } from './supabaseClient';
 
 export const BASE_BEHAVIOR_SCORE = 80;
-export const LOCAL_STORAGE_BEHAVIOR_KEY = 'woodlem_student_behavior_incidents_v1';
+// 100% Supabase Cloud master record key in hub_activities
 export const BEHAVIOR_MASTER_CLOUD_ID = 'behavior_records_master_backup_v1';
 
 export type BehaviorViolationCategory =
@@ -188,110 +188,184 @@ export function getBehaviorTier(score: number): BehaviorScoreTier {
 }
 
 /**
- * Read cached incidents from local storage.
- */
-export function getLocalBehaviorIncidents(): BehaviorIncidentRecord[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_BEHAVIOR_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (e) {
-    console.warn('Failed to parse local behavior incidents cache:', e);
-    return [];
-  }
-}
-
-/**
- * Write incidents to local storage.
- */
-export function setLocalBehaviorIncidents(incidents: BehaviorIncidentRecord[]): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(LOCAL_STORAGE_BEHAVIOR_KEY, JSON.stringify(incidents));
-  } catch (e) {
-    console.warn('Failed to set local behavior incidents cache:', e);
-  }
-}
-
-/**
- * Load all behavior incidents from Supabase.
- * Checks native public.student_behavior_incidents table,
- * then falls back to public.hub_activities master backup,
- * and finally local storage.
+ * Load all behavior incidents from Supabase Cloud.
+ * Queries Supabase achievements (__BEHAVIOR_INCIDENT__),
+ * redundant hub_activities master cloud backup, and native student_behavior_incidents table.
+ * Strictly avoids localStorage.
  */
 export async function loadBehaviorIncidents(): Promise<BehaviorIncidentRecord[]> {
-  const localCache = getLocalBehaviorIncidents();
+  // Purge any legacy localStorage cache to guarantee 100% pure Supabase cloud storage
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem('woodlem_student_behavior_incidents_v1');
+    } catch {}
+  }
+
+  const incidentsMap = new Map<string, BehaviorIncidentRecord>();
 
   try {
-    // 1. Try native table
-    const { data: nativeData, error: nativeErr } = await supabase
-      .from('student_behavior_incidents')
+    // 1. Primary Cloud Store: Supabase achievements table
+    const { data: achData, error: achErr } = await supabase
+      .from('achievements')
       .select('*')
+      .eq('title', '__BEHAVIOR_INCIDENT__')
       .order('created_at', { ascending: false });
 
-    if (!nativeErr && Array.isArray(nativeData) && nativeData.length > 0) {
-      const parsed = nativeData.map((row: any): BehaviorIncidentRecord => ({
-        id: row.id,
-        student_id: row.student_id,
-        student_name: row.student_name,
-        student_admission_number: row.student_admission_number || '',
-        grade: row.grade || '',
-        class_letter: row.class_letter || '',
-        points_deducted: Number(row.points_deducted) || 0,
-        reason: row.reason || 'General Infraction',
-        category: (row.category as BehaviorViolationCategory) || 'other',
-        notes: row.notes || '',
-        action_taken: row.action_taken || '',
-        teacher_id: row.teacher_id || '',
-        teacher_name: row.teacher_name || 'Faculty Member',
-        teacher_role: (row.teacher_role as any) || 'subject_teacher',
-        subject: row.subject || '',
-        date: row.date || new Date().toISOString().slice(0, 10),
-        incident_time: row.incident_time || '',
-        created_at: row.created_at || new Date().toISOString(),
-      }));
-      setLocalBehaviorIncidents(parsed);
-      return parsed;
+    if (!achErr && Array.isArray(achData)) {
+      achData.forEach((row: any) => {
+        if (row.desc_text) {
+          try {
+            const inc = JSON.parse(row.desc_text);
+            if (inc && inc.id && !incidentsMap.has(inc.id)) {
+              incidentsMap.set(inc.id, inc);
+            }
+          } catch (e) {}
+        }
+      });
     }
 
-    // 2. Fallback to hub_activities master backup
-    const { data: hubData, error: hubErr } = await supabase
+    // 2. Secondary Cloud Store: hub_activities master backup in Supabase
+    try {
+      const { data: hubData, error: hubErr } = await supabase
+        .from('hub_activities')
+        .select('description')
+        .eq('id', BEHAVIOR_MASTER_CLOUD_ID)
+        .maybeSingle();
+
+      if (!hubErr && hubData?.description) {
+        const parsedHub = JSON.parse(hubData.description);
+        if (Array.isArray(parsedHub)) {
+          parsedHub.forEach((inc: any) => {
+            if (inc && inc.id && !incidentsMap.has(inc.id)) {
+              incidentsMap.set(inc.id, inc);
+            }
+          });
+        }
+      }
+    } catch (e) {}
+
+    // 3. Tertiary Cloud Store: Native student_behavior_incidents table (if migrated)
+    try {
+      const { data: nativeData, error: nativeErr } = await supabase
+        .from('student_behavior_incidents')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!nativeErr && Array.isArray(nativeData) && nativeData.length > 0) {
+        nativeData.forEach((row: any) => {
+          if (row.id && !incidentsMap.has(row.id)) {
+            incidentsMap.set(row.id, {
+              id: row.id,
+              student_id: row.student_id,
+              student_name: row.student_name,
+              student_admission_number: row.student_admission_number || '',
+              grade: row.grade || '',
+              class_letter: row.class_letter || '',
+              points_deducted: Number(row.points_deducted) || 0,
+              reason: row.reason || 'General Infraction',
+              category: (row.category as BehaviorViolationCategory) || 'other',
+              notes: row.notes || '',
+              action_taken: row.action_taken || '',
+              teacher_id: row.teacher_id || '',
+              teacher_name: row.teacher_name || 'Faculty Member',
+              teacher_role: (row.teacher_role as any) || 'subject_teacher',
+              subject: row.subject || '',
+              subject_name: row.subject || '',
+              date: row.date || new Date().toISOString().slice(0, 10),
+              incident_date: row.date || new Date().toISOString().slice(0, 10),
+              incident_time: row.incident_time || '',
+              created_at: row.created_at || new Date().toISOString(),
+            });
+          }
+        });
+      }
+    } catch (err) {}
+  } catch (err) {
+    console.warn('Behavior incidents Supabase fetch notice:', err);
+  }
+
+  const result = Array.from(incidentsMap.values());
+  result.sort((a, b) => new Date(b.created_at || b.date).getTime() - new Date(a.created_at || a.date).getTime());
+  return result;
+}
+
+/**
+ * Persists an incident directly into Supabase Cloud.
+ * Stored primarily in achievements with title '__BEHAVIOR_INCIDENT__' and
+ * backed up synchronously in hub_activities master cloud record.
+ * Absolutely NO localStorage used.
+ */
+export async function saveBehaviorIncident(
+  incident: BehaviorIncidentRecord
+): Promise<BehaviorIncidentRecord[]> {
+  // Purge any legacy localStorage cache to guarantee 100% pure Supabase cloud storage
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem('woodlem_student_behavior_incidents_v1');
+    } catch {}
+  }
+
+  // 1. Primary Cloud Persistence: Supabase achievements table
+  try {
+    const achPayload = {
+      id: incident.id,
+      student_id: incident.student_id,
+      title: '__BEHAVIOR_INCIDENT__',
+      description: incident.reason,
+      desc_text: JSON.stringify(incident),
+      file_name: incident.teacher_name || 'Faculty Member',
+      file_url: String(incident.points_deducted),
+      created_at: incident.created_at || new Date().toISOString(),
+    };
+
+    const { error: achErr } = await supabase.from('achievements').upsert(achPayload);
+    if (achErr) {
+      console.warn('Initial achievements upsert FK notice, retrying with null student_id:', achErr);
+      // If student_id FK constraint fails (e.g. custom/unmatched student id), retry with student_id: null
+      const retryRes = await supabase.from('achievements').upsert({
+        ...achPayload,
+        student_id: null,
+      });
+      if (retryRes.error) {
+        console.error('Supabase achievements fallback save error:', retryRes.error);
+      }
+    }
+  } catch (err) {
+    console.error('Supabase achievements behavior incident save error:', err);
+  }
+
+  // 2. Secondary Cloud Store: Redundant master backup in Supabase hub_activities
+  try {
+    const { data: hubData } = await supabase
       .from('hub_activities')
       .select('description')
       .eq('id', BEHAVIOR_MASTER_CLOUD_ID)
       .maybeSingle();
 
-    if (!hubErr && hubData?.description) {
+    let backupList: BehaviorIncidentRecord[] = [];
+    if (hubData?.description) {
       try {
-        const parsedHub = JSON.parse(hubData.description);
-        if (Array.isArray(parsedHub) && parsedHub.length > 0) {
-          setLocalBehaviorIncidents(parsedHub);
-          return parsedHub;
-        }
-      } catch (e) {}
+        const parsed = JSON.parse(hubData.description);
+        if (Array.isArray(parsed)) backupList = parsed;
+      } catch {}
     }
+
+    backupList = backupList.filter((b) => b.id !== incident.id);
+    backupList.unshift(incident);
+
+    await supabase.from('hub_activities').upsert({
+      id: BEHAVIOR_MASTER_CLOUD_ID,
+      title: '__BEHAVIOR_MASTER_BACKUP__',
+      type: 'system_config',
+      description: JSON.stringify(backupList),
+      date: new Date().toISOString().slice(0, 10),
+      created_by: 'system',
+    });
   } catch (err) {
-    console.warn('Behavior incidents cloud fetch notice:', err);
+    console.warn('Supabase hub_activities master backup save notice:', err);
   }
 
-  return localCache;
-}
-
-/**
- * Persists an incident to local storage and Supabase.
- */
-export async function saveBehaviorIncident(
-  incident: BehaviorIncidentRecord
-): Promise<BehaviorIncidentRecord[]> {
-  // 1. Update local storage immediately for zero latency
-  const current = getLocalBehaviorIncidents();
-  const filtered = current.filter((item) => item.id !== incident.id);
-  const updated = [incident, ...filtered];
-  setLocalBehaviorIncidents(updated);
-
-  // 2. Cloud Store 1: Insert into native table
+  // 3. Tertiary Cloud Store: Native student_behavior_incidents table (if migrated)
   try {
     await supabase.from('student_behavior_incidents').upsert([
       {
@@ -316,52 +390,62 @@ export async function saveBehaviorIncident(
       },
     ]);
   } catch (err) {
-    console.warn('Native student_behavior_incidents save notice:', err);
+    // Native table might not be migrated yet
   }
 
-  // 3. Cloud Store 2: Master backup in hub_activities
-  try {
-    await supabase.from('hub_activities').upsert([
-      {
-        id: BEHAVIOR_MASTER_CLOUD_ID,
-        title: 'Behavior Records Master Backup',
-        type: 'behavior_master_backup',
-        description: JSON.stringify(updated.slice(0, 300)),
-        created_at: new Date().toISOString(),
-      },
-    ]);
-  } catch (err) {}
-
-  return updated;
+  // Reload and return fresh records directly from Supabase Cloud
+  return await loadBehaviorIncidents();
 }
 
 /**
- * Deletes / voids an incident (e.g., error correction or restorative review).
+ * Deletes / voids an incident directly from Supabase Cloud.
  */
 export async function deleteBehaviorIncident(incidentId: string): Promise<BehaviorIncidentRecord[]> {
-  const current = getLocalBehaviorIncidents();
-  const updated = current.filter((item) => item.id !== incidentId);
-  setLocalBehaviorIncidents(updated);
-
-  try {
-    await supabase.from('student_behavior_incidents').delete().eq('id', incidentId);
-  } catch (err) {
-    console.warn('Native student_behavior_incidents delete notice:', err);
+  // Purge any legacy localStorage cache
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem('woodlem_student_behavior_incidents_v1');
+    } catch {}
   }
 
   try {
-    await supabase.from('hub_activities').upsert([
-      {
-        id: BEHAVIOR_MASTER_CLOUD_ID,
-        title: 'Behavior Records Master Backup',
-        type: 'behavior_master_backup',
-        description: JSON.stringify(updated.slice(0, 300)),
-        created_at: new Date().toISOString(),
-      },
-    ]);
+    // Delete from Supabase achievements table
+    await supabase.from('achievements').delete().eq('id', incidentId);
+  } catch (err) {
+    console.error('Supabase achievements behavior incident delete error:', err);
+  }
+
+  try {
+    // Delete from native table if present
+    await supabase.from('student_behavior_incidents').delete().eq('id', incidentId);
   } catch (err) {}
 
-  return updated;
+  try {
+    // Update hub_activities master backup
+    const { data: hubData } = await supabase
+      .from('hub_activities')
+      .select('description')
+      .eq('id', BEHAVIOR_MASTER_CLOUD_ID)
+      .maybeSingle();
+
+    if (hubData?.description) {
+      const parsed = JSON.parse(hubData.description);
+      if (Array.isArray(parsed)) {
+        const filtered = parsed.filter((b: any) => b.id !== incidentId);
+        await supabase.from('hub_activities').upsert({
+          id: BEHAVIOR_MASTER_CLOUD_ID,
+          title: '__BEHAVIOR_MASTER_BACKUP__',
+          type: 'system_config',
+          description: JSON.stringify(filtered),
+          date: new Date().toISOString().slice(0, 10),
+          created_by: 'system',
+        });
+      }
+    }
+  } catch (err) {}
+
+  // Reload fresh records directly from Supabase Cloud
+  return await loadBehaviorIncidents();
 }
 
 /**

@@ -249,20 +249,16 @@ export default function WoodlemApp() {
         }
       });
 
+      // Extract all cloud-stored behavior incidents from Supabase achievements table
+      const cloudBehaviorList: BehaviorIncidentRecord[] = [];
       (achRes.data || []).forEach((ach: any) => {
-        if (ach.title === '__USER_AVATAR__') {
-          const avUrl = ach.file_url || ach.desc_text || ach.description || '';
-          if (avUrl) {
-            if (ach.student_id) {
-              avatarMap[ach.student_id] = avUrl;
-              avatarMap[ach.student_id.toLowerCase()] = avUrl;
+        if (ach.title === '__BEHAVIOR_INCIDENT__' && ach.desc_text) {
+          try {
+            const inc = JSON.parse(ach.desc_text);
+            if (inc && inc.id && !cloudBehaviorList.some((b) => b.id === inc.id)) {
+              cloudBehaviorList.push(inc);
             }
-            if (ach.id && typeof ach.id === 'string' && ach.id.startsWith('avatar_')) {
-              const uKey = ach.id.replace('avatar_', '');
-              avatarMap[uKey] = avUrl;
-              avatarMap[uKey.toLowerCase()] = avUrl;
-            }
-          }
+          } catch (e) {}
         }
       });
 
@@ -694,7 +690,13 @@ export default function WoodlemApp() {
       fetchCloudAuthorizedStaffIds().catch(() => {});
 
       const loadedBehavior = await loadBehaviorIncidents();
-      setBehaviorIncidents(loadedBehavior);
+      const mergedBehavior = [...cloudBehaviorList];
+      loadedBehavior.forEach((b) => {
+        if (!mergedBehavior.some((m) => m.id === b.id)) {
+          mergedBehavior.push(b);
+        }
+      });
+      setBehaviorIncidents(mergedBehavior);
 
       // CS Lab data (hybrid cloud: native tables if available, else hub_activities + localStorage)
       const {
@@ -3328,13 +3330,13 @@ export default function WoodlemApp() {
   const handleRecordBehaviorIncident = async (incident: BehaviorIncidentRecord) => {
     const updated = await saveBehaviorIncident(incident);
     setBehaviorIncidents(updated);
+    loadAllData();
   };
 
   const handleDeleteBehaviorIncident = async (incidentId: string) => {
-    const success = await deleteBehaviorIncident(incidentId);
-    if (success) {
-      setBehaviorIncidents((prev) => prev.filter((item) => item.id !== incidentId));
-    }
+    const updated = await deleteBehaviorIncident(incidentId);
+    setBehaviorIncidents(updated);
+    loadAllData();
   };
 
   // 6. Holistic Hub
