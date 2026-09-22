@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
-import { supabase, UserProfile, ParentDocument, HubActivity, SubjectClass, TestItem, SyllabusTerm, LateEntryRecord } from '@/lib/supabaseClient';
+import { supabase, UserProfile, ParentDocument, HubActivity, SubjectClass, TestItem, SyllabusTerm, LateEntryRecord, isAuthenticHubActivity } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { SettingsView } from '@/components/Shared/SettingsView';
@@ -436,9 +436,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   }, [overviewProfiles, overviewSubjectClasses, tests, syllabus, attendance, testResults, overviewGradeFilter]);
 
   const displayHubActivities = useMemo(() => {
-    return (hubActivities || []).filter(
-      (act) => !String(act.title || '').startsWith('__') && act.type !== 'system_config' && act.id !== 'special_roles_master_v1'
-    );
+    return (hubActivities || []).filter(isAuthenticHubActivity);
   }, [hubActivities]);
 
   // Portal Navigation & AI Copilot Integration

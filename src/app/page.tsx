@@ -24,6 +24,7 @@ import {
   CsQuestion,
   CsSubmission,
   CsLabSession,
+  isAuthenticHubActivity,
 } from '@/lib/supabaseClient';
 import { loadLateEntries, loadAuthorizedStaffIds, fetchCloudAuthorizedStaffIds } from '@/lib/lateEntryHelper';
 import {
@@ -595,17 +596,10 @@ export default function WoodlemApp() {
       setAttendance(attMap);
 
       const builtHub: HubActivity[] = (hubRes.data || [])
-        .filter(
-          (act: any) =>
-            act &&
-            act.title &&
-            !String(act.title).startsWith('__') &&
-            act.type !== 'system_config' &&
-            act.id !== 'special_roles_master_v1'
-        )
+        .filter(isAuthenticHubActivity)
         .map((act: any) => ({
           ...act,
-          enrolled_student_ids: [],
+          enrolled_student_ids: Array.isArray(act.enrolled_student_ids) ? act.enrolled_student_ids : [],
         }));
       setHubActivities(builtHub);
 

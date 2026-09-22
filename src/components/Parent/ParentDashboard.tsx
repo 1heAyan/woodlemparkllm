@@ -49,6 +49,7 @@ import {
   ClassBroadcast,
   SubjectClass,
   LeaveRequest,
+  isAuthenticHubActivity,
 } from '@/lib/supabaseClient';
 import { getIcon } from '../Icons';
 import { SettingsView } from '@/components/Shared/SettingsView';
@@ -426,9 +427,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
   // Filtered hub activities — only targeting the child's grade
   const childHubActivities = useMemo(() => {
-    const validActivities = hubActivities.filter(
-      (act) => !String(act.title || '').startsWith('__') && act.type !== 'system_config' && act.id !== 'special_roles_master_v1'
-    );
+    const validActivities = hubActivities.filter(isAuthenticHubActivity);
     if (!activeChild) return validActivities;
     const rawGrade = String(activeChild.grade || '').trim();
     const letterStr = String(activeChild.class_letter || '').trim().toUpperCase();

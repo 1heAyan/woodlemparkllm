@@ -20,6 +20,7 @@ import {
   LateEntryRecord,
   CsQuestion,
   CsSubmission,
+  isAuthenticHubActivity,
 } from '@/lib/supabaseClient';
 import { LateEntryView } from '@/components/Shared/LateEntryView';
 import { getTodayDateString, loadAuthorizedStaffIds } from '@/lib/lateEntryHelper';
@@ -473,7 +474,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // Filter co-curricular hub activities created/published by this teacher
   const myHubActivities = useMemo(() => {
     return hubActivities
-      .filter((act) => !String(act.title || '').startsWith('__') && act.type !== 'system_config' && act.id !== 'special_roles_master_v1')
+      .filter(isAuthenticHubActivity)
       .filter((act) => {
         if (!act.created_by) return false;
         const creator = act.created_by.toLowerCase().trim();

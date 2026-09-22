@@ -199,6 +199,75 @@ export interface HubActivity {
   enrolled_student_ids?: string[];
 }
 
+/**
+ * Distinguishes genuine student-facing Co-Curricular Hub activities (Clubs, Workshops, Events, etc.)
+ * from internal system fallback records stored in public.hub_activities (CS questions/submissions, late entries, configs).
+ */
+export function isAuthenticHubActivity(act: any): boolean {
+  if (!act || !act.title) return false;
+  const title = String(act.title).trim();
+  const type = String(act.type || '').trim().toLowerCase();
+  const id = String(act.id || '').trim();
+  const desc = String(act.description || '').trim();
+
+  // 1. Exclude system internal titles
+  if (title.startsWith('__')) return false;
+  if (title.toLowerCase().startsWith('cs submission:')) return false;
+  if (title.toLowerCase().startsWith('late_entries_')) return false;
+
+  // 2. Exclude system internal IDs
+  if (
+    id.startsWith('csq_') ||
+    id.startsWith('cssub_') ||
+    id.startsWith('cssess_') ||
+    id.startsWith('late-') ||
+    id.startsWith('late_') ||
+    id.startsWith('st_info_') ||
+    id.startsWith('beh_') ||
+    id === 'special_roles_master_v1' ||
+    id === 'behavior_records_master_backup_v1' ||
+    id === 'late_entries_master_backup_v1' ||
+    id === 'late_entry_authorized_staff_config_v1'
+  ) {
+    return false;
+  }
+
+  // 3. Exclude internal system types
+  const internalTypes = [
+    'system_config',
+    'cs_question',
+    'cs_submission',
+    'cs_session',
+    'late_entry_record',
+    'late_entry',
+    'late_entries',
+    'student_additional_info',
+    'student_info_bundle',
+    'behavior_master_backup',
+  ];
+  if (internalTypes.includes(type)) return false;
+  if (
+    type.startsWith('cs_') ||
+    type.startsWith('late_') ||
+    type.startsWith('system_') ||
+    type.startsWith('behavior_') ||
+    type.startsWith('student_info') ||
+    type.startsWith('special_roles')
+  ) {
+    return false;
+  }
+
+  // 4. Exclude raw serialized JSON data records
+  if (
+    (desc.startsWith('{') && (desc.includes('"id"') || desc.includes('"question_id"') || desc.includes('"teacher_id"') || desc.includes('"user_id"'))) ||
+    (desc.startsWith('[') && desc.includes('"id"'))
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 export interface ParentDocument {
   id?: string;
   student_id: string;

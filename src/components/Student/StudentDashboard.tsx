@@ -20,6 +20,7 @@ import {
   CsQuestion,
   CsSubmission,
   CsLabSession,
+  isAuthenticHubActivity,
   supabase,
 } from '@/lib/supabaseClient';
 import { getTodayDateString } from '@/lib/lateEntryHelper';
@@ -653,7 +654,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     const fullClass = gradeNum && letterStr ? `${gradeNum}-${letterStr}` : gradeNum;
 
     const relevantActivities = hubActivities
-      .filter((act) => !String(act.title || '').startsWith('__') && act.type !== 'system_config' && act.id !== 'special_roles_master_v1')
+      .filter(isAuthenticHubActivity)
       .filter((act) => {
         const targets: string[] = act.target_grades || [];
         // No restrictions → visible to all
