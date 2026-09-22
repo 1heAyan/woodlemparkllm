@@ -96,6 +96,37 @@ function fmtDate(iso: string) {
   }
 }
 
+// ── Attempt / score helpers ─────────────────────────────────────────────────
+// An exam cell counts as "attempted" only when the student actually has a
+// score value (single total, or written + internal split). Unattempted cells
+// return null and are excluded from EVERY average/stat in this register.
+
+function getCellScore(md: MarkData | undefined | null, a: Assessment): { scored: number; max: number } | null {
+  if (!md) return null;
+  const hasSplit = a.written_max_marks !== undefined && a.internal_max_marks !== undefined;
+  if (hasSplit) {
+    const w = md.written_marks !== '' && md.written_marks !== undefined ? Number(md.written_marks) : null;
+    const i = md.internal_marks !== '' && md.internal_marks !== undefined ? Number(md.internal_marks) : null;
+    if (w !== null && !isNaN(w) && i !== null && !isNaN(i)) {
+      return { scored: Math.min(a.maximum_marks, Math.max(0, w + i)), max: a.maximum_marks };
+    }
+    return null;
+  }
+  if (md.marks !== '' && !isNaN(Number(md.marks))) {
+    return { scored: Math.min(a.maximum_marks, Math.max(0, Number(md.marks))), max: a.maximum_marks };
+  }
+  return null;
+}
+
+function hasEnteredMark(md: MarkData | undefined | null): boolean {
+  if (!md) return false;
+  return (
+    (md.marks !== undefined && md.marks !== '') ||
+    (md.written_marks !== undefined && md.written_marks !== '') ||
+    (md.internal_marks !== undefined && md.internal_marks !== '')
+  );
+}
+
 const QUICK_FEEDBACK_CHIPS = [
   'Outstanding performance! 🌟',
   'Good conceptual clarity. 👏',
@@ -153,8 +184,13 @@ export function MarkEntryModal({
   );
 
   // ── Student Summary Stats ───────────────────────────────────────────────
+  // Only attempted exams (added marks) count — unattempted exams are excluded
+  // so an empty cell never drags a student's average down.
   const studentStatsMap = useMemo(() => {
-    const map: Record<string, { totalScored: number; totalMax: number; percentage: number; gradedCount: number }> = {};
+    const map: Record<
+      string,
+      { totalScored: number; totalMax: number; percentage: number; gradedCount: number; attemptedCount: number; totalAssessments: number }
+    > = {};
 
     enrolledStudents.forEach(s => {
       let totalScored = 0;
@@ -162,29 +198,23 @@ export function MarkEntryModal({
       let gradedCount = 0;
 
       assessments.forEach(a => {
-        const md = gridData[s.id]?.[a.id];
-        if (!md) return;
-
-        const hasSplit = a.written_max_marks !== undefined && a.internal_max_marks !== undefined;
-        if (hasSplit) {
-          const w = md.written_marks !== '' && md.written_marks !== undefined ? Number(md.written_marks) : null;
-          const i = md.internal_marks !== '' && md.internal_marks !== undefined ? Number(md.internal_marks) : null;
-          if (w !== null && !isNaN(w) && i !== null && !isNaN(i)) {
-            totalScored += w + i;
-            totalMax += a.maximum_marks;
-            gradedCount += 1;
-          }
-        } else {
-          if (md.marks !== '' && !isNaN(Number(md.marks))) {
-            totalScored += Number(md.marks);
-            totalMax += a.maximum_marks;
-            gradedCount += 1;
-          }
+        const score = getCellScore(gridData[s.id]?.[a.id], a);
+        if (score) {
+          totalScored += score.scored;
+          totalMax += score.max;
+          gradedCount += 1;
         }
       });
 
       const percentage = totalMax > 0 ? (totalScored / totalMax) * 100 : 0;
-      map[s.id] = { totalScored, totalMax, percentage, gradedCount };
+      map[s.id] = {
+        totalScored,
+        totalMax,
+        percentage,
+        gradedCount,
+        attemptedCount: gradedCount,
+        totalAssessments: assessments.length,
+      };
     });
 
     return map;
@@ -238,6 +268,7 @@ export function MarkEntryModal({
         gradedCells: 0,
         totalCells: assessments.length * enrolledStudents.length,
         completionPct: 0,
+        attemptedCells: 0,
       };
     }
 
@@ -250,19 +281,18 @@ export function MarkEntryModal({
 
     enrolledStudents.forEach(s => {
       assessments.forEach(a => {
-        const md = gridData[s.id]?.[a.id];
-        if (md && md.marks !== '' && !isNaN(Number(md.marks))) {
-          const score = Number(md.marks);
-          allScoredMarks += score;
-          allMaxMarks += a.maximum_marks;
-          gradedCells += 1;
+        const score = getCellScore(gridData[s.id]?.[a.id], a);
+        if (!score) return;
 
-          const pct = (score / a.maximum_marks) * 100;
-          if (pct >= 50) passingCells += 1;
+        allScoredMarks += score.scored;
+        allMaxMarks += score.max;
+        gradedCells += 1;
 
-          if (!highest || pct > highest.pct) {
-            highest = { studentName: s.name, score, max: a.maximum_marks, pct };
-          }
+        const pct = (score.scored / score.max) * 100;
+        if (pct >= 50) passingCells += 1;
+
+        if (!highest || pct > highest.pct) {
+          highest = { studentName: s.name, score: score.scored, max: score.max, pct };
         }
       });
     });
@@ -279,6 +309,7 @@ export function MarkEntryModal({
       gradedCells,
       totalCells,
       completionPct,
+      attemptedCells: gradedCells,
     };
   }, [assessments, enrolledStudents, gridData]);
 
@@ -464,14 +495,15 @@ export function MarkEntryModal({
 
   if (!isOpen || !classRoom) return null;
 
-  // ── Column Stats Helper ──────────────────────────────────────────────────
+  // ── Column Stats Helper (only attempted marks count) ─────────────────────
   const getColStats = (assessmentId: string, max: number) => {
     const scores: number[] = [];
+    const assessment = assessments.find(a => a.id === assessmentId);
 
     Object.values(gridData).forEach(m => {
-      const v = m[assessmentId];
-      if (v && v.marks !== '' && !isNaN(Number(v.marks))) {
-        scores.push(Number(v.marks));
+      const score = assessment ? getCellScore(m[assessmentId], assessment) : null;
+      if (score) {
+        scores.push(score.scored);
       }
     });
 
@@ -667,7 +699,29 @@ export function MarkEntryModal({
       return next;
     });
     setShowBatchMenu(false);
-    showToast('Filled empty cells with 0.', 'info');
+    showToast('Filled empty cells with 0 (now counted as attempted).', 'info');
+  };
+
+  // Undo helper: mark every cell as NOT attempted (clears scores, keeps notes)
+  const clearAllMarks = () => {
+    setGridData(prev => {
+      const next = { ...prev };
+      displayedStudents.forEach(s => {
+        if (!next[s.id]) next[s.id] = {};
+        assessments.forEach(a => {
+          next[s.id][a.id] = {
+            marks: '',
+            written_marks: '',
+            internal_marks: '',
+            teacher_note: next[s.id][a.id]?.teacher_note || '',
+            is_visible_to_student: true,
+          };
+        });
+      });
+      return next;
+    });
+    setShowBatchMenu(false);
+    showToast(`Cleared all scores — now marked as Not Attempted.`, 'info');
   };
 
   // ── Excel Export ─────────────────────────────────────────────────────────
@@ -685,14 +739,22 @@ export function MarkEntryModal({
 
         assessments.forEach(a => {
           const md = gridData[s.id]?.[a.id];
-          const score = md && md.marks !== '' ? Number(md.marks) : '';
+          const score = getCellScore(md, a)?.scored ?? '';
+          const hasSplit = a.written_max_marks !== undefined && a.internal_max_marks !== undefined;
           row[`${a.title} (Max ${a.maximum_marks})`] = score;
+          if (hasSplit) {
+            row[`${a.title} [Written + Internal]`] =
+              md && (md.written_marks !== '' || md.internal_marks !== '')
+                ? `${md.written_marks ?? ''} / ${md.internal_marks ?? ''}`
+                : '';
+          }
           if (md?.teacher_note) {
             row[`${a.title} [Note]`] = md.teacher_note;
           }
         });
 
         const st = studentStatsMap[s.id];
+        row['Attempted Exams'] = st ? st.attemptedCount : 0;
         row['Total Marks Scored'] = st ? st.totalScored : 0;
         row['Total Maximum'] = st ? st.totalMax : 0;
         row['Overall Percentage'] = st && st.totalMax > 0 ? `${st.percentage.toFixed(1)}%` : '—';
@@ -787,12 +849,15 @@ export function MarkEntryModal({
                 flexDirection: 'column',
                 width: '100%',
                 flex: 1,
+                minWidth: 0,
               }
             : {
                 width: 'min(1260px, 96vw)',
+                maxWidth: '100%',
                 maxHeight: '92vh',
                 display: 'flex',
                 flexDirection: 'column',
+                minWidth: 0,
                 background: 'var(--neutral-bg)',
                 borderRadius: 16,
                 border: '1px solid var(--border-color)',
@@ -1016,6 +1081,9 @@ export function MarkEntryModal({
                   {overallKPIs.classAverage > 0 ? `${overallKPIs.classAverage.toFixed(1)}%` : '—'}
                 </span>
               </div>
+              <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 3 }}>
+                Attempted exams only · {overallKPIs.attemptedCells} of {overallKPIs.totalCells} cells
+              </div>
             </div>
 
             {/* Stat 2: Top Score */}
@@ -1076,7 +1144,7 @@ export function MarkEntryModal({
             <div className="stat-box" style={{ padding: '14px 18px', borderRadius: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span className="stat-sub" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Graded Progress
+                  Attempted Progress
                 </span>
                 <CheckCircle2 size={15} color="#2C6E6A" />
               </div>
@@ -1219,7 +1287,35 @@ export function MarkEntryModal({
                       textAlign: 'left',
                     }}
                   >
-                    <RotateCcw size={14} /> Fill Empty Cells with 0
+                    <RotateCcw size={14} /> Fill Empty Cells with 0 (counts as attempted)
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          'Clear ALL scores and mark every exam as "Not Attempted"? Teacher notes will be kept.'
+                        )
+                      ) {
+                        clearAllMarks();
+                      }
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      width: '100%',
+                      padding: '10px 14px',
+                      border: 0,
+                      borderTop: '1px solid var(--border-color)',
+                      background: 'transparent',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: '#B37D4A',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <X size={14} /> Mark All as Not Attempted (Clear Scores)
                   </button>
                 </div>
               )}
@@ -1238,6 +1334,7 @@ export function MarkEntryModal({
             flexDirection: 'column',
             flex: 1,
             minHeight: 380,
+            minWidth: 0,
             position: 'relative',
             boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
           }}
@@ -1319,7 +1416,7 @@ export function MarkEntryModal({
             </div>
           ) : (
             /* Spreadsheet Table */
-            <div style={{ overflow: 'auto', flex: 1, width: '100%' }}>
+            <div className="scroll-visible" style={{ overflow: 'auto', flex: 1, width: '100%', minWidth: 0 }}>
               <table style={{ width: '100%', minWidth: 'max-content', borderCollapse: 'collapse', fontSize: 12 }}>
                 {/* ── Table Header ── */}
                 <thead>
@@ -1344,8 +1441,8 @@ export function MarkEntryModal({
                         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                           STUDENT ({displayedStudents.length})
                         </span>
-                        <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
-                          AVG %
+                        <span style={{ fontSize: 10, color: 'var(--text-secondary)', textAlign: 'right' }} title="Average of attempted exams only — unattempted exams are excluded">
+                          AVG %<br />attempted
                         </span>
                       </div>
                     </th>
@@ -1437,7 +1534,12 @@ export function MarkEntryModal({
                                 padding: '2px 6px',
                               }}
                             >
-                              <span>Avg: <strong style={{ color: 'var(--neutral-dark)' }}>{stats.avg}</strong></span>
+                              <span>
+                                Avg: <strong style={{ color: 'var(--neutral-dark)' }}>{stats.avg}</strong>
+                              </span>
+                              <span style={{ color: '#889078' }}>
+                                · {stats.graded}/{stats.total} attempted
+                              </span>
                             </div>
                           </div>
                         </th>
@@ -1515,23 +1617,36 @@ export function MarkEntryModal({
                               </div>
                             </div>
 
-                            {/* Overall Row Percentage */}
-                            <span
-                              style={{
-                                fontSize: 11.5,
-                                fontWeight: 700,
-                                color:
-                                  st && st.totalMax > 0
-                                    ? st.percentage >= 70
-                                      ? '#2C6E6A'
-                                      : st.percentage >= 50
-                                      ? '#B37D4A'
-                                      : '#D9534F'
-                                    : 'var(--text-secondary)',
-                              }}
-                            >
-                              {st && st.totalMax > 0 ? `${st.percentage.toFixed(0)}%` : '—'}
-                            </span>
+                            {/* Overall Row Percentage (attempted exams only) */}
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                              <span
+                                style={{
+                                  fontSize: 11.5,
+                                  fontWeight: 700,
+                                  color:
+                                    st && st.totalMax > 0
+                                      ? st.percentage >= 70
+                                        ? '#2C6E6A'
+                                        : st.percentage >= 50
+                                        ? '#B37D4A'
+                                        : '#D9534F'
+                                      : 'var(--text-secondary)',
+                                }}
+                                title="Average of attempted exams only — unattempted exams are excluded"
+                              >
+                                {st && st.totalMax > 0 ? `${st.percentage.toFixed(0)}%` : '—'}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: 9.5,
+                                  color: 'var(--text-secondary)',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                title={`${st?.attemptedCount ?? 0} of ${st?.totalAssessments ?? assessments.length} exams attempted`}
+                              >
+                                {st ? `${st.attemptedCount}/${st.totalAssessments}` : `0/${assessments.length}`} taken
+                              </span>
+                            </div>
                           </div>
                         </td>
 
@@ -1544,6 +1659,7 @@ export function MarkEntryModal({
                           };
                           const hasSplit = a.written_max_marks !== undefined && a.internal_max_marks !== undefined;
                           const isInvalid = md.marks !== '' && Number(md.marks) > a.maximum_marks;
+                          const attempted = hasEnteredMark(md);
                           const cellKey = `${s.id}_${a.id}`;
                           const isCommentOpen = activeCommentKey === cellKey;
 
@@ -1555,11 +1671,16 @@ export function MarkEntryModal({
                           return (
                             <td
                               key={a.id}
+                              title={attempted ? '' : 'Not attempted — this exam is excluded from all averages'}
                               style={{
                                 borderRight: '1px solid var(--border-color)',
                                 borderBottom: '1px solid #ECEAE5',
                                 padding: '4px 6px',
-                                background: isInvalid ? '#FDF1F0' : 'transparent',
+                                background: isInvalid
+                                  ? '#FDF1F0'
+                                  : attempted
+                                  ? 'transparent'
+                                  : '#FBF9F5',
                                 position: 'relative',
                               }}
                             >
@@ -1930,7 +2051,14 @@ export function MarkEntryModal({
             gap: 8,
           }}
         >
-          <div>Use arrow keys or Enter for spreadsheet cell navigation</div>
+          <div>
+            Scroll right <span style={{ whiteSpace: 'nowrap' }}>→</span> to see all {assessments.length} assessment column{assessments.length !== 1 ? 's' : ''}.
+            Use arrow keys or Enter for spreadsheet cell navigation.
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} title="Shaded cells are exams the student has not attempted — they are excluded from all averages">
+            <span style={{ display: 'inline-block', width: 14, height: 14, background: '#FBF9F5', border: '1px solid var(--border-color)', borderRadius: 3 }} />
+            Not attempted (excluded from averages)
+          </div>
         </div>
       </div>
     </div>
