@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Woodlem LMS — Account Creation & Interconnection Workflows</title>
+  <title>Woodlem LMS — Multi-Role Interconnection Workflows</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Inter:wght@400;500;600;700;800&family=Kalam:wght@400;700&display=swap" rel="stylesheet">
@@ -17,9 +17,6 @@
       --action-blue: #BAE6FD;
       --action-blue-border: #0284C7;
       --action-blue-text: #0369A1;
-      --accent-green: #D1FAE5;
-      --accent-purple: #F3E8FF;
-      --accent-orange: #FFEDD5;
       --font-hand: 'Kalam', 'Architects Daughter', cursive, sans-serif;
       --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
     }
@@ -113,18 +110,6 @@
       border-color: #1E293B;
     }
 
-    .filter-btn.featured {
-      background: #FEF3C7;
-      color: #92400E;
-      border-color: #D97706;
-      font-weight: 700;
-    }
-
-    .filter-btn.featured.active {
-      background: #D97706;
-      color: #FFFFFF;
-    }
-
     .tool-btn {
       background: #F8FAFC;
       border: 1.5px solid #CBD5E1;
@@ -139,50 +124,30 @@
       background: #E2E8F0;
     }
 
-    /* Interconnection Hero Banner */
-    .connection-banner {
+    /* Sub-header Banner explaining interconnections */
+    .interconnection-banner {
       background: #FFFFFF;
       border-bottom: 2px dashed #CBD5E1;
-      padding: 24px 32px;
+      padding: 20px 32px;
       display: flex;
       flex-direction: column;
       align-items: center;
       text-align: center;
     }
 
-    .connection-banner h2 {
+    .interconnection-banner h2 {
       font-family: var(--font-hand);
-      font-size: 24px;
+      font-size: 22px;
+      font-weight: 700;
       color: #0F172A;
       margin-bottom: 6px;
     }
 
-    .connection-banner p {
-      max-width: 800px;
+    .interconnection-banner p {
+      max-width: 850px;
       font-size: 13.5px;
       color: #475569;
       line-height: 1.5;
-      margin-bottom: 20px;
-    }
-
-    .connection-pills {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 12px;
-    }
-
-    .conn-pill {
-      background: #F8FAFC;
-      border: 1.5px solid #0F172A;
-      border-radius: 20px;
-      padding: 6px 16px;
-      font-size: 12px;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      box-shadow: 2px 2px 0px rgba(15,23,42,0.8);
     }
 
     /* Diagram Viewport */
@@ -286,8 +251,25 @@
       margin-bottom: 6px;
       display: flex;
       align-items: center;
-      gap: 6px;
+      justify-content: space-between;
     }
+
+    .role-badge {
+      font-family: var(--font-ui);
+      font-size: 9.5px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 2px 7px;
+      border-radius: 4px;
+      border: 1px solid;
+    }
+
+    .role-badge.teacher { background: #EFF6FF; color: #1E40AF; border-color: #BFDBFE; }
+    .role-badge.student { background: #ECFDF5; color: #065F46; border-color: #A7F3D0; }
+    .role-badge.parent { background: #FDF2F8; color: #9D174D; border-color: #FBCFE8; }
+    .role-badge.admin { background: #FEF3C7; color: #92400E; border-color: #FDE68A; }
+    .role-badge.security { background: #F3F4F6; color: #1F2937; border-color: #D1D5DB; }
 
     .node-details ul {
       list-style: none;
@@ -308,44 +290,6 @@
       left: 0;
       font-weight: 700;
       color: #0F172A;
-    }
-
-    .node-tag {
-      display: inline-block;
-      margin-top: 6px;
-      font-size: 10px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      background: #F1F5F9;
-      color: #475569;
-      padding: 2px 7px;
-      border-radius: 4px;
-      border: 1px solid #CBD5E1;
-    }
-
-    .node-tag.connection {
-      background: #ECFDF5;
-      color: #065F46;
-      border-color: #A7F3D0;
-    }
-
-    .node-tag.parent-link {
-      background: #FDF2F8;
-      color: #9D174D;
-      border-color: #FBCFE8;
-    }
-
-    .node-tag.teacher-link {
-      background: #EFF6FF;
-      color: #1E40AF;
-      border-color: #BFDBFE;
-    }
-
-    .node-tag.security-link {
-      background: #FEF3C7;
-      color: #92400E;
-      border-color: #FDE68A;
     }
 
     /* Terminal "Completed" Box */
@@ -386,6 +330,19 @@
       border-top: 7px solid var(--border-dark);
     }
 
+    /* Relay Tag */
+    .relay-tag {
+      font-size: 10px;
+      font-weight: 700;
+      color: #0369A1;
+      background: #E0F2FE;
+      border: 1px solid #BAE6FD;
+      padding: 2px 8px;
+      border-radius: 4px;
+      display: inline-block;
+      margin-top: 6px;
+    }
+
     /* Footer */
     footer.diagram-footer {
       background: #FFFFFF;
@@ -404,19 +361,20 @@
     <div class="toolbar-left">
       <span class="badge-logo">WOODLEM LMS</span>
       <div class="title-group">
-        <h1>Account Creation &amp; Interconnection Ecosystem</h1>
-        <p>Complete step-by-step account onboarding showing how every user role binds to one another</p>
+        <h1>Multi-Role Interconnection Workflows</h1>
+        <p>Live functional pipelines showing how actions by one role flow across all other roles</p>
       </div>
     </div>
 
     <div class="toolbar-controls">
       <div style="display: flex; gap: 4px; background: #F1F5F9; padding: 3px; border-radius: 8px;">
-        <button class="filter-btn featured active" onclick="filterRole('creation')">★ Account Creation Flows (4)</button>
-        <button class="filter-btn" onclick="filterRole('all')">Show All Flows</button>
-        <button class="filter-btn" onclick="filterRole('student_creation')">Student Onboarding</button>
-        <button class="filter-btn" onclick="filterRole('parent_creation')">Parent &amp; Siblings</button>
-        <button class="filter-btn" onclick="filterRole('teacher_creation')">Teacher Allocation</button>
-        <button class="filter-btn" onclick="filterRole('gateduty_creation')">Gate Terminal</button>
+        <button class="filter-btn active" onclick="filterRole('all')">All Workflows (6)</button>
+        <button class="filter-btn" onclick="filterRole('behavior_chain')">1. Behavior Chain</button>
+        <button class="filter-btn" onclick="filterRole('gate_attendance')">2. Gate &rarr; Attendance</button>
+        <button class="filter-btn" onclick="filterRole('leave_approval')">3. Leave Approval</button>
+        <button class="filter-btn" onclick="filterRole('exam_grading')">4. Exam &rarr; Reports</button>
+        <button class="filter-btn" onclick="filterRole('homework_cycle')">5. Homework Cycle</button>
+        <button class="filter-btn" onclick="filterRole('sibling_switcher')">6. Sibling Switcher</button>
       </div>
 
       <div style="display: flex; gap: 6px;">
@@ -428,18 +386,12 @@
     </div>
   </header>
 
-  <!-- Explanatory Connection Banner -->
-  <div class="connection-banner">
-    <h2>How All Accounts Connect During Onboarding</h2>
+  <!-- Explanatory Subheader -->
+  <div class="interconnection-banner">
+    <h2>End-to-End Multi-Role Interaction Chains</h2>
     <p>
-      In Woodlem LMS, accounts are not created in isolation. Enrolling a <strong>Student</strong> automatically triggers parent sibling binding, homeroom roll-call assignment, course enrollments, an 80-point behavior conduct ledger, and campus gate arrival badge issuance.
+      Each column represents a complete live workflow demonstrating how an action taken by a <strong>Teacher, Student, Parent, Admin, or Gate Duty officer</strong> immediately triggers state updates, notifications, and permissions across all connected accounts.
     </p>
-    <div class="connection-pills">
-      <div class="conn-pill" style="background: #FDF2F8; color: #9D174D;">👨‍👩‍👧 Student &harr; Parent (Linked via Guardian Email &amp; Sibling Switcher)</div>
-      <div class="conn-pill" style="background: #EFF6FF; color: #1E40AF;">👩‍🏫 Student &harr; Class Teacher (Linked via Grade &amp; Section for 80-Pt Conduct)</div>
-      <div class="conn-pill" style="background: #ECFDF5; color: #065F46;">📚 Student &harr; Subject Teachers (Linked via Course Sections &amp; Exams)</div>
-      <div class="conn-pill" style="background: #FEF3C7; color: #92400E;">🛡️ Student &harr; Gate Duty (Linked via Admission RFID &amp; Late Slips)</div>
-    </div>
   </div>
 
   <!-- Viewport Canvas -->
@@ -447,83 +399,75 @@
     <div class="diagram-grid" id="diagramGrid">
 
       <!-- ========================================================================= -->
-      <!-- COLUMN 1: STUDENT ACCOUNT CREATION (CENTRAL ANCHOR) -->
+      <!-- PIPELINE 1: BEHAVIOR INFRACTION & CONDUCT CHAIN -->
       <!-- ========================================================================= -->
-      <section class="flow-column" data-role="creation student_creation">
+      <section class="flow-column" data-role="behavior_chain">
         <div class="node-box node-header">
-          <span class="category">STUDENT ONBOARDING</span>
-          Student Admission &amp; Automatic Linking
+          <span class="category">INTERCONNECTION CHAIN 1</span>
+          Student Behavior Deduction &amp; Disciplinary Flow
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-action-blue">
-          Admissions Officer Inputs Student Profile
+          Teacher Records Violation &amp; Deducts Points
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-details">
-          <div class="node-title">Step 1: Enter Student Identity</div>
+          <div class="node-title">
+            <span>Classroom Action</span>
+            <span class="role-badge teacher">Teacher Initiates</span>
+          </div>
           <ul>
-            <li>Full Legal Name</li>
-            <li>School Student Email</li>
-            <li>Admission Number (e.g. 11771)</li>
-            <li>Grade (1 to 12) &amp; Section (e.g. 12-M)</li>
-            <li>House Assignment (Emerald, Ruby, Sapphire, Amber)</li>
+            <li>Teacher opens Record Behavior modal on student</li>
+            <li>Selects infraction: "Disruptive Behavior (-4 pts)"</li>
+            <li>Selects restorative action: "Parent Notified"</li>
+            <li>Types context notes &amp; confirms deduction</li>
+          </ul>
+          <span class="relay-tag">&rarr; Dispatches Live Updates to 3 Roles</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">
+            <span>Student Dashboard</span>
+            <span class="role-badge student">Student Receives</span>
+          </div>
+          <ul>
+            <li>Conduct gauge updates immediately: 80 &rarr; 76 pts</li>
+            <li>Tier badge recalculates (Exemplary &bull; Good Standing)</li>
+            <li>New timeline entry added showing teacher name, subject, points, and action taken</li>
           </ul>
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-details">
-          <div class="node-title">Step 2: Bind Guardian Contact</div>
+          <div class="node-title">
+            <span>Parent Dashboard</span>
+            <span class="role-badge parent">Parent Receives</span>
+          </div>
           <ul>
-            <li>Enter Guardian / Parent Email</li>
-            <li>Enter Guardian Emergency Mobile Phone</li>
-            <li>Specify Relationship (Mother, Father, Guardian)</li>
+            <li>Guardian receives instant behavior alert</li>
+            <li>Child's scorecard reflects -4 point deduction</li>
+            <li>Parent inspects teacher explanation &amp; restorative steps</li>
+            <li>If score &lt; 65: Prompts parent to contact school</li>
           </ul>
-          <span class="node-tag parent-link">&rarr; Triggers Parent Engine</span>
-        </div>
-
-        <div class="arrow-down"></div>
-
-        <div class="node-box node-action-blue">
-          System Executes 4-Way Auto Linking
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-details">
-          <div class="node-title">Step 3: Automated Interconnections</div>
+          <div class="node-title">
+            <span>Homeroom &amp; Leadership</span>
+            <span class="role-badge admin">Admin / Homeroom</span>
+          </div>
           <ul>
-            <li><strong>Parent Linking:</strong>
-              <br/>&bull; If Parent exists: Appends student to Parent's Sibling Switcher
-              <br/>&bull; If New Parent: Auto-creates Parent Account &amp; credentials
-            </li>
-            <li><strong>Homeroom Teacher Linking:</strong>
-              <br/>&bull; Enrolls in Grade 12-M Homeroom Advisory
-              <br/>&bull; Initializes 80-Point Behavior baseline score
-              <br/>&bull; Adds to daily attendance roll-call register
-            </li>
-            <li><strong>Subject Courses Linking:</strong>
-              <br/>&bull; Enrolls in Grade 12 Physics, CS, Math sections
-            </li>
-            <li><strong>Gate Duty Security Linking:</strong>
-              <br/>&bull; Issues Student RFID / Barcode Badge for gate scans
-            </li>
-          </ul>
-          <span class="node-tag connection">Instant 4-Way Sync</span>
-        </div>
-
-        <div class="arrow-down"></div>
-
-        <div class="node-box node-details">
-          <div class="node-title">Step 4: Generate Credentials</div>
-          <ul>
-            <li>Issues unique Woodlem User Code</li>
-            <li>Generates initial password (e.g. woodlem123)</li>
-            <li>Uploads student ID photo avatar</li>
+            <li>Homeroom Teacher advisory register synchronizes</li>
+            <li>School Leadership analytics donut tracks conduct trends</li>
           </ul>
         </div>
 
@@ -531,81 +475,66 @@
 
         <div class="node-box node-completed">
           <span class="check">✓</span> Completed
-          <div style="font-size: 11px; font-weight: 400; color: #475569; margin-top: 4px;">Student live across all 4 portals</div>
+          <div style="font-size: 11px; font-weight: 400; color: #475569; margin-top: 4px;">Synchronized across all 4 portals</div>
         </div>
       </section>
 
       <!-- ========================================================================= -->
-      <!-- COLUMN 2: PARENT ACCOUNT & SIBLINGS CREATION -->
+      <!-- PIPELINE 2: GATE ARRIVAL & ATTENDANCE CHAIN -->
       <!-- ========================================================================= -->
-      <section class="flow-column" data-role="creation parent_creation">
+      <section class="flow-column" data-role="gate_attendance">
         <div class="node-box node-header">
-          <span class="category">PARENT ONBOARDING</span>
-          Parent Account &amp; Multi-Sibling Binding
+          <span class="category">INTERCONNECTION CHAIN 2</span>
+          Campus Gate Arrival &rarr; Classroom Attendance
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-action-blue">
-          Register Parent Account (or Auto-Provisioned)
+          Gate Duty Scans Late Student RFID Badge
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-details">
-          <div class="node-title">Step 1: Guardian Profile Setup</div>
+          <div class="node-title">
+            <span>Perimeter Security Gate</span>
+            <span class="role-badge security">Gate Duty Initiates</span>
+          </div>
           <ul>
-            <li>Parent Full Name</li>
-            <li>Verified Guardian Email Address</li>
-            <li>Mobile Phone Number (SMS alerts)</li>
-            <li>Emirates ID / National Identity No</li>
+            <li>Student arrives at campus gate at 08:14 AM</li>
+            <li>Officer scans physical badge or enters admission code</li>
+            <li>Selects reason: "School Bus Delayed"</li>
+            <li>Generates digital late clearance pass</li>
+          </ul>
+          <span class="relay-tag">&rarr; Instant Live Relay to Classroom</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">
+            <span>Homeroom Roll Call</span>
+            <span class="role-badge teacher">Teacher Receives</span>
+          </div>
+          <ul>
+            <li>Class Teacher opens morning attendance roster</li>
+            <li>Student is automatically highlighted with orange "Late Arrival" flag</li>
+            <li>Displays exact gate arrival timestamp (08:14 AM)</li>
+            <li>Teacher marks "Present (Bus Delay)" without questioning</li>
           </ul>
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-details">
-          <div class="node-title">Step 2: Connect Enrolled Children</div>
+          <div class="node-title">
+            <span>Parent &amp; Student Portals</span>
+            <span class="role-badge parent">Parent &amp; Student</span>
+          </div>
           <ul>
-            <li>Link Child 1: Admission 11771 (Grade 12-M)</li>
-            <li>Link Child 2: Admission 14205 (Grade 8-A)</li>
-            <li>System verifies admission codes against student roster</li>
-            <li>Binds both student IDs to parent's linked array</li>
-          </ul>
-          <span class="node-tag parent-link">Multi-Child Sibling Switcher</span>
-        </div>
-
-        <div class="arrow-down"></div>
-
-        <div class="node-box node-action-blue">
-          Activate Dual Homeroom Channels
-        </div>
-
-        <div class="arrow-down"></div>
-
-        <div class="node-box node-details">
-          <div class="node-title">Step 3: Establish School Connections</div>
-          <ul>
-            <li>Connects Parent to Child 1's Class Teacher (12-M)
-              <br/>&bull; Daily attendance notifications
-              <br/>&bull; 80-Pt conduct point deduction alerts
-              <br/>&bull; Medical / travel leave approvals
-            </li>
-            <li>Connects Parent to Child 2's Class Teacher (8-A)
-              <br/>&bull; Independent attendance &amp; conduct tracking
-            </li>
-          </ul>
-          <span class="node-tag teacher-link">Direct Teacher Hotline</span>
-        </div>
-
-        <div class="arrow-down"></div>
-
-        <div class="node-box node-details">
-          <div class="node-title">Step 4: KYC Clearance Upload</div>
-          <ul>
-            <li>Parent uploads Emirates ID (Front &amp; Back)</li>
-            <li>Uploads Passports, Visas &amp; Vaccine records</li>
-            <li>Admissions team reviews &amp; grants clearance</li>
+            <li>Parent receives gate arrival timestamp confirmation</li>
+            <li>Student monthly attendance standing recalculates</li>
           </ul>
         </div>
 
@@ -613,82 +542,80 @@
 
         <div class="node-box node-completed">
           <span class="check">✓</span> Completed
-          <div style="font-size: 11px; font-weight: 400; color: #475569; margin-top: 4px;">Parent oversees all siblings in 1 login</div>
+          <div style="font-size: 11px; font-weight: 400; color: #475569; margin-top: 4px;">Gate pass verified &bull; Roll call complete</div>
         </div>
       </section>
 
       <!-- ========================================================================= -->
-      <!-- COLUMN 3: TEACHER ACCOUNT & CLASS ALLOCATION -->
+      <!-- PIPELINE 3: PARENT LEAVE APPLICATION & TEACHER APPROVAL -->
       <!-- ========================================================================= -->
-      <section class="flow-column" data-role="creation teacher_creation">
+      <section class="flow-column" data-role="leave_approval">
         <div class="node-box node-header">
-          <span class="category">TEACHER ONBOARDING</span>
-          Faculty Creation &amp; Class Allocation
+          <span class="category">INTERCONNECTION CHAIN 3</span>
+          Parent Medical Leave &rarr; Teacher Approval
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-action-blue">
-          Admin Creates Faculty Profile &amp; Role
+          Parent Applies for Student Absence Leave
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-details">
-          <div class="node-title">Step 1: Faculty Profile &amp; Auth</div>
+          <div class="node-title">
+            <span>Parent Portal Request</span>
+            <span class="role-badge parent">Parent Initiates</span>
+          </div>
           <ul>
-            <li>Teacher Full Name</li>
-            <li>Official School Email</li>
-            <li>Academic Department (Science, CS, Math, etc.)</li>
-            <li>Generate Faculty User Code &amp; Password</li>
+            <li>Parent selects child on Sibling Switcher</li>
+            <li>Selects dates: Oct 12 to Oct 14 (3 days)</li>
+            <li>Selects category: "Medical / Doctor Visit"</li>
+            <li>Uploads doctor's prescription / hospital slip</li>
+            <li>Clicks "Submit Leave Application"</li>
+          </ul>
+          <span class="relay-tag">&rarr; Direct Hotline to Class Teacher</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">
+            <span>Homeroom Advisory Review</span>
+            <span class="role-badge teacher">Teacher Receives</span>
+          </div>
+          <ul>
+            <li>Class Teacher receives pending leave alert</li>
+            <li>Views doctor's note attachment &amp; reason</li>
+            <li>Teacher clicks "Approve Leave"</li>
           </ul>
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-details">
-          <div class="node-title">Step 2: Assign Homeroom Advisory</div>
+          <div class="node-title">
+            <span>Automated Attendance Sync</span>
+            <span class="role-badge teacher">All Subject Classes</span>
+          </div>
           <ul>
-            <li>Assign Class Teacher Section (e.g. Grade 12-M)</li>
-            <li>System automatically connects this teacher to:
-              <br/>&bull; All 28 students in Section 12-M
-              <br/>&bull; All parents of 12-M students
-              <br/>&bull; Daily morning attendance roll-call
-              <br/>&bull; 80-Point Behavior Conduct management
-              <br/>&bull; Student leave request approval inbox
-            </li>
+            <li>For Oct 12-14: Roll-call automatically marks "Authorized Absent"</li>
+            <li>Subject Teachers see "Excused Absence" flag</li>
+            <li>Homework deadline penalties paused</li>
           </ul>
-          <span class="node-tag teacher-link">Homeroom Advisory Authority</span>
-        </div>
-
-        <div class="arrow-down"></div>
-
-        <div class="node-box node-action-blue">
-          Assign Subject Course Sections
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-details">
-          <div class="node-title">Step 3: Connect Course Curriculum</div>
+          <div class="node-title">
+            <span>Parent Confirmation</span>
+            <span class="role-badge parent">Parent Notified</span>
+          </div>
           <ul>
-            <li>Assign Courses: Grade 11 Physics &bull; Grade 12 Physics</li>
-            <li>Connects teacher to enrolled students across sections</li>
-            <li>Unlocks Online Quiz / Exam authoring engine</li>
-            <li>Unlocks Homework assignment &amp; grading pipeline</li>
-            <li>Unlocks Assessment Term official mark entry table</li>
-          </ul>
-          <span class="node-tag connection">Course Curriculum Engine</span>
-        </div>
-
-        <div class="arrow-down"></div>
-
-        <div class="node-box node-details">
-          <div class="node-title">Step 4: Special Roles Delegation (Optional)</div>
-          <ul>
-            <li>Appoint as Head of Department (HOD)</li>
-            <li>Or Academic Coordinator / Senior Leadership</li>
-            <li>Enables grade-wide moderation &amp; syllabus audits</li>
+            <li>Status changes from "Pending" to "Approved"</li>
+            <li>Parent receives green verified leave badge</li>
           </ul>
         </div>
 
@@ -696,77 +623,245 @@
 
         <div class="node-box node-completed">
           <span class="check">✓</span> Completed
-          <div style="font-size: 11px; font-weight: 400; color: #475569; margin-top: 4px;">Faculty roster &amp; gradebooks active</div>
+          <div style="font-size: 11px; font-weight: 400; color: #475569; margin-top: 4px;">Excused absence recorded campus-wide</div>
         </div>
       </section>
 
       <!-- ========================================================================= -->
-      <!-- COLUMN 4: GATE DUTY STAFF ACCOUNT CREATION -->
+      <!-- PIPELINE 4: EXAM, GRADING & REPORT CARD CHAIN -->
       <!-- ========================================================================= -->
-      <section class="flow-column" data-role="creation gateduty_creation">
+      <section class="flow-column" data-role="exam_grading">
         <div class="node-box node-header">
-          <span class="category">GATE DUTY ONBOARDING</span>
-          Security Terminal Provisioning
+          <span class="category">INTERCONNECTION CHAIN 4</span>
+          Assessment Creation &rarr; Exam &rarr; Report Card
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-action-blue">
-          Admin Authorizes Gate Security Account
+          Admin Configures Assessment Term
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-details">
-          <div class="node-title">Step 1: Security Officer Profile</div>
+          <div class="node-title">
+            <span>1. Admin Term Setup</span>
+            <span class="role-badge admin">Admin Initiates</span>
+          </div>
           <ul>
-            <li>Officer Full Name</li>
-            <li>Security Badge Number</li>
-            <li>Terminal Assignment (e.g. Main Gate Terminal 1)</li>
-            <li>Grant "gate_duty" special role permission</li>
+            <li>Admin creates "Term 1 Examination 2026"</li>
+            <li>Sets weightage: Theory 70%, Practical 20%, Viva 10%</li>
+            <li>Opens mark entry window for all departments</li>
           </ul>
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-details">
-          <div class="node-title">Step 2: Connect Student Roster</div>
+          <div class="node-title">
+            <span>2. Subject Teacher Authors Exam</span>
+            <span class="role-badge teacher">Teacher Prepares</span>
+          </div>
           <ul>
-            <li>Terminal receives real-time read access to:
-              <br/>&bull; All student admission numbers &amp; names
-              <br/>&bull; Student photo avatars for visual check
-              <br/>&bull; Assigned homeroom sections &amp; grades
-            </li>
+            <li>Creates quiz with MCQs &amp; text essay questions</li>
+            <li>Sets 45-minute countdown timer &amp; deadline</li>
+            <li>Publishes to enrolled class sections</li>
           </ul>
-          <span class="node-tag security-link">High-Speed Roster Lookup</span>
-        </div>
-
-        <div class="arrow-down"></div>
-
-        <div class="node-box node-action-blue">
-          Establish Live Homeroom Relay
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-details">
-          <div class="node-title">Step 3: Connect to Morning Attendance</div>
+          <div class="node-title">
+            <span>3. Student Exam Experience</span>
+            <span class="role-badge student">Student Takes Exam</span>
+          </div>
           <ul>
-            <li>When officer scans a late student badge at the gate:
-              <br/>&bull; Automatically logs arrival timestamp
-              <br/>&bull; Instantly updates Class Teacher's roll-call
-              <br/>&bull; Flags student as "Late Arrival" with reason
-            </li>
-            <li>Generates digital gate entry slip for classroom pass</li>
+            <li>Student opens Exam Portal under live timer</li>
+            <li>Submits answers before timer expires</li>
+            <li>MCQ score calculated instantly by system</li>
           </ul>
-          <span class="node-tag connection">Real-Time Homeroom Alert</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">
+            <span>4. Grading &amp; Term Mark Entry</span>
+            <span class="role-badge teacher">Teacher Commits</span>
+          </div>
+          <ul>
+            <li>Teacher reviews open-ended student answers</li>
+            <li>Inputs Practical (20) &amp; Viva (10) into term matrix</li>
+            <li>Submits official locked grades</li>
+          </ul>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">
+            <span>5. Report Card Distribution</span>
+            <span class="role-badge parent">Student &amp; Parent</span>
+          </div>
+          <ul>
+            <li>Official Term Report Card unlocked on Student Portal</li>
+            <li>Parent inspects subject breakdown &amp; GPA</li>
+          </ul>
         </div>
 
         <div class="arrow-down"></div>
 
         <div class="node-box node-completed">
           <span class="check">✓</span> Completed
-          <div style="font-size: 11px; font-weight: 400; color: #475569; margin-top: 4px;">Gate terminal live &bull; Campus perimeter secure</div>
+          <div style="font-size: 11px; font-weight: 400; color: #475569; margin-top: 4px;">Academic cycle closed &bull; Verified by leadership</div>
+        </div>
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- PIPELINE 5: HOMEWORK, SUBMISSION & FEEDBACK CYCLE -->
+      <!-- ========================================================================= -->
+      <section class="flow-column" data-role="homework_cycle">
+        <div class="node-box node-header">
+          <span class="category">INTERCONNECTION CHAIN 5</span>
+          Homework Assignment &rarr; Submission &rarr; Grading
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-action-blue">
+          Teacher Publishes Course Assignment
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">
+            <span>Teacher Assignments</span>
+            <span class="role-badge teacher">Teacher Posts</span>
+          </div>
+          <ul>
+            <li>Teacher posts "Physics Problem Set 3"</li>
+            <li>Attaches reference PDF worksheet &amp; rubric</li>
+            <li>Sets due date: Friday 11:59 PM</li>
+          </ul>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">
+            <span>Student Submission</span>
+            <span class="role-badge student">Student Submits</span>
+          </div>
+          <ul>
+            <li>Student views assignment alert on dashboard</li>
+            <li>Uploads completed solution PDF or types response</li>
+            <li>Clicks "Submit Assignment" before deadline</li>
+          </ul>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">
+            <span>Teacher Grading &amp; Feedback</span>
+            <span class="role-badge teacher">Teacher Grades</span>
+          </div>
+          <ul>
+            <li>Teacher previews student file in submission viewer</li>
+            <li>Assigns numerical mark (e.g. 19/20)</li>
+            <li>Writes personalized feedback commentary</li>
+            <li>Returns graded submission to student</li>
+          </ul>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">
+            <span>Student &amp; Parent Visibility</span>
+            <span class="role-badge parent">Student &amp; Parent</span>
+          </div>
+          <ul>
+            <li>Student reviews corrections &amp; remarks</li>
+            <li>Parent overview marks homework as "Completed"</li>
+          </ul>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-completed">
+          <span class="check">✓</span> Completed
+          <div style="font-size: 11px; font-weight: 400; color: #475569; margin-top: 4px;">Continuous academic feedback loop complete</div>
+        </div>
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- PIPELINE 6: PARENT SIBLING SWITCHER & ROUTING -->
+      <!-- ========================================================================= -->
+      <section class="flow-column" data-role="sibling_switcher">
+        <div class="node-box node-header">
+          <span class="category">INTERCONNECTION CHAIN 6</span>
+          Parent Multi-Child Sibling Dispatcher
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-action-blue">
+          Parent Toggles Sibling Switcher
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">
+            <span>Single Guardian Login</span>
+            <span class="role-badge parent">Parent Controls</span>
+          </div>
+          <ul>
+            <li>Parent logs into verified account once</li>
+            <li>Top Sibling Switcher shows enrolled children:
+              <br/>&bull; Child 1: Ayaan (Grade 12-M)
+              <br/>&bull; Child 2: Sara (Grade 8-A)
+            </li>
+          </ul>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">
+            <span>Child 1 Context (High School)</span>
+            <span class="role-badge teacher">Routes to 12-M Faculty</span>
+          </div>
+          <ul>
+            <li>Direct link to Homeroom Teacher A (Grade 12-M)</li>
+            <li>Attendance, 80-Pt conduct, and leave approvals</li>
+            <li>Physics, Math, CS course grades &amp; board exams</li>
+          </ul>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">
+            <span>Child 2 Context (Middle School)</span>
+            <span class="role-badge teacher">Routes to 8-A Faculty</span>
+          </div>
+          <ul>
+            <li>Direct link to Homeroom Teacher B (Grade 8-A)</li>
+            <li>Independent attendance, conduct, and leaves</li>
+            <li>Middle school syllabus &amp; term assessments</li>
+          </ul>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-completed">
+          <span class="check">✓</span> Completed
+          <div style="font-size: 11px; font-weight: 400; color: #475569; margin-top: 4px;">Zero data cross-leak &bull; Complete family control</div>
         </div>
       </section>
 
@@ -774,7 +869,7 @@
   </main>
 
   <footer class="diagram-footer">
-    <strong>Woodlem LMS</strong> &bull; Complete Interactive User Functionality &amp; Account Interconnection Flows &bull; 100% Real-Time Synchronized
+    <strong>Woodlem LMS</strong> &bull; Multi-Role Interconnection &amp; Cross-Portal Operational Flows &bull; 100% Real-Time Synchronized
   </footer>
 
   <script>
