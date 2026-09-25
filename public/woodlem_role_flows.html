@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Woodlem LMS — System Roles & Operational Flows Diagram</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Inter:wght@400;500;600;700;800&family=Kalam:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-page: #F8F9FA;
+      --card-bg: #FFFFFF;
+      --border-dark: #1E293B;
+      --text-main: #0F172A;
+      --text-muted: #475569;
+      --action-blue: #BAE6FD;
+      --action-blue-border: #0284C7;
+      --action-blue-text: #0369A1;
+      --cloud-tag: #EFF6FF;
+      --cloud-border: #BFDBFE;
+      --font-hand: 'Kalam', 'Architects Daughter', cursive, sans-serif;
+      --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-page);
+      color: var(--text-main);
+      font-family: var(--font-ui);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: auto;
+    }
+
+    /* Top Control Bar */
+    header.diagram-toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: #FFFFFF;
+      border-bottom: 2px solid var(--border-dark);
+      padding: 12px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+    }
+
+    .toolbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .badge-logo {
+      background: #2C6E6A;
+      color: #FFFFFF;
+      font-weight: 800;
+      font-size: 13px;
+      padding: 5px 12px;
+      border-radius: 6px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .title-group h1 {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .title-group p {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .toolbar-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .filter-btn {
+      background: #FFFFFF;
+      border: 1.5px solid var(--border-dark);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      color: var(--text-main);
+    }
+
+    .filter-btn:hover {
+      background: #F1F5F9;
+    }
+
+    .filter-btn.active {
+      background: #1E293B;
+      color: #FFFFFF;
+      border-color: #1E293B;
+    }
+
+    .tool-btn {
+      background: #F8FAFC;
+      border: 1.5px solid #CBD5E1;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .tool-btn:hover {
+      background: #E2E8F0;
+    }
+
+    /* Diagram Canvas */
+    .diagram-viewport {
+      flex: 1;
+      padding: 40px 32px 80px;
+      overflow-x: auto;
+      display: flex;
+      justify-content: flex-start;
+      min-width: 100%;
+    }
+
+    .diagram-grid {
+      display: flex;
+      gap: 36px;
+      align-items: flex-start;
+      margin: 0 auto;
+      transition: transform 0.2s ease-out;
+      transform-origin: top left;
+    }
+
+    /* Column Pipeline */
+    .flow-column {
+      width: 320px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transition: opacity 0.2s ease;
+    }
+
+    .flow-column.hidden {
+      display: none;
+    }
+
+    /* Hand-drawn Box Styles */
+    .node-box {
+      width: 100%;
+      background: var(--card-bg);
+      border: 2px solid var(--border-dark);
+      border-radius: 8px;
+      padding: 12px 14px;
+      text-align: center;
+      position: relative;
+      box-shadow: 2px 2px 0px rgba(15, 23, 42, 0.85);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .node-box:hover {
+      transform: translateY(-2px);
+      box-shadow: 3px 4px 0px rgba(15, 23, 42, 0.95);
+    }
+
+    /* Header Title Card */
+    .node-header {
+      font-family: var(--font-hand);
+      font-size: 19px;
+      font-weight: 700;
+      padding: 12px 14px;
+      line-height: 1.25;
+      background: #FFFFFF;
+    }
+
+    .node-header .subtitle {
+      font-size: 15px;
+      font-weight: 400;
+      color: var(--text-muted);
+      display: block;
+      margin-top: 2px;
+    }
+
+    /* Blue Primary Action Card */
+    .node-action-blue {
+      background: var(--action-blue);
+      border-color: var(--border-dark);
+      color: #0F172A;
+      font-family: var(--font-hand);
+      font-size: 18px;
+      font-weight: 700;
+      padding: 14px 16px;
+      box-shadow: 2px 3px 0px rgba(15, 23, 42, 0.9);
+    }
+
+    /* Detail / Bullet List Node */
+    .node-details {
+      background: #FFFFFF;
+      text-align: left;
+      font-size: 12.5px;
+      padding: 14px 16px;
+      line-height: 1.5;
+    }
+
+    .node-details .node-title {
+      font-family: var(--font-hand);
+      font-size: 16px;
+      font-weight: 700;
+      color: #0F172A;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .node-details ul {
+      list-style: none;
+      padding-left: 2px;
+    }
+
+    .node-details li {
+      margin-bottom: 5px;
+      color: #334155;
+      font-size: 12px;
+      position: relative;
+      padding-left: 14px;
+    }
+
+    .node-details li::before {
+      content: "-";
+      position: absolute;
+      left: 0;
+      font-weight: 700;
+      color: #0F172A;
+    }
+
+    .node-tag {
+      display: inline-block;
+      margin-top: 8px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: #F1F5F9;
+      color: #475569;
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid #CBD5E1;
+    }
+
+    .node-tag.cloud {
+      background: var(--cloud-tag);
+      color: var(--action-blue-text);
+      border-color: var(--cloud-border);
+    }
+
+    .node-tag.alert {
+      background: #FDF1F0;
+      color: #A83B38;
+      border-color: #F5C6CB;
+    }
+
+    /* Terminal "Completed" Box */
+    .node-completed {
+      font-family: var(--font-hand);
+      font-size: 21px;
+      font-weight: 700;
+      padding: 12px 20px;
+      background: #FFFFFF;
+      border: 2.5px solid var(--border-dark);
+      box-shadow: 3px 3px 0px rgba(15, 23, 42, 0.9);
+      color: #0F172A;
+    }
+
+    .node-completed .check {
+      color: #16A34A;
+      margin-right: 6px;
+    }
+
+    /* Arrows / Connectors */
+    .arrow-down {
+      width: 2px;
+      height: 28px;
+      background: var(--border-dark);
+      margin: 0 auto;
+      position: relative;
+    }
+
+    .arrow-down::after {
+      content: "";
+      position: absolute;
+      bottom: -1px;
+      left: -4px;
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 7px solid var(--border-dark);
+    }
+
+    /* Footer Note */
+    footer.diagram-footer {
+      background: #FFFFFF;
+      border-top: 1.5px solid #E2E8F0;
+      padding: 16px 24px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Sticky Navigation Bar -->
+  <header class="diagram-toolbar">
+    <div class="toolbar-left">
+      <span class="badge-logo">WOODLEM LMS</span>
+      <div class="title-group">
+        <h1>System Role Workflows &amp; Architecture</h1>
+        <p>Interactive operational pipelines for Admin, Class Teacher, Subject Teacher, Student, Parent, and Gate Duty</p>
+      </div>
+    </div>
+
+    <div class="toolbar-controls">
+      <div style="display: flex; gap: 4px; background: #F1F5F9; padding: 3px; border-radius: 8px;">
+        <button class="filter-btn active" onclick="filterRole('all')">All Roles</button>
+        <button class="filter-btn" onclick="filterRole('admin')">Admin</button>
+        <button class="filter-btn" onclick="filterRole('class_teacher')">Class Teacher</button>
+        <button class="filter-btn" onclick="filterRole('subject_teacher')">Subject Teacher</button>
+        <button class="filter-btn" onclick="filterRole('student')">Student</button>
+        <button class="filter-btn" onclick="filterRole('parent')">Parent</button>
+        <button class="filter-btn" onclick="filterRole('gateduty')">Gate Duty</button>
+      </div>
+
+      <div style="display: flex; gap: 6px;">
+        <button class="tool-btn" onclick="zoomIn()">Zoom +</button>
+        <button class="tool-btn" onclick="zoomOut()">Zoom −</button>
+        <button class="tool-btn" onclick="resetZoom()">Reset</button>
+        <button class="tool-btn" onclick="window.print()">🖨️ Print / PDF</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Viewport Canvas -->
+  <main class="diagram-viewport">
+    <div class="diagram-grid" id="diagramGrid">
+
+      <!-- ========================================================================= -->
+      <!-- COLUMN 1: ADMIN WORKFLOW -->
+      <!-- ========================================================================= -->
+      <section class="flow-column" data-role="admin">
+        <div class="node-box node-header">
+          [Administration]
+          <span class="subtitle">Institutional Setup &amp; Governance</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-action-blue">
+          Authenticate via Domain
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Provision User Directory</div>
+          <ul>
+            <li>Student Name, Admission No, Grade &amp; Section</li>
+            <li>Teacher Course Allocations &amp; Homeroom link</li>
+            <li>Parent Contact &amp; Enrolled Sibling bindings</li>
+          </ul>
+          <span class="node-tag cloud">Supabase profiles</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Credential &amp; Badge Engine</div>
+          <ul>
+            <li>Auto-generate passwords (__USER_PASSWORD__)</li>
+            <li>Upload ID badges &amp; avatars (__USER_AVATAR__)</li>
+            <li>Resolve duplicate profiles with Merge wizard</li>
+          </ul>
+          <span class="node-tag cloud">Supabase achievements</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Academic Terms &amp; Assessments</div>
+          <ul>
+            <li>Define Term 1, Midterm, Annual Board window</li>
+            <li>Configure Theory (70%), Practical (20%), Viva (10%)</li>
+            <li>Enforce mark entry open/lock deadlines</li>
+          </ul>
+          <span class="node-tag cloud">__GRADE_ASSESSMENT_TERM__</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Access Control &amp; Delegation</div>
+          <ul>
+            <li>Grant HOD, Coordinator, SLT executive roles</li>
+            <li>Authorize Campus Gate Duty security staff</li>
+            <li>Store in special_roles_master_v1 bundle</li>
+          </ul>
+          <span class="node-tag cloud">hub_activities config</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Executive Analytics</div>
+          <ul>
+            <li>Grade-wide score distribution &amp; compliance</li>
+            <li>Teacher mark submission compliance donut</li>
+            <li>Campus-wide attendance &amp; conduct trends</li>
+          </ul>
+          <span class="node-tag">Real-Time Insights</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-completed">
+          <span class="check">✓</span> Completed
+        </div>
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- COLUMN 2: CLASS TEACHER (HOMEROOM) WORKFLOW -->
+      <!-- ========================================================================= -->
+      <section class="flow-column" data-role="class_teacher">
+        <div class="node-box node-header">
+          [Class Teacher]
+          <span class="subtitle">Homeroom Advisory &amp; Conduct</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-action-blue">
+          Open Homeroom Dashboard
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Daily Attendance Roll Call</div>
+          <ul>
+            <li>One-click Present, Auth Absent, Unauth Absent</li>
+            <li>Cross-verify Gate Duty late entry logs</li>
+            <li>Direct upsert to cloud attendance table</li>
+          </ul>
+          <span class="node-tag cloud">Supabase attendance</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-action-blue">
+          Record Behavior Incident
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">80-Pt Point Deduction Engine</div>
+          <ul>
+            <li>Select student via searchable CustomSelect</li>
+            <li>Category: Late, Disruptive, Rule Violation, Uniform</li>
+            <li>Specify points to deduct (-2, -4, -5, -10 pts)</li>
+            <li>Action taken: Warning, Counseling, Detention</li>
+          </ul>
+          <span class="node-tag alert">80-Point Rubric</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Live Score &amp; Tier Projection</div>
+          <ul>
+            <li>Projected Score: 80 - Total Deductions</li>
+            <li>Tier: Exemplary &bull; Good &bull; Needs Guidance &bull; Review</li>
+            <li>100% saved to achievements (__BEHAVIOR_INCIDENT__)</li>
+            <li>Synchronized to hub master cloud backup</li>
+          </ul>
+          <span class="node-tag cloud">Zero localStorage &bull; Pure Cloud</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Homeroom Broadcasts &amp; Leaves</div>
+          <ul>
+            <li>Post notices (Urgent / Important / Normal)</li>
+            <li>Review parent leave requests &amp; medical notes</li>
+            <li>Approve / reject with direct attendance sync</li>
+          </ul>
+          <span class="node-tag cloud">__LEAVE_REQUEST__ sync</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-completed">
+          <span class="check">✓</span> Completed
+        </div>
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- COLUMN 3: SUBJECT TEACHER WORKFLOW -->
+      <!-- ========================================================================= -->
+      <section class="flow-column" data-role="subject_teacher">
+        <div class="node-box node-header">
+          [Subject Teacher]
+          <span class="subtitle">Curriculum &amp; Examination</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-action-blue">
+          Select Assigned Course
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Curriculum &amp; Syllabus Tracker</div>
+          <ul>
+            <li>Check off completed syllabus topics</li>
+            <li>Upload class resources (PDF, Slides, Sheets)</li>
+            <li>Broadcast course reminders to enrolled sections</li>
+          </ul>
+          <span class="node-tag cloud">student_syllabus_progress</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-action-blue">
+          Author Online Tests / Quizzes
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Test Authoring Engine</div>
+          <ul>
+            <li>MCQ questions with automatic evaluation</li>
+            <li>Open-ended text questions with model answers</li>
+            <li>Configure duration countdown &amp; hard deadline</li>
+            <li>Publish instantly to target class sections</li>
+          </ul>
+          <span class="node-tag cloud">Supabase tests</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Assignments &amp; Mark Entry</div>
+          <ul>
+            <li>Post homework with attachments &amp; rubrics</li>
+            <li>Review student file/text submissions &amp; grade</li>
+            <li>Open official Term Mark Entry modal</li>
+            <li>Validate component marks against maximum</li>
+          </ul>
+          <span class="node-tag cloud">assignment_submissions &bull; tests</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">CS Lab IDE (CS Faculty)</div>
+          <ul>
+            <li>Write Python &amp; JS programming challenges</li>
+            <li>Define automated test cases (inputs/expected)</li>
+            <li>Inspect and execute student code in real time</li>
+          </ul>
+          <span class="node-tag">Integrated Pyodide Runner</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-completed">
+          <span class="check">✓</span> Completed
+        </div>
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- COLUMN 4: STUDENT WORKFLOW -->
+      <!-- ========================================================================= -->
+      <section class="flow-column" data-role="student">
+        <div class="node-box node-header">
+          [Student Portal]
+          <span class="subtitle">Learning &amp; Academic Performance</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-action-blue">
+          Student Portal Sign-In
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Daily Academic Schedule</div>
+          <ul>
+            <li>Review class timetable &amp; announcements</li>
+            <li>Track personal attendance % standing</li>
+            <li>Access teacher shared documents &amp; slides</li>
+          </ul>
+          <span class="node-tag">Personal Hub</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-action-blue">
+          Launch Active Online Exam
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Online Examination Flow</div>
+          <ul>
+            <li>Strict countdown timer with auto-submit</li>
+            <li>Live question auto-save to cloud state</li>
+            <li>Instant MCQ score reveal upon completion</li>
+            <li>Detailed teacher feedback on text questions</li>
+          </ul>
+          <span class="node-tag cloud">Supabase test_results</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Homework &amp; CS Coding Lab</div>
+          <ul>
+            <li>Upload homework solutions (PDF, DOC, text)</li>
+            <li>Open in-browser Python compiler IDE</li>
+            <li>Run code against test suites &amp; view terminal</li>
+          </ul>
+          <span class="node-tag">Monaco &bull; Pyodide</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Conduct &amp; Co-Curricular Hub</div>
+          <ul>
+            <li>View 80-Pt Behavior score &amp; tier badge</li>
+            <li>Inspect incident dates, points &amp; teacher notes</li>
+            <li>Explore and enroll in authentic School Clubs</li>
+          </ul>
+          <span class="node-tag alert">80-Point Standard</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-completed">
+          <span class="check">✓</span> Completed
+        </div>
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- COLUMN 5: PARENT WORKFLOW -->
+      <!-- ========================================================================= -->
+      <section class="flow-column" data-role="parent">
+        <div class="node-box node-header">
+          [Parent Portal]
+          <span class="subtitle">Multi-Child Guardian Oversight</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-action-blue">
+          Parent Verified Sign-In
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Multi-Child Sibling Switcher</div>
+          <ul>
+            <li>Instant toggle between enrolled children</li>
+            <li>Synchronized grade, section &amp; attendance profile</li>
+            <li>Isolated academic metrics per child</li>
+          </ul>
+          <span class="node-tag">One-Tap Context Switch</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Attendance &amp; Conduct Monitoring</div>
+          <ul>
+            <li>Live daily attendance roll-call status</li>
+            <li>Child's 80-Point Behavior Scorecard</li>
+            <li>Alerts when score requires conduct review</li>
+          </ul>
+          <span class="node-tag alert">Proactive Alerts</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-action-blue">
+          KYC Document Clearance
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Document Clearance &amp; Leaves</div>
+          <ul>
+            <li>Upload Emirates ID, Passport, Visa, Vaccine</li>
+            <li>Persisted to Supabase parent_documents</li>
+            <li>Apply for student leave with medical notes</li>
+            <li>Real-time approval updates from Class Teacher</li>
+          </ul>
+          <span class="node-tag cloud">parent_documents &bull; __LEAVE_REQUEST__</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Term Reports &amp; Circulars</div>
+          <ul>
+            <li>Review published term report cards</li>
+            <li>Access official school broadcast circulars</li>
+          </ul>
+          <span class="node-tag">Official School Records</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-completed">
+          <span class="check">✓</span> Completed
+        </div>
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- COLUMN 6: GATE DUTY STAFF WORKFLOW -->
+      <!-- ========================================================================= -->
+      <section class="flow-column" data-role="gateduty">
+        <div class="node-box node-header">
+          [Campus Gate Duty]
+          <span class="subtitle">Late Arrival &amp; Security</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-action-blue">
+          Open Gate Scanner Terminal
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Identify Arriving Person</div>
+          <ul>
+            <li>Quick search: Admission No or Student Name</li>
+            <li>Scan physical RFID card / barcode badge</li>
+            <li>Verify photo avatar, grade &amp; homeroom section</li>
+          </ul>
+          <span class="node-tag">High-Speed Scanner</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-action-blue">
+          Log Late Entry Infraction
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Timestamp &amp; Reason Capture</div>
+          <ul>
+            <li>Preset: Bus Delay, Traffic, Family, Unexcused</li>
+            <li>Automatic high-precision timestamp recorded</li>
+            <li>Duty officer notes &amp; vehicle info</li>
+          </ul>
+          <span class="node-tag cloud">late_entry_record</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-details">
+          <div class="node-title">Cloud Sync &amp; Pass Issuance</div>
+          <ul>
+            <li>Instant upsert to Supabase hub_activities</li>
+            <li>Immutable audit trail created in audit_logs</li>
+            <li>Instant alert on Class Teacher attendance roster</li>
+            <li>Print / generate digital late entry pass</li>
+          </ul>
+          <span class="node-tag cloud">Direct Homeroom Alert</span>
+        </div>
+
+        <div class="arrow-down"></div>
+
+        <div class="node-box node-completed">
+          <span class="check">✓</span> Completed
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <footer class="diagram-footer">
+    <strong>Woodlem LMS</strong> &bull; Complete System Architecture &amp; Role Operational Pipelines &bull; Powered by Supabase Cloud &bull; 100% Real-Time Sync
+  </footer>
+
+  <script>
+    let currentZoom = 1.0;
+    const grid = document.getElementById('diagramGrid');
+
+    function applyZoom() {
+      grid.style.transform = `scale(${currentZoom})`;
+    }
+
+    function zoomIn() {
+      currentZoom = Math.min(1.8, currentZoom + 0.15);
+      applyZoom();
+    }
+
+    function zoomOut() {
+      currentZoom = Math.max(0.5, currentZoom - 0.15);
+      applyZoom();
+    }
+
+    function resetZoom() {
+      currentZoom = 1.0;
+      applyZoom();
+    }
+
+    function filterRole(role) {
+      document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+      event.target.classList.add('active');
+
+      const columns = document.querySelectorAll('.flow-column');
+      columns.forEach(col => {
+        if (role === 'all' || col.getAttribute('data-role') === role) {
+          col.classList.remove('hidden');
+        } else {
+          col.classList.add('hidden');
+        }
+      });
+    }
+  </script>
+</body>
+</html>
