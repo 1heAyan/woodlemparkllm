@@ -189,7 +189,7 @@ export default function WoodlemApp() {
         supabase.from('profiles').select('*').limit(10000),
         supabase.from('tests').select('*').order('created_at', { ascending: false }).limit(10000),
         supabase.from('assignments').select('*').order('created_at', { ascending: false }).limit(10000),
-        supabase.from('syllabus_terms').select('*, syllabus_topics(*)').order('term_number', { ascending: true }).limit(10000),
+        supabase.from('syllabus_terms').select('*, syllabus_topics(*)').order('order_num', { ascending: true }).limit(10000),
         supabase.from('achievements').select('*').order('created_at', { ascending: false }).limit(10000),
         supabase.from('attendance').select('*').limit(10000),
         supabase.from('hub_activities').select('*').order('created_at', { ascending: false }).limit(10000),
@@ -495,26 +495,32 @@ export default function WoodlemApp() {
 
       setAssignments(combinedAssignments);
 
-      const builtSyllabus: SyllabusTerm[] = (sylRes.data || [])
-        .map((term: any) => ({
-          id: term.id,
-          name: term.name,
-          subject: term.subject || '',
-          class_name: term.class_name || '',
-          class_id: term.class_id || '',
-          order_index: term.order_num ?? term.order_index ?? 0,
-          topics: (term.syllabus_topics || [])
-            .map((tp: any) => ({
-              id: tp.id,
-              term_id: tp.term_id,
-              title: tp.title,
-              teacher_checked: !!tp.teacher_checked,
-              student_checked: !!tp.student_checked,
-            })),
-        }))
-        .sort((a: any, b: any) => (a.order_index || 0) - (b.order_index || 0));
+      if (sylRes.data) {
+        const builtSyllabus: SyllabusTerm[] = (sylRes.data || [])
+          .map((term: any) => ({
+            id: term.id,
+            name: term.name,
+            subject: term.subject || '',
+            class_name: term.class_name || '',
+            class_id: term.class_id || '',
+            order_index: term.order_num ?? term.order_index ?? 0,
+            topics: (term.syllabus_topics || [])
+              .map((tp: any) => ({
+                id: tp.id,
+                term_id: tp.term_id,
+                title: tp.title,
+                teacher_checked: !!tp.teacher_checked,
+                student_checked: !!tp.student_checked,
+                created_at: tp.created_at,
+              }))
+              .sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()),
+          }))
+          .sort((a: any, b: any) => (a.order_index || 0) - (b.order_index || 0));
 
-      setSyllabus(builtSyllabus);
+        setSyllabus(builtSyllabus);
+      } else if (sylRes.error) {
+        console.error('Failed to load syllabus terms from Supabase:', sylRes.error);
+      }
 
       // Extract all cloud-stored parent document files from Supabase
       const docFileMap: Record<string, string> = {};
@@ -2452,7 +2458,10 @@ export default function WoodlemApp() {
           id: newTerm.id,
           name: newTerm.name,
           order_num: newTerm.order_index || 1,
+          order_index: newTerm.order_index || 1,
           subject: targetSubject || 'General',
+          class_id: targetClassId,
+          class_name: targetClassName,
         },
       ]);
       if (error) console.warn('Supabase syllabus term notice:', error.message);
@@ -2520,7 +2529,10 @@ export default function WoodlemApp() {
             id: newTerm.id,
             name: newTerm.name,
             order_num: newTerm.order_index || 1,
+            order_index: newTerm.order_index || 1,
             subject: targetSubject || 'General',
+            class_id: targetClassForTerm?.id || '',
+            class_name: targetClassForTerm?.className || '',
           },
         ]);
         await supabase.from('syllabus_topics').insert([
@@ -3578,6 +3590,8 @@ export default function WoodlemApp() {
     is_pinned?: boolean;
     priority?: 'normal' | 'important' | 'urgent';
     tagged_resource_ids?: string[];
+    file_name?: string;
+    file_url?: string;
   }) => {
     const newBroadcast: ClassBroadcast = {
       id: `cast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -3589,6 +3603,8 @@ export default function WoodlemApp() {
       is_pinned: !!broadcastData.is_pinned,
       priority: broadcastData.priority || 'normal',
       tagged_resource_ids: broadcastData.tagged_resource_ids || [],
+      file_name: broadcastData.file_name,
+      file_url: broadcastData.file_url,
       created_at: new Date().toISOString(),
     };
 

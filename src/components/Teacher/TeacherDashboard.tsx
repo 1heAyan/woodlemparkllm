@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Users, Award, BookOpen, UserCheck, MessageSquare, LayoutDashboard, Calendar, Settings, LifeBuoy, LogOut, Megaphone, FileText, Pin, PinOff, SlidersHorizontal, Check, Video, Link2, X, Plus, Edit3, KeyRound, Copy, Share2, RotateCcw, ExternalLink, Download, Trash2, Clock, AlertTriangle, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Users, Award, BookOpen, UserCheck, MessageSquare, LayoutDashboard, Calendar, Settings, LifeBuoy, LogOut, Megaphone, FileText, Pin, PinOff, SlidersHorizontal, Check, Video, Link2, X, Plus, Edit3, KeyRound, Copy, Share2, RotateCcw, ExternalLink, Download, Trash2, Clock, AlertTriangle, Search, Paperclip } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import {
@@ -96,6 +96,8 @@ interface TeacherDashboardProps {
     is_pinned?: boolean;
     priority?: 'normal' | 'important' | 'urgent';
     tagged_resource_ids?: string[];
+    file_name?: string;
+    file_url?: string;
   }) => void;
   onDeleteBroadcast?: (broadcastId: string) => void;
   onTogglePinBroadcast?: (broadcastId: string) => void;
@@ -717,6 +719,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [hrBcPriority, setHrBcPriority] = useState<'normal' | 'important' | 'urgent'>('normal');
   const [hrBcIsPinned, setHrBcIsPinned] = useState(false);
   const [hrBcIsPosting, setHrBcIsPosting] = useState(false);
+  const [hrBcFileName, setHrBcFileName] = useState('');
+  const [hrBcFileDataUrl, setHrBcFileDataUrl] = useState('');
+  const [hrBcFileSize, setHrBcFileSize] = useState('');
   const [hrActiveTab, setHrActiveTab] = useState<'broadcasts' | 'resources'>('broadcasts');
 
   const handleHrResourceFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -732,6 +737,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     else if (['xls', 'xlsx', 'csv'].includes(ext || '')) setHrResType('worksheet');
     const reader = new FileReader();
     reader.onload = (ev) => setHrResFileDataUrl((ev.target?.result as string) || '');
+    reader.readAsDataURL(file);
+  };
+
+  const handleHrBcFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setHrBcFileName(file.name);
+    const sizeKB = file.size / 1024;
+    setHrBcFileSize(sizeKB > 1024 ? `${(sizeKB / 1024).toFixed(1)} MB` : `${Math.round(sizeKB)} KB`);
+    const reader = new FileReader();
+    reader.onload = (ev) => setHrBcFileDataUrl((ev.target?.result as string) || '');
     reader.readAsDataURL(file);
   };
 
@@ -773,10 +789,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         content: hrBcContent.trim(),
         is_pinned: hrBcIsPinned,
         priority: hrBcPriority,
+        file_name: hrBcFileName || undefined,
+        file_url: hrBcFileDataUrl || undefined,
       });
       setTimeout(() => {
         setHrBcIsPosting(false);
-        setHrBcTitle(''); setHrBcContent(''); setHrBcPriority('normal'); setHrBcIsPinned(false);
+        setHrBcTitle('');
+        setHrBcContent('');
+        setHrBcPriority('normal');
+        setHrBcIsPinned(false);
+        setHrBcFileName('');
+        setHrBcFileDataUrl('');
+        setHrBcFileSize('');
       }, 250);
     }
   };
@@ -2794,21 +2818,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           <h4 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px', color: 'var(--neutral-dark)' }}>
                             No Resources Found
                           </h4>
-                          <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 auto 12px', maxWidth: 360 }}>
+                          <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 auto', maxWidth: 360 }}>
                             {thisClassResources.length === 0
                               ? 'No learning materials uploaded for this classroom yet. Click "+ Upload New Resource" above to add course materials.'
                               : 'No resources match your search filter.'}
                           </p>
-                          {thisClassResources.length === 0 && (
-                            <button
-                              type="button"
-                              className="btn-primary"
-                              onClick={() => setIsResourceFormExpanded(true)}
-                              style={{ padding: '7px 16px', fontSize: 12 }}
-                            >
-                              + Upload First Resource
-                            </button>
-                          )}
                         </div>
                       ) : (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
@@ -3032,17 +3046,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         <div className="card-list">
                           {classTests.length === 0 && classAssignments.length === 0 ? (
                             <div className="panel-block" style={{ padding: '32px 24px', textAlign: 'center' }}>
-                              <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '0 0 12px' }}>
+                              <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
                                 No assignments or tests currently published for this class.
                               </p>
-                              <button
-                                className="btn-primary"
-                                onClick={() => onOpenCreateAssignmentModal(`${activeClassObj.name} (${activeClassObj.class_name})`)}
-                                style={{ padding: '7px 14px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                              >
-                                <Plus size={13} />
-                                <span>Assignment</span>
-                              </button>
                             </div>
                           ) : (
                             <>
@@ -5229,6 +5235,58 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         style={{ fontSize: 13, lineHeight: 1.55, resize: 'vertical', padding: '12px 14px' }}
                       />
 
+                      {/* File Attachment */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <label
+                          htmlFor="hr-bc-file-upload"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 7,
+                            padding: '7px 14px',
+                            borderRadius: 8,
+                            border: '1.5px dashed #C0BAB0',
+                            background: hrBcFileName ? '#F0FAF5' : 'transparent',
+                            fontSize: 12.5,
+                            fontWeight: 600,
+                            color: hrBcFileName ? '#1E7A4A' : 'var(--text-secondary)',
+                            cursor: 'pointer',
+                            transition: 'all 0.18s',
+                          }}
+                        >
+                          <Paperclip size={14} />
+                          {hrBcFileName ? `${hrBcFileName} (${hrBcFileSize})` : 'Attach File (optional)'}
+                        </label>
+                        <input
+                          id="hr-bc-file-upload"
+                          type="file"
+                          style={{ display: 'none' }}
+                          onChange={handleHrBcFileChange}
+                          accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.mp4,.mp3,.txt,.csv,.zip"
+                        />
+                        {hrBcFileName && (
+                          <button
+                            type="button"
+                            onClick={() => { setHrBcFileName(''); setHrBcFileDataUrl(''); setHrBcFileSize(''); }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: '#E57373',
+                              fontSize: 12,
+                              fontWeight: 700,
+                              padding: '4px 8px',
+                              borderRadius: 6,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <X size={13} /> Remove
+                          </button>
+                        )}
+                      </div>
+
                       <div
                         style={{
                           display: 'flex',
@@ -5414,6 +5472,31 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                             <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.6, margin: '8px 0 0', whiteSpace: 'pre-wrap', background: '#FAF9F6', padding: '12px 14px', borderRadius: 6, border: '1px solid #ECEAE5' }}>
                               {bc.content}
                             </p>
+
+                            {bc.file_url && bc.file_name && (
+                              <a
+                                href={bc.file_url}
+                                download={bc.file_name}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  marginTop: 10,
+                                  padding: '6px 14px',
+                                  borderRadius: 7,
+                                  background: '#EEF8FF',
+                                  border: '1px solid #BEDDF5',
+                                  color: '#1565C0',
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  textDecoration: 'none',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                <Paperclip size={13} />
+                                {bc.file_name}
+                              </a>
+                            )}
                           </div>
                         );
                       })

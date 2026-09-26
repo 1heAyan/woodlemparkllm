@@ -330,6 +330,8 @@ export interface ClassBroadcast {
   is_pinned?: boolean;
   priority?: 'normal' | 'important' | 'urgent';
   tagged_resource_ids?: string[];
+  file_name?: string;
+  file_url?: string;
   created_at?: string;
 }
 

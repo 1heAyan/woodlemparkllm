@@ -40,6 +40,8 @@ export const AddTopicModal: React.FC<AddTopicModalProps> = ({
     onClose();
   };
 
+  const currentTerm = terms.find((t) => t.id === (termId || selectedTermId));
+
   return (
     <div className="modal-overlay active" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -48,6 +50,12 @@ export const AddTopicModal: React.FC<AddTopicModalProps> = ({
           <button type="button" className="close-modal" onClick={onClose}>&times;</button>
         </div>
         <form onSubmit={handleSubmit}>
+          {currentTerm && (
+            <div style={{ marginBottom: 14, padding: '8px 12px', background: '#F8F9FA', borderRadius: 6, border: '1px solid var(--border-color)', fontSize: 12 }}>
+              <span style={{ color: 'var(--text-secondary)' }}>Term: </span>
+              <strong style={{ color: 'var(--neutral-dark)' }}>{currentTerm.name}</strong>
+            </div>
+          )}
           <div className="form-group">
             <label className="form-label">Topic Title</label>
             <input
