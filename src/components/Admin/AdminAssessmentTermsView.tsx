@@ -937,20 +937,9 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
                     <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                         <button
+                          type="button"
+                          className="btn-row-action btn-edit"
                           onClick={() => handleOpenEditModal(term)}
-                          style={{
-                            padding: '4px 8px',
-                            fontSize: 11.5,
-                            fontWeight: 600,
-                            border: '1px solid var(--border-color)',
-                            background: '#FFFFFF',
-                            borderRadius: 6,
-                            cursor: 'pointer',
-                            color: 'var(--neutral-dark)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                          }}
                           title="Edit Assessment Details"
                         >
                           <Edit2 size={11} />
@@ -958,20 +947,9 @@ export const AdminAssessmentTermsView: React.FC<AdminAssessmentTermsViewProps> =
                         </button>
 
                         <button
+                          type="button"
+                          className="btn-row-action btn-delete"
                           onClick={() => handleDeleteTerm(term)}
-                          style={{
-                            padding: '4px 8px',
-                            fontSize: 11.5,
-                            fontWeight: 600,
-                            border: '1px solid #F5C6CB',
-                            background: '#FDF1F0',
-                            borderRadius: 6,
-                            cursor: 'pointer',
-                            color: '#D9534F',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                          }}
                           title="Delete Term from Grade"
                         >
                           <Trash2 size={11} />

@@ -44,7 +44,6 @@ import {
   KpiSparklineCard,
   MatrixTrendChart,
   PinBarBreakdownChart,
-  RecentRegistersTable,
   ScoreDistributionChart,
   SubjectComparisonChart,
 } from '@/components/UI/AnalyticsCharts';
@@ -6523,22 +6522,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                             </div>
                             <div style={{ display: 'flex', gap: 6 }}>
                               <button
+                                type="button"
+                                className="btn-row-action btn-edit"
                                 onClick={() => onEditHubActivity && onEditHubActivity(act)}
-                                style={{
-                                  padding: '4px 10px', fontSize: 11.5, fontWeight: 600,
-                                  border: '1px solid var(--border-color)', borderRadius: 6,
-                                  background: 'var(--surface)', color: 'var(--neutral-dark)', cursor: 'pointer',
-                                }}
                               >
                                 Edit
                               </button>
                               <button
+                                type="button"
+                                className="btn-row-action btn-delete"
                                 onClick={() => onDeleteHubActivity(act.id)}
-                                style={{
-                                  padding: '4px 10px', fontSize: 11.5, fontWeight: 600,
-                                  border: '1px solid #FECACA', borderRadius: 6,
-                                  background: '#FDF1F0', color: '#A83B38', cursor: 'pointer',
-                                }}
                               >
                                 Remove
                               </button>

@@ -2880,35 +2880,19 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                               <td style={{ textAlign: 'right', padding: '10px 16px', verticalAlign: 'middle' }}>
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
                                   <button
+                                    type="button"
+                                    className="btn-row-action btn-edit"
                                     onClick={() => setEditingAchievement(aw)}
-                                    style={{
-                                      padding: '4px 10px',
-                                      fontSize: 11,
-                                      fontWeight: 600,
-                                      background: '#FFFFFF',
-                                      border: '1px solid var(--border-color)',
-                                      borderRadius: 4,
-                                      cursor: 'pointer',
-                                      color: 'var(--neutral-dark)',
-                                    }}
                                   >
                                     Edit
                                   </button>
                                   <button
+                                    type="button"
+                                    className="btn-row-action btn-delete"
                                     onClick={() => {
                                       if (confirm(`Are you sure you want to delete achievement "${aw.title}"?`)) {
                                         onDeleteAchievement(aw.id, aw.title);
                                       }
-                                    }}
-                                    style={{
-                                      padding: '4px 10px',
-                                      fontSize: 11,
-                                      fontWeight: 600,
-                                      background: '#FDF1F0',
-                                      border: '1px solid #F5C6CB',
-                                      color: '#A83B38',
-                                      borderRadius: 4,
-                                      cursor: 'pointer',
                                     }}
                                   >
                                     Delete
@@ -2959,34 +2943,19 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                             </div>
                             <div style={{ display: 'flex', gap: 4 }}>
                               <button
+                                type="button"
+                                className="btn-row-action btn-edit"
                                 onClick={() => setEditingAchievement(aw)}
-                                style={{
-                                  padding: '4px 8px',
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  background: '#FFFFFF',
-                                  border: '1px solid var(--border-color)',
-                                  borderRadius: 4,
-                                  cursor: 'pointer',
-                                }}
                               >
                                 Edit
                               </button>
                               <button
+                                type="button"
+                                className="btn-row-action btn-delete"
                                 onClick={() => {
                                   if (confirm(`Are you sure you want to delete achievement "${aw.title}"?`)) {
                                     onDeleteAchievement(aw.id, aw.title);
                                   }
-                                }}
-                                style={{
-                                  padding: '4px 8px',
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  background: '#FDF1F0',
-                                  border: '1px solid #F5C6CB',
-                                  color: '#A83B38',
-                                  borderRadius: 4,
-                                  cursor: 'pointer',
                                 }}
                               >
                                 Delete
