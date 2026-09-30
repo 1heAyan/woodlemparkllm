@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
-import { supabase, UserProfile, ParentDocument, HubActivity, SubjectClass, TestItem, SyllabusTerm, LateEntryRecord, isAuthenticHubActivity } from '@/lib/supabaseClient';
+import { supabase, UserProfile, ParentDocument, HubActivity, SubjectClass, TestItem, SyllabusTerm, LateEntryRecord, OfflineAssessment, OfflineAssessmentMark, isAuthenticHubActivity } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { SettingsView } from '@/components/Shared/SettingsView';
@@ -24,9 +24,7 @@ import {
   ScoreDistributionChart,
   SubjectComparisonChart,
   AttendanceTrendChart,
-  SyllabusVelocityCard,
-  MarkComplianceDonut,
-  AtRiskHonorRollGrid,
+  RecentRegistersTable,
 } from '@/components/UI/AnalyticsCharts';
 import { MarkEntryModal } from '../Modals/MarkEntryModal';
 import { TestResultRecord } from '../Modals/ReviewTestResultsModal';
@@ -42,6 +40,8 @@ interface AdminDashboardProps {
   syllabus?: SyllabusTerm[];
   attendance?: Record<string, Record<string, string>>;
   testResults?: Record<string, TestResultRecord>;
+  offlineAssessments?: OfflineAssessment[];
+  offlineMarks?: OfflineAssessmentMark[];
   lateEntries?: LateEntryRecord[];
   onOpenProvisionModal: () => void;
   onOpenBulkModal: () => void;
@@ -121,6 +121,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   syllabus = [],
   attendance = {},
   testResults = {},
+  offlineAssessments = [],
+  offlineMarks = [],
   lateEntries = [],
   onOpenProvisionModal,
   onOpenBulkModal,
@@ -444,6 +446,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   React.useEffect(() => {
     const unsubscribe = subscribeToNavigation((target) => {
+      setActiveMarkEntryClass(null);
       if (target.view === 'overview') {
         setActiveTab('overview');
       } else if (target.view === 'directory' || target.view === 'users') {
@@ -782,27 +785,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: 12,
+          flexWrap: 'wrap',
+          columnGap: 12,
+          rowGap: 10,
         }}
       >
         <div style={{ minWidth: 0, flexShrink: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <h1 className="page-title" style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)', fontFamily: 'var(--font-display)' }}>
+            <h1 style={{ margin: 0, fontSize: 14, lineHeight: 1.35, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--neutral-dark)', fontFamily: 'var(--font-display)' }}>
               Executive Control Console
             </h1>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-            <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
-              Logged in as System Admin ({currentUser.email || 'admin@woodlempark.ae'})
-            </span>
-            <span style={{ fontSize: 11.5, color: '#C8C6C2' }}>|</span>
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Total {overviewProfiles.length} Accounts {overviewGradeFilter === 'all' ? 'In System' : `(Grade ${overviewGradeFilter})`}
-            </span>
-          </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', columnGap: 8, rowGap: 8, minWidth: 0, flexShrink: 1, maxWidth: '100%' }}>
           {/* Grade Quick Filter Chips */}
           <SegmentedControl
             value={overviewGradeFilter}
@@ -867,7 +863,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       </div>
 
       {/* KPI Stats Strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
         {[
           {
             label: 'TOTAL ACCOUNTS',
@@ -921,19 +917,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               border: k.isAlert ? '1.5px solid #F5DEB3' : '1px solid var(--border-color)',
               borderRadius: 8,
               padding: '10px 14px',
+              minWidth: 0,
               cursor: 'pointer',
               transition: 'border-color 0.12s, background 0.12s',
             }}
             onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#8C8983')}
             onMouseLeave={(e) => (e.currentTarget.style.borderColor = k.isAlert ? '#F5DEB3' : 'var(--border-color)')}
           >
-            <div style={{ fontSize: 9.5, fontWeight: 700, color: k.isAlert ? '#92400E' : 'var(--text-secondary)', letterSpacing: '0.06em' }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: k.isAlert ? '#92400E' : 'var(--text-secondary)', letterSpacing: '0.06em', lineHeight: 1.4, overflowWrap: 'break-word' }}>
               {k.label}
             </div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: k.isAlert ? '#B45309' : 'var(--neutral-dark)', fontFamily: 'var(--font-display)', margin: '3px 0 1px' }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: k.isAlert ? '#B45309' : 'var(--neutral-dark)', fontFamily: 'var(--font-display)', margin: '3px 0 1px', lineHeight: 1.2, overflowWrap: 'break-word' }}>
               {k.val}
             </div>
-            <div style={{ fontSize: 10.5, color: k.isAlert ? '#92400E' : '#888580' }}>{k.sub}</div>
+            <div style={{ fontSize: 10.5, color: k.isAlert ? '#92400E' : '#888580', lineHeight: 1.4, overflowWrap: 'break-word' }}>{k.sub}</div>
           </div>
         ))}
       </div>
@@ -947,22 +944,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         />
       </div>
 
-      <AtRiskHonorRollGrid
-        distinctions={overviewAnalytics.distinctionStudents}
-        atRisk={overviewAnalytics.atRiskStudents}
+      <RecentRegistersTable
         subjectClasses={overviewSubjectClasses}
         profiles={overviewProfiles}
-        testResults={testResults}
-        tests={tests}
+        offlineAssessments={offlineAssessments}
+        offlineMarks={offlineMarks}
         onOpenClassMarks={(className: string) => {
           const matched = overviewSubjectClasses.find(
-            (sc) => (sc.name || sc.class_name || '') === className
+            (sc) => (sc.name || sc.class_name || '') === className || sc.class_name === className || sc.id === className
           );
           if (matched) setActiveMarkEntryClass(matched);
-        }}
-        onSelectStudent={(id: string) => {
-          const target = profiles.find((p) => p.id === id);
-          if (target) setSelectedUserForEdit(target);
         }}
       />
 
@@ -1021,17 +1012,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <td style={{ ...tdStyle, fontSize: 11.5, color: '#55534E' }}>{formatUserAssignment(p)}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                       <button
+                        type="button"
+                        className="btn-row-action btn-edit"
                         onClick={() => handleInitiateEditUser(p)}
-                        style={{
-                          padding: '3px 8px',
-                          fontSize: 11,
-                          fontWeight: 600,
-                          border: '1px solid var(--border-color)',
-                          borderRadius: 4,
-                          background: '#FFFFFF',
-                          cursor: 'pointer',
-                          marginRight: 4,
-                        }}
                       >
                         Edit
                       </button>
@@ -2005,18 +1988,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>{sanitizeUserCode(st.admission_number || st.user_code, st.email) || '—'}</td>
                               <td style={{ ...tdStyle, textAlign: 'right' }}>
                                 <button
+                                  type="button"
+                                  className="btn-row-action btn-edit"
                                   onClick={() => {
                                     setSelectedClassInspect(null);
                                     handleInitiateEditUser(st);
-                                  }}
-                                  style={{
-                                    padding: '2px 8px',
-                                    fontSize: 10.5,
-                                    fontWeight: 600,
-                                    border: '1px solid var(--border-color)',
-                                    borderRadius: 4,
-                                    background: '#FFFFFF',
-                                    cursor: 'pointer',
                                   }}
                                 >
                                   Edit
@@ -2343,7 +2319,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   ];
 
   return (
-    <div className="app-viewport">
+    <div className="app-viewport admin-viewport">
       {/* ADMIN SIDEBAR — original console design */}
       <aside
         style={{
@@ -2481,7 +2457,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             return (
               <div key={tab.id} style={{ position: 'relative' }}>
                 <button
-                  onClick={() => { setActiveTab(tab.id); setSelectedUserForEdit(null); sidebar.handleNavClick(); }}
+                  onClick={() => { setActiveTab(tab.id); setSelectedUserForEdit(null); setActiveMarkEntryClass(null); sidebar.handleNavClick(); }}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -2626,23 +2602,47 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* Compact Top Header Bar */}
         <header
           style={{
-            height: 38,
             minHeight: 38,
+            height: 'auto',
             background: '#FFFFFF',
             borderBottom: '1px solid var(--border-color)',
-            padding: '0 16px',
+            padding: '6px 16px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 8,
+            flexWrap: 'wrap',
+            overflow: 'hidden',
             flexShrink: 0,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--neutral-dark)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.4, color: 'var(--neutral-dark)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {tabs.find((t) => t.id === activeTab)?.label}
               {selectedUserForEdit ? ` / EDIT USER: ${selectedUserForEdit.name}` : ''}
             </span>
           </div>
+
+          {activeMarkEntryClass && (
+            <button
+              onClick={() => setActiveMarkEntryClass(null)}
+              className="btn-secondary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '5px 11px',
+                fontSize: 11,
+                fontWeight: 700,
+                borderRadius: 6,
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              <ChevronLeft size={13} />
+              <span>Back to {tabs.find((t) => t.id === activeTab)?.label || 'Dashboard'}</span>
+            </button>
+          )}
 
 
         </header>
@@ -2658,7 +2658,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             padding: activeTab === 'directory' && !selectedUserForEdit ? '10px 16px' : '14px 16px',
           }}
         >
-          {selectedUserForEdit ? (() => {
+          {activeMarkEntryClass ? (
+            <div style={{ padding: '14px 4px', minHeight: '100%', boxSizing: 'border-box' }}>
+              <MarkEntryModal
+                inline
+                isOpen
+                onClose={() => setActiveMarkEntryClass(null)}
+                classRoom={activeMarkEntryClass}
+                teacher={currentUser}
+                profiles={profiles}
+              />
+            </div>
+          ) : selectedUserForEdit ? (() => {
             const activeUser = profiles.find(
               (p) =>
                 (selectedUserForEdit.id && p.id === selectedUserForEdit.id) ||
@@ -2728,16 +2739,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           )}
         </div>
       </main>
-
-      {activeMarkEntryClass && (
-        <MarkEntryModal
-          isOpen={true}
-          onClose={() => setActiveMarkEntryClass(null)}
-          classRoom={activeMarkEntryClass}
-          teacher={currentUser}
-          profiles={profiles}
-        />
-      )}
 
       <MergeDuplicatesModal
         isOpen={isMergeModalOpen}
