@@ -24,6 +24,8 @@ import {
   CsQuestion,
   CsSubmission,
   CsLabSession,
+  OfflineAssessment,
+  OfflineAssessmentMark,
   isAuthenticHubActivity,
 } from '@/lib/supabaseClient';
 import { loadLateEntries, loadAuthorizedStaffIds, fetchCloudAuthorizedStaffIds } from '@/lib/lateEntryHelper';
@@ -157,6 +159,8 @@ export default function WoodlemApp() {
   const [csSubmissions, setCsSubmissions] = useState<CsSubmission[]>(() => getLocalCachedCsSubmissions());
   const [csLabSessions, setCsLabSessions] = useState<CsLabSession[]>(() => getLocalCachedCsSessions());
   const [subjectClasses, setSubjectClasses] = useState<SubjectClass[]>([]);
+  const [offlineAssessments, setOfflineAssessments] = useState<OfflineAssessment[]>([]);
+  const [offlineMarks, setOfflineMarks] = useState<OfflineAssessmentMark[]>([]);
   const [isCreateClassOpen, setIsCreateClassOpen] = useState(false);
   const [createClassPreset, setCreateClassPreset] = useState<{
     grade?: string;
@@ -185,6 +189,8 @@ export default function WoodlemApp() {
         csQRes,
         csSubRes,
         csSessRes,
+        offlineAssessRes,
+        offlineMarksRes,
       ] = await Promise.all([
         supabase.from('profiles').select('*').limit(10000),
         supabase.from('tests').select('*').order('created_at', { ascending: false }).limit(10000),
@@ -203,6 +209,8 @@ export default function WoodlemApp() {
         supabase.from('cs_questions').select('*').order('created_at', { ascending: false }).limit(10000),
         supabase.from('cs_submissions').select('*').limit(10000),
         supabase.from('cs_lab_sessions').select('*').order('updated_at', { ascending: false }).limit(10000),
+        supabase.from('offline_assessments').select('*').limit(10000),
+        supabase.from('offline_assessment_marks').select('*').limit(50000),
       ]);
 
       // Extract all cloud-stored user avatars from Supabase
@@ -625,6 +633,11 @@ export default function WoodlemApp() {
       setSubjectClasses(subClassRes.data || []);
       setClassResources(classResRes.data || []);
       setClassBroadcasts(classBroadRes.data || []);
+
+      // Private marks registers. RLS scopes these per role: admins/teachers see
+      // the registers they own, everyone else sees nothing.
+      setOfflineAssessments((offlineAssessRes.data || []) as OfflineAssessment[]);
+      setOfflineMarks((offlineMarksRes.data || []) as OfflineAssessmentMark[]);
 
       const testResMap: Record<string, TestResultRecord> = {};
       (testResultsRes.data || []).forEach((row: any) => {
@@ -3978,6 +3991,8 @@ export default function WoodlemApp() {
           syllabus={syllabus}
           attendance={attendance}
           testResults={testResults}
+          offlineAssessments={offlineAssessments}
+          offlineMarks={offlineMarks}
           achievements={achievements}
           hubActivities={hubActivities}
           parentDocuments={parentDocuments}
@@ -3996,6 +4011,8 @@ export default function WoodlemApp() {
           syllabus={syllabus}
           attendance={attendance}
           testResults={testResults}
+          offlineAssessments={offlineAssessments}
+          offlineMarks={offlineMarks}
           onOpenProvisionModal={() => setIsProvisionUserOpen(true)}
           onOpenBulkModal={() => setIsBulkImportOpen(true)}
           onOpenCreateSubjectClassModal={(preset) => {

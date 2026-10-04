@@ -33,7 +33,6 @@ import {
   ShieldCheck,
   AlertTriangle,
   CheckCircle2,
-  Calendar,
   X,
   UserCheck,
   Filter,
@@ -111,6 +110,10 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
 
   // Today's date string
   const todayStr = getTodayDateString();
+
+  // Desk view date range (defaults to today only)
+  const [deskFrom, setDeskFrom] = useState(todayStr);
+  const [deskTo, setDeskTo] = useState(todayStr);
 
   // Search query for today's table
   const [todaySearch, setTodaySearch] = useState('');
@@ -213,10 +216,10 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
     );
   }, [profiles, authorizedStaffIds]);
 
-  // Filtered today's records
+  // Filtered records within the selected date range
   const todayRecords = useMemo(() => {
     return lateEntries.filter((entry) => {
-      if (entry.date !== todayStr) return false;
+      if (entry.date < deskFrom || entry.date > deskTo) return false;
       if (todayRoleFilter !== 'all' && entry.role !== todayRoleFilter) return false;
       if (todaySearch.trim()) {
         const q = todaySearch.toLowerCase();
@@ -229,7 +232,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
       }
       return true;
     });
-  }, [lateEntries, todayStr, todayRoleFilter, todaySearch]);
+  }, [lateEntries, deskFrom, deskTo, todayRoleFilter, todaySearch]);
 
   // Today metrics
   const todayTotalCount = todayRecords.length;
@@ -481,25 +484,59 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
           </div>
         </div>
 
-        {/* Quick Date Stamp */}
+        {/* Desk Date Range Selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 6,
-              padding: '6px 12px',
-              borderRadius: 6,
-              background: '#FAF9F6',
-              border: '1px solid #E5E3DF',
-              fontSize: 12,
-              fontWeight: 600,
-              color: 'var(--neutral-dark)',
+              gap: 8,
+              padding: '5px 12px',
+              borderRadius: 8,
+              background: '#FFFFFF',
+              border: '1px solid var(--border-color)',
             }}
           >
-            <Calendar size={14} style={{ color: '#2C6E6A' }} />
-            <span>Today: {todayStr}</span>
+            <input
+              type="date"
+              value={deskFrom}
+              max={todayStr}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) return;
+                setDeskFrom(v);
+                if (v > deskTo) setDeskTo(v);
+              }}
+              aria-label="Start date"
+              style={{ fontSize: 12, background: 'transparent', border: 'none', outline: 'none', color: 'inherit' }}
+            />
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary)' }}>to</span>
+            <input
+              type="date"
+              value={deskTo}
+              min={deskFrom}
+              max={todayStr}
+              onChange={(e) => e.target.value && setDeskTo(e.target.value)}
+              aria-label="End date"
+              style={{ fontSize: 12, background: 'transparent', border: 'none', outline: 'none', color: 'inherit' }}
+            />
           </div>
+
+          {(deskFrom !== todayStr || deskTo !== todayStr) && (
+            <>
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                {todayRecords.length} record{todayRecords.length !== 1 ? 's' : ''}
+              </span>
+              <button
+                type="button"
+                onClick={() => { setDeskFrom(todayStr); setDeskTo(todayStr); }}
+                className="btn-secondary"
+                style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 8 }}
+              >
+                Today
+              </button>
+            </>
+          )}
 
           {mode === 'admin' && (
             <button
@@ -572,7 +609,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
             >
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                  Total Late Today
+                  Total Late
                 </div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--neutral-dark)', marginTop: 2 }}>
                   {todayTotalCount}
@@ -1152,7 +1189,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
                   {todayRecords.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => exportLateEntriesToCSV(todayRecords, `woodlem_late_today_${todayStr}.csv`)}
+                      onClick={() => exportLateEntriesToCSV(todayRecords, `woodlem_late_${deskFrom}_to_${deskTo}.csv`)}
                       style={{
                         height: 30,
                         padding: '0 9px',
@@ -1252,19 +1289,12 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
                             <div style={{ display: 'inline-flex', gap: 4 }}>
                               <button
                                 type="button"
+                                className="btn-row-action btn-edit"
                                 onClick={() => {
                                   setEditingRecord(entry);
                                   setEditTime(entry.time);
                                   setEditReason(entry.reason || LATE_ENTRY_REASONS[0]);
                                   setEditNotes(entry.notes || '');
-                                }}
-                                style={{
-                                  padding: '3px 7px',
-                                  borderRadius: 4,
-                                  border: '1px solid #E5E3DF',
-                                  background: '#FFFFFF',
-                                  color: 'var(--neutral-dark)',
-                                  cursor: 'pointer',
                                 }}
                                 title="Edit Record"
                               >
@@ -1272,15 +1302,8 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
                               </button>
                               <button
                                 type="button"
+                                className="btn-row-action btn-delete"
                                 onClick={() => handleDeleteRecord(entry.id, entry.person_name)}
-                                style={{
-                                  padding: '3px 7px',
-                                  borderRadius: 4,
-                                  border: '1px solid #F5C6CB',
-                                  background: '#FDF1F0',
-                                  color: '#A83B38',
-                                  cursor: 'pointer',
-                                }}
                                 title="Delete Record"
                               >
                                 <Trash2 size={12} />

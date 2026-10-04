@@ -770,9 +770,6 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
                   EXECUTIVE GOVERNANCE
                 </span>
               </div>
-              <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
-                Vice Principals, Academic Directors, Deans, &amp; Section Heads appointed after the Principal with executive dashboards and delegated institutional oversight.
-              </p>
             </div>
           </div>
 
@@ -927,38 +924,16 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
                   </span>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button
+                      type="button"
+                      className="btn-row-action btn-edit"
                       onClick={() => handleOpenSltModal(slt)}
-                      style={{
-                        padding: '4px 8px',
-                        fontSize: 11,
-                        borderRadius: 4,
-                        border: '1px solid var(--border-color)',
-                        background: '#FFFFFF',
-                        color: 'var(--neutral-dark)',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        fontWeight: 600,
-                      }}
                     >
                       <Edit2 size={11} /> Edit
                     </button>
                     <button
+                      type="button"
+                      className="btn-row-action btn-delete"
                       onClick={() => handleRemoveAssignment(slt.id, 'slt')}
-                      style={{
-                        padding: '4px 8px',
-                        fontSize: 11,
-                        borderRadius: 4,
-                        border: '1px solid #FECDD3',
-                        background: '#FFF1F2',
-                        color: '#E11D48',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        fontWeight: 600,
-                      }}
                     >
                       <Trash2 size={11} /> Revoke
                     </button>
@@ -1065,32 +1040,16 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
 
                       <div style={{ display: 'flex', gap: 4 }}>
                         <button
+                          type="button"
+                          className="btn-row-action btn-edit"
                           onClick={() => handleOpenAppointModal('hod', dept.name)}
-                          style={{
-                            padding: '4px 8px',
-                            fontSize: 10.5,
-                            fontWeight: 700,
-                            color: 'var(--neutral-dark)',
-                            background: '#FAF9F6',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: 4,
-                            cursor: 'pointer',
-                          }}
                         >
                           Edit
                         </button>
                         <button
+                          type="button"
+                          className="btn-row-action btn-delete"
                           onClick={() => handleRemoveAssignment(assignment.id, 'hod')}
-                          style={{
-                            padding: '4px 8px',
-                            fontSize: 10.5,
-                            fontWeight: 700,
-                            color: '#DC2626',
-                            background: '#FEF2F2',
-                            border: '1px solid #FECACA',
-                            borderRadius: 4,
-                            cursor: 'pointer',
-                          }}
                         >
                           Revoke
                         </button>

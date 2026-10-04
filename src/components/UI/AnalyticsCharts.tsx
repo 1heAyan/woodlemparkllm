@@ -17,7 +17,6 @@ import {
   Star,
   ChevronRight,
   Info,
-  MoreHorizontal,
   Sparkles,
   Search,
   SlidersHorizontal,
@@ -25,13 +24,8 @@ import {
 import {
   ScoreBracket,
   SubjectMastery,
-  AttendanceDayTrend,
-  SyllabusDepartmentProgress,
-  MarkComplianceSummary,
-  AtRiskStudent,
-  DistinctionStudent,
 } from '@/lib/analyticsHelper';
-import { SubjectClass, UserProfile, TestItem } from '@/lib/supabaseClient';
+import { SubjectClass, UserProfile, OfflineAssessment, OfflineAssessmentMark } from '@/lib/supabaseClient';
 
 // ─── 1. TOP KPI SPARKLINES CARDS (FROM REFERENCE DESIGN) ────────────────────
 
@@ -224,20 +218,6 @@ export const MatrixTrendChart: React.FC<MatrixTrendChartProps> = ({
             {title}
           </span>
           <Info size={13} style={{ color: '#A8A29E', cursor: 'pointer' }} />
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: '#78716C',
-              padding: 2,
-            }}
-          >
-            <MoreHorizontal size={16} />
-          </button>
         </div>
       </div>
 
@@ -562,10 +542,6 @@ export const PinBarBreakdownChart: React.FC<PinBarBreakdownChartProps> = ({
             </span>
             <Info size={13} style={{ color: '#A8A29E', cursor: 'pointer' }} />
           </div>
-
-          <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#78716C', padding: 2 }}>
-            <MoreHorizontal size={16} />
-          </button>
         </div>
 
         {/* Big Total & Dropdown Capsule */}
@@ -721,16 +697,24 @@ export const PinBarBreakdownChart: React.FC<PinBarBreakdownChartProps> = ({
 interface RecentRegistersTableProps {
   subjectClasses?: SubjectClass[];
   profiles?: UserProfile[];
-  testResults?: Record<string, any>;
-  tests?: TestItem[];
+  offlineAssessments?: OfflineAssessment[];
+  offlineMarks?: OfflineAssessmentMark[];
   onOpenClassMarks?: (className: string) => void;
 }
+
+type RegisterStatus = 'Finalized' | 'In Progress' | 'Pending';
+
+const STATUS_TONE: Record<RegisterStatus, { bg: string; fg: string }> = {
+  Finalized: { bg: '#EAF3EF', fg: '#16A34A' },
+  'In Progress': { bg: '#FFFBEB', fg: '#D97706' },
+  Pending: { bg: '#F4F3F1', fg: '#8C8983' },
+};
 
 export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
   subjectClasses = [],
   profiles = [],
-  testResults = {},
-  tests = [],
+  offlineAssessments = [],
+  offlineMarks = [],
   onOpenClassMarks,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -739,31 +723,45 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
   const teachers = useMemo(() => profiles.filter((p) => p.role === 'teacher'), [profiles]);
 
   const registers = useMemo(() => {
-    if (!subjectClasses || subjectClasses.length === 0) {
-      return [];
-    }
+    if (subjectClasses.length === 0) return [];
 
-    // Build a lookup: test_id -> TestItem for fast join
-    const testMap = new Map<string, TestItem>();
-    (tests || []).forEach((t) => testMap.set(t.id, t));
+    // assessment_id -> its term, so marks can be traced back to maximum_marks.
+    const assessmentById = new Map<string, OfflineAssessment>();
+    offlineAssessments.forEach((a) => assessmentById.set(a.id, a));
+
+    // One pass over the marks, bucketed by class_id.
+    const marksByClass = new Map<string, OfflineAssessmentMark[]>();
+    offlineMarks.forEach((m) => {
+      const term = assessmentById.get(m.assessment_id);
+      if (!term) return;
+      const bucket = marksByClass.get(term.class_id);
+      if (bucket) bucket.push(m);
+      else marksByClass.set(term.class_id, [m]);
+    });
+
+    const termsByClass = new Map<string, OfflineAssessment[]>();
+    offlineAssessments.forEach((a) => {
+      const bucket = termsByClass.get(a.class_id);
+      if (bucket) bucket.push(a);
+      else termsByClass.set(a.class_id, [a]);
+    });
 
     return subjectClasses.map((sc, idx) => {
       const id = `#${String(idx + 1).padStart(5, '0')}`;
       const classRoom = sc.name || sc.class_name || `Class ${idx + 1}`;
 
-      // Match teacher
       const teacherObj = teachers.find(
         (t) => t.id === sc.teacher_id || t.name === sc.teacher_name || t.assigned_class === sc.class_name
       );
       const teacher = teacherObj ? teacherObj.name : sc.teacher_name || 'Faculty Member';
 
-      // Enrolled count: prefer enrolled_student_ids list, fall back to student grade/section matching
+      // Enrolled count: prefer the roster, fall back to grade/section matching.
       let enrolledCount = (sc.enrolled_student_ids || []).length;
       if (enrolledCount === 0) {
         const cleanClassName = (sc.class_name || sc.name || '').replace(/^Grade\s*/i, '').trim();
         const m = cleanClassName.match(/^(\d+)\s*[-:]?\s*([A-Z])/i) || cleanClassName.match(/^(\d+)\s+([A-Z])/i);
         if (m) {
-          const [_, g, s] = m;
+          const [, g, s] = m;
           enrolledCount = students.filter((st) => {
             const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
             const cleanS = (st.class_letter || '').toUpperCase().trim();
@@ -774,47 +772,61 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
         }
       }
 
-      // Calculate class average from real test results:
-      // Join testResult -> TestItem -> match class_name or subject against SubjectClass
-      const matchingTestResults = Object.values(testResults || {}).filter((tr: any) => {
-        if (!tr) return false;
-        // Try matching via test_id -> TestItem -> class_name
-        const testItem = testMap.get(tr.test_id);
-        if (testItem) {
-          if (testItem.class_name === sc.class_name || testItem.class_name === sc.name) return true;
-          // Also check target_sections
-          if ((testItem.target_sections || []).includes(sc.class_name)) return true;
-        }
-        // Also match if the student is enrolled in this class
-        if (tr.student_id && (sc.enrolled_student_ids || []).includes(tr.student_id)) return true;
-        return false;
+      // Class mean matches MarkEntryModal: sum(marks) / sum(max) over graded
+      // cells only, so a partially filled register still shows the real mean
+      // of what has been entered rather than a value diluted by empty terms.
+      const terms = termsByClass.get(sc.id) || [];
+      const classMarks = marksByClass.get(sc.id) || [];
+      const termCount = terms.length;
+
+      let scoredSum = 0;
+      let maxSum = 0;
+      let enteredCells = 0;
+      const studentsWithMarks = new Set<string>();
+
+      terms.forEach((term) => {
+        const max = Number(term.maximum_marks) || 0;
+        classMarks.forEach((m) => {
+          if (m.assessment_id !== term.id) return;
+          if (m.marks === null || m.marks === undefined) return;
+          const score = Number(m.marks);
+          if (!Number.isFinite(score)) return;
+          enteredCells += 1;
+          scoredSum += score;
+          maxSum += max;
+          studentsWithMarks.add(m.student_id);
+        });
       });
 
-      let mean = '\u2014';
-      let status: 'Finalized' | 'Pending' | 'In Progress' = 'Pending';
+      const gradedStudents = studentsWithMarks.size;
 
-      if (matchingTestResults.length > 0) {
-        const scores = matchingTestResults
-          .map((tr: any) => tr.score ?? tr.marks ?? null)
-          .filter((s): s is number => typeof s === 'number');
-        if (scores.length > 0) {
-          const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-          mean = `${avg.toFixed(1)}%`;
-          status = enrolledCount > 0 && scores.length < enrolledCount ? 'In Progress' : 'Finalized';
-        }
+      // A cell is "expected" once a term exists and there is a student to grade.
+      const expectedCells = termCount * enrolledCount;
+      const mean = maxSum > 0 && scoredSum > 0 ? `${((scoredSum / maxSum) * 100).toFixed(1)}%` : '—';
+
+      let status: RegisterStatus = 'Pending';
+      if (termCount > 0 && expectedCells > 0) {
+        if (enteredCells === 0) status = 'Pending';
+        else if (enteredCells < expectedCells) status = 'In Progress';
+        else status = 'Finalized';
+      } else if (termCount > 0 && enteredCells > 0) {
+        // No roster on the class, so fall back to "everyone we have marks for is complete".
+        status = 'Finalized';
       }
 
       return {
         id,
         classRoom,
+        classId: sc.id,
         teacher,
         status,
         count: enrolledCount,
+        termCount,
+        gradedStudents,
         mean,
       };
     });
-  }, [subjectClasses, profiles, testResults, tests, students, teachers]);
-
+  }, [subjectClasses, profiles, offlineAssessments, offlineMarks, students, teachers]);
 
   const filteredRegisters = useMemo(() => {
     if (!searchTerm.trim()) return registers;
@@ -885,7 +897,11 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
           </div>
 
           <button
-            onClick={() => onOpenClassMarks && onOpenClassMarks('')}
+            onClick={() => {
+              const first = filteredRegisters[0];
+              if (first && onOpenClassMarks) onOpenClassMarks(first.classId);
+            }}
+            disabled={filteredRegisters.length === 0}
             style={{
               padding: '6px 12px',
               borderRadius: 6,
@@ -894,7 +910,9 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
               color: '#FFFFFF',
               fontSize: 11.5,
               fontWeight: 700,
-              cursor: 'pointer',
+              cursor: filteredRegisters.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: filteredRegisters.length === 0 ? 0.5 : 1,
+              whiteSpace: 'nowrap',
             }}
           >
             + Audit Marks
@@ -911,7 +929,7 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
           <p style={{ fontSize: 11.5, color: '#8C8983', margin: '4px 0 0' }}>
             {searchTerm.trim()
               ? 'Try searching by a different classroom or faculty name.'
-              : 'Marks registers and student grade distributions will appear here when faculty submit verified assessments.'}
+              : 'A row appears for every class. Class mean and status populate once assessment terms and marks are entered for that class.'}
           </p>
         </div>
       ) : (
@@ -923,9 +941,11 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
                 <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 700 }}>CLASSROOM</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 700 }}>FACULTY</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 700 }}>STATUS</th>
+                <th style={{ textAlign: 'center', padding: '8px 10px', fontWeight: 700 }}>TERMS</th>
+                <th style={{ textAlign: 'center', padding: '8px 10px', fontWeight: 700 }}>GRADED</th>
                 <th style={{ textAlign: 'center', padding: '8px 10px', fontWeight: 700 }}>ENROLLED</th>
                 <th style={{ textAlign: 'right', padding: '8px 10px', fontWeight: 700 }}>CLASS MEAN</th>
-                <th style={{ textAlign: 'center', padding: '8px 10px', fontWeight: 700 }}>ACTIONS</th>
+                <th style={{ textAlign: 'right', padding: '8px 10px', fontWeight: 700 }}>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
@@ -949,8 +969,9 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
                         fontWeight: 700,
                         padding: '2px 8px',
                         borderRadius: 12,
-                        background: r.status === 'Finalized' ? '#EAF3EF' : '#FFFBEB',
-                        color: r.status === 'Finalized' ? '#16A34A' : '#D97706',
+                        whiteSpace: 'nowrap',
+                        background: STATUS_TONE[r.status].bg,
+                        color: STATUS_TONE[r.status].fg,
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: 4,
@@ -959,21 +980,24 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
                       ● {r.status}
                     </span>
                   </td>
+                  <td style={{ padding: '10px', textAlign: 'center', fontWeight: 600, color: r.termCount > 0 ? '#1A1A1A' : '#B0ADA7' }}>
+                    {r.termCount}
+                  </td>
+                  <td style={{ padding: '10px', textAlign: 'center', fontWeight: 600, color: r.gradedStudents > 0 ? '#1A1A1A' : '#B0ADA7' }}>
+                    {r.gradedStudents}
+                  </td>
                   <td style={{ padding: '10px', textAlign: 'center', fontWeight: 600 }}>{r.count}</td>
-                  <td style={{ padding: '10px', textAlign: 'right', fontWeight: 800, color: '#1A1A1A', fontFamily: 'var(--font-display)' }}>
+                  <td style={{ padding: '10px', textAlign: 'right', fontWeight: 800, color: r.mean === '—' ? '#B0ADA7' : '#1A1A1A', fontFamily: 'var(--font-display)', whiteSpace: 'nowrap' }}>
                     {r.mean}
                   </td>
-                  <td style={{ padding: '10px', textAlign: 'center' }}>
+                  <td style={{ padding: '10px', textAlign: 'right' }}>
                     <button
-                      onClick={() => onOpenClassMarks && onOpenClassMarks(r.classRoom)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: '#8C8983',
-                      }}
+                      type="button"
+                      className="btn-row-action btn-edit"
+                      onClick={() => onOpenClassMarks && onOpenClassMarks(r.classId)}
+                      title={`Open marks register for ${r.classRoom}`}
                     >
-                      <MoreHorizontal size={15} />
+                      Edit
                     </button>
                   </td>
                 </tr>
@@ -996,45 +1020,6 @@ export const AttendanceTrendChart: React.FC<any> = ({ data, overallRate }) => {
       overallAverage={overallRate || 0}
       totalStudents={0}
       title="30-DAY ATTENDANCE TREND"
-    />
-  );
-};
-
-export const SyllabusVelocityCard: React.FC<any> = ({ departments, overallProgress }) => {
-  return (
-    <PinBarBreakdownChart
-      data={departments || []}
-      targetBenchmark={75}
-    />
-  );
-};
-
-export const MarkComplianceDonut: React.FC<any> = ({ data, onOpenClassMarks }) => {
-  return (
-    <PinBarBreakdownChart
-      data={data || []}
-      targetBenchmark={75}
-    />
-  );
-};
-
-export const AtRiskHonorRollGrid: React.FC<any> = ({
-  distinctions,
-  atRisk,
-  onSelectStudent,
-  subjectClasses,
-  profiles,
-  testResults,
-  tests,
-  onOpenClassMarks,
-}) => {
-  return (
-    <RecentRegistersTable
-      subjectClasses={subjectClasses}
-      profiles={profiles}
-      testResults={testResults}
-      tests={tests}
-      onOpenClassMarks={onOpenClassMarks}
     />
   );
 };

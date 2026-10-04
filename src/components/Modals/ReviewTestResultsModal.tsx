@@ -574,17 +574,8 @@ export const ReviewTestResultsModal: React.FC<ReviewTestResultsModalProps> = ({
                             ) : (
                               <button
                                 type="button"
+                                className="btn-row-action btn-edit"
                                 onClick={() => handleStartEdit(student.id, result?.score ?? 100, result?.feedback ?? '')}
-                                style={{
-                                  padding: '4px 12px',
-                                  fontSize: 11.5,
-                                  fontWeight: 600,
-                                  background: '#FFFFFF',
-                                  border: '1px solid var(--border-color)',
-                                  borderRadius: 5,
-                                  cursor: 'pointer',
-                                  color: 'var(--neutral-dark)',
-                                }}
                               >
                                 {result ? 'Edit' : 'Grade'}
                               </button>

@@ -302,6 +302,29 @@ export interface SubjectClass {
   created_at?: string;
 }
 
+/** An assessment term configured in a class's private marks register. */
+export interface OfflineAssessment {
+  id: string;
+  class_id: string;
+  teacher_id: string;
+  title: string;
+  assessment_date: string;
+  maximum_marks: number;
+  notes?: string;
+  created_at?: string;
+}
+
+/** A single student's mark inside one assessment term. */
+export interface OfflineAssessmentMark {
+  id: string;
+  assessment_id: string;
+  student_id: string;
+  marks: number | null;
+  teacher_note?: string;
+  is_visible_to_student?: boolean;
+  updated_at?: string;
+}
+
 export type ResourceType = 'pdf' | 'slides' | 'doc' | 'worksheet' | 'link' | 'video' | 'other';
 
 export interface ClassResource {

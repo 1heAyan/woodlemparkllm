@@ -95,6 +95,70 @@
     background: rgba(80, 80, 75, 0.65);
 }
 
+/* ── Native date inputs: match the Woodlem theme everywhere ────────────────
+   The native control renders a platform calendar icon and light-blue
+   focus ring by default, which clashes with the neutral/2C6E6A palette.
+   These rules restyle the field itself; the browser's own calendar popup
+   stays intact so behaviour is unchanged. */
+input[type="date"] {
+    font-family: var(--font-label);
+    color: var(--neutral-dark);
+    border-radius: 8px;
+    border-color: var(--border-color);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="date"]:hover {
+    border-color: #CFCBC3;
+}
+
+input[type="date"]:focus {
+    border-color: #2C6E6A;
+    box-shadow: 0 0 0 3px rgba(44, 110, 106, 0.14);
+    outline: none;
+}
+
+input[type="date"]::-webkit-datetime-edit {
+    font-family: var(--font-label);
+    font-weight: 600;
+    color: var(--neutral-dark);
+    padding: 0;
+}
+
+input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+    padding: 0;
+}
+
+/* Replace the platform calendar glyph with the theme's teal accent. */
+input[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: 0.5;
+    cursor: pointer;
+    border-radius: 6px;
+    padding: 2px;
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+    background: #EAF3EF;
+}
+
+input[type="date"]:focus::-webkit-calendar-picker-indicator {
+    opacity: 1;
+}
+
+/* Day numbers inside the native popup follow the app accent. */
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="date"]::-webkit-datetime-edit-year-field {
+    color: var(--neutral-dark);
+}
+
+input[type="date"]::-webkit-inner-spin-button,
+input[type="date"]::-webkit-clear-button {
+    opacity: 0.5;
+}
+
 /* Hide scrollbar completely for compact dropdowns (e.g. time selectors) */
 .custom-select-compact,
 .custom-select-compact * {
@@ -661,6 +725,39 @@ textarea.form-input { resize: vertical; }
 .btn-hub { background-color: var(--hub); color: #FFFFFF; border: 1px solid var(--hub); }
 .btn-hub:hover { background-color: #6A4EA8; border-color: #6A4EA8; }
 .btn-enrolled { background-color: var(--doc-submitted-light); color: var(--doc-submitted); border: 1px solid #A8DFC1; }
+
+/* Shared row-level action buttons. Use these for every table-row / card action
+   so "Edit" and "Delete" look identical across all dashboards. */
+.btn-row-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-family: var(--font-label);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.btn-row-action:disabled { cursor: not-allowed; opacity: 0.5; }
+
+.btn-edit {
+  background-color: #FFFFFF;
+  color: var(--neutral-dark);
+  border: 1px solid var(--border-color);
+}
+.btn-edit:hover:not(:disabled) { background-color: var(--surface-hover); border-color: #C8C6C2; }
+
+.btn-delete {
+  background-color: #FDF1F0;
+  color: #A83B38;
+  border: 1px solid #F5C6CB;
+}
+.btn-delete:hover:not(:disabled) { background-color: #FBE4E2; border-color: #E0A6AC; }
 .btn-enrolled:hover { background-color: #D6F0E5; }
 .btn-add-minimal { width: 100%; padding: 16px; background: transparent; border: 1px dashed var(--text-secondary); border-radius: 12px; color: var(--text-secondary); font-size: 14px; font-weight: 500; font-family: var(--font-label); cursor: pointer; transition: 0.15s ease; }
 .btn-add-minimal:hover { background: var(--surface); color: var(--neutral-dark); border-style: solid; border-color: var(--border-color); }
@@ -1794,6 +1891,20 @@ textarea.form-input { resize: vertical; }
     height: 100dvh !important;
     width: 100vw !important;
     overflow: hidden !important;
+  }
+
+  /* Admin console keeps its horizontal shell when the 768px breakpoint is
+     reached via browser zoom — the admin sidebar is not `.sidebar`-classed,
+     so it is not hidden here and would otherwise stack above the content. */
+  .app-viewport.admin-viewport {
+    flex-direction: row !important;
+  }
+  .app-viewport.admin-viewport > aside {
+    height: 100% !important;
+    max-width: 40vw;
+  }
+  .app-viewport.admin-viewport > main {
+    min-width: 0;
   }
 
   /* Mobile Top Navigation Bar */

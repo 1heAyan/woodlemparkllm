@@ -9,6 +9,8 @@ import {
   Achievement,
   HubActivity,
   ParentDocument,
+  OfflineAssessment,
+  OfflineAssessmentMark,
 } from '@/lib/supabaseClient';
 import { useSidebarState } from '@/lib/useSidebarState';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
@@ -23,9 +25,6 @@ import {
   ScoreDistributionChart,
   SubjectComparisonChart,
   AttendanceTrendChart,
-  SyllabusVelocityCard,
-  MarkComplianceDonut,
-  AtRiskHonorRollGrid,
 } from '@/components/UI/AnalyticsCharts';
 import { SpecialAccessView } from '@/components/Admin/SpecialAccessView';
 import { SettingsView } from '@/components/Shared/SettingsView';
@@ -63,6 +62,8 @@ interface PrincipalDashboardProps {
   syllabus?: SyllabusTerm[];
   attendance?: Record<string, Record<string, string>>;
   testResults?: Record<string, TestResultRecord>;
+  offlineAssessments?: OfflineAssessment[];
+  offlineMarks?: OfflineAssessmentMark[];
   achievements?: Achievement[];
   hubActivities?: HubActivity[];
   parentDocuments?: ParentDocument[];
@@ -89,6 +90,8 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
   syllabus = [],
   attendance = {},
   testResults = {},
+  offlineAssessments = [],
+  offlineMarks = [],
   achievements = [],
   hubActivities = [],
   parentDocuments = [],
@@ -605,12 +608,13 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
               <RecentRegistersTable
                 subjectClasses={overviewSubjectClasses}
                 profiles={overviewProfiles}
-                testResults={testResults}
-                tests={tests}
-                onOpenClassMarks={(className) => {
-                  const found = overviewSubjectClasses.find((c) => c.name === className || c.class_name === className);
+                offlineAssessments={offlineAssessments}
+                offlineMarks={offlineMarks}
+                onOpenClassMarks={(classId) => {
+                  const found = overviewSubjectClasses.find(
+                    (c) => c.id === classId || c.name === classId || c.class_name === classId
+                  );
                   if (found) setSelectedClassForMarks(found);
-                  else if (overviewSubjectClasses.length > 0) setSelectedClassForMarks(overviewSubjectClasses[0]);
                 }}
               />
             </div>
