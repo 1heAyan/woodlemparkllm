@@ -53,6 +53,7 @@ interface ProvisionUserModalProps {
     houseColour?: string;
     additionalInfo?: Record<string, any>;
     subject?: string | null;
+    enrolledSubjects?: string[];
     assignedClass?: string | null;
     linkedStudentIds?: string[];
   }) => void;
@@ -79,6 +80,8 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
   const [parentEmail, setParentEmail] = useState('');
   const [houseColourSelect, setHouseColourSelect] = useState('');
   const [customHouseColour, setCustomHouseColour] = useState('');
+  // Student Enrolled Subjects
+  const [studentSubjects, setStudentSubjects] = useState('');
 
   // Teacher specific fields
   const [subject, setSubject] = useState('English');
@@ -199,7 +202,8 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
       classLetter: finalSection,
       parentEmail: role === 'student' ? parentEmail.trim().toLowerCase() : undefined,
       houseColour: role === 'student' ? (resolvedHouseColour || undefined) : undefined,
-      subject: role === 'teacher' ? subject : null,
+      subject: role === 'student' ? (studentSubjects.trim() || null) : (role === 'teacher' ? subject : null),
+      enrolledSubjects: role === 'student' && studentSubjects.trim() ? studentSubjects.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
       assignedClass: assignedClassStr,
       linkedStudentIds: role === 'parent' ? selectedStudentIds : undefined,
     });
@@ -215,6 +219,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
     setParentEmail('');
     setHouseColourSelect('');
     setCustomHouseColour('');
+    setStudentSubjects('');
     setSubject('English');
     setIsClassTeacher(false);
     setSelectedStudentIds([]);
@@ -458,6 +463,26 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
                       autoFocus
                     />
                   )}
+                </div>
+
+                {/* Enrolled Subjects / Subjects Studying */}
+                <div className="form-group" style={{ marginTop: 14, marginBottom: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <label className="form-label" style={{ margin: 0 }}>
+                      Enrolled Subjects / Subjects Studying <span style={{ color: '#EF4444' }}>*</span>
+                    </label>
+                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                      Select multiple or type to add
+                    </span>
+                  </div>
+                  <MultiSubjectSelect
+                    value={studentSubjects}
+                    onChange={(valStr) => setStudentSubjects(valStr)}
+                    placeholder="Search or type subjects studying (e.g. English, Math, Physics, Physical Education...)"
+                  />
+                  <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                    Select all subjects this student is studying for classroom enrolment, marks, and syllabus coverage tracking.
+                  </p>
                 </div>
               </div>
             </div>

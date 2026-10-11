@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   UserProfile,
   SubjectClass,
@@ -42,6 +42,16 @@ import {
   LogOut,
   Mail,
   Key,
+  GraduationCap,
+  Clock,
+  Settings,
+  BarChart3,
+  Sliders,
+  FileText,
+  Building,
+  CheckSquare,
+  Square,
+  ArrowLeft,
 } from 'lucide-react';
 
 interface SpecialAccessViewProps {
@@ -82,14 +92,90 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
   const [sltPassword, setSltPassword] = useState('woodlem123');
   const [sltCode, setSltCode] = useState('SLT-001');
   const [editingSltId, setEditingSltId] = useState<string | null>(null);
-  const [sltPermissions, setSltPermissions] = useState({
-    canAuditMarks: true,
-    canVerifySyllabus: true,
-    canBroadcastDepartment: true,
-    canManageResources: true,
+  const [sltScopeType, setSltScopeType] = useState<'all' | 'custom'>('all');
+  const [sltManagedGrades, setSltManagedGrades] = useState<string[]>(['9', '10', '11', '12']);
+  const [sltSectionScopeType, setSltSectionScopeType] = useState<'all' | 'custom'>('all');
+  const [sltManagedSections, setSltManagedSections] = useState<string[]>([]);
+  const [sltPermissions, setSltPermissions] = useState<{
+    canViewAnalytics: boolean;
+    canExportStatements: boolean;
+    canManageHub: boolean;
+    canManageSettings: boolean;
+    canResetPasswords: boolean;
+    canAuditMarks: boolean;
+    canReleaseMarks: boolean;
+    canEditMarksRegisters: boolean;
+    canManageExamTerms: boolean;
+    canVerifySyllabus: boolean;
+    canManageLateEntries: boolean;
+    canManageAttendance: boolean;
+    canApproveLeaveRequests: boolean;
+    canLogBehaviorIncidents: boolean;
+    canViewDisciplineRecords: boolean;
+    canViewDirectory: boolean;
+    canEditStudentProfiles: boolean;
+    canManageClasses: boolean;
+    canAssignTeachers: boolean;
+    canBroadcastAnnouncements: boolean;
+  }>({
     canViewAnalytics: true,
-    canApproveClearances: true,
+    canExportStatements: true,
+    canManageHub: true,
+    canManageSettings: false,
+    canResetPasswords: true,
+    canAuditMarks: true,
+    canReleaseMarks: true,
+    canEditMarksRegisters: true,
+    canManageExamTerms: true,
+    canVerifySyllabus: true,
+    canManageLateEntries: true,
+    canManageAttendance: true,
+    canApproveLeaveRequests: true,
+    canLogBehaviorIncidents: true,
+    canViewDisciplineRecords: true,
+    canViewDirectory: true,
+    canEditStudentProfiles: true,
+    canManageClasses: true,
+    canAssignTeachers: true,
+    canBroadcastAnnouncements: true,
   });
+
+  const availableSections = useMemo(() => {
+    const set = new Set<string>();
+    (subjectClasses || []).forEach((sc) => {
+      const g = (sc.class_name || sc.name || '').replace(/[^0-9]/g, '');
+      const s = (sc.section || '').trim().toUpperCase();
+      if (g && s && ['9', '10', '11', '12'].includes(g)) {
+        set.add(`${g}-${s}`);
+      }
+    });
+    (profiles || []).forEach((p) => {
+      if (p.role === 'student' && p.grade && p.class_letter) {
+        const g = p.grade.replace(/[^0-9]/g, '');
+        const s = p.class_letter.trim().toUpperCase();
+        if (g && s && ['9', '10', '11', '12'].includes(g)) {
+          set.add(`${g}-${s}`);
+        }
+      }
+    });
+    ['9-A', '9-B', '10-A', '10-B', '11-A', '11-B', '12-A', '12-B'].forEach((def) => set.add(def));
+    return Array.from(set).sort((a, b) => {
+      const [ga, sa] = a.split('-');
+      const [gb, sb] = b.split('-');
+      if (ga !== gb) return Number(ga) - Number(gb);
+      return sa.localeCompare(sb);
+    });
+  }, [subjectClasses, profiles]);
+
+  // Administrator appointment fields
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [adminMode, setAdminMode] = useState<'existing' | 'new'>('existing');
+  const [selectedAdminUserId, setSelectedAdminUserId] = useState('');
+  const [adminName, setAdminName] = useState('');
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminTitle, setAdminTitle] = useState('System Administrator');
+  const [adminPassword, setAdminPassword] = useState('woodlem123');
+  const [adminCode, setAdminCode] = useState('ADM-001');
 
   const [isStepDownModalOpen, setIsStepDownModalOpen] = useState(false);
   const [permissions, setPermissions] = useState({
@@ -151,9 +237,17 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
         }
       : DEFAULT_PRINCIPAL_RECORD);
 
-  const sltAssignments = assignments.filter((a) => a.roleType === 'slt');
-  const hodAssignments = assignments.filter((a) => a.roleType === 'hod');
-  const coordinatorAssignments = assignments.filter((a) => a.roleType === 'coordinator');
+  const sltAssignments = assignments.filter((a) => {
+    if (a.roleType !== 'slt') return false;
+    const email = (a.userEmail || '').toLowerCase().trim();
+    if (email === 'principal@woodlempark.ae' || email === 'principal@woodlem.com' || email.startsWith('principal@')) return false;
+    if (a.userId === principalProfile.id) return false;
+    if (a.userName?.toLowerCase().trim() === 'principal') return false;
+    return true;
+  });
+  const adminProfiles = profiles.filter(
+    (p) => p.role === 'admin' && !isPrincipalUser(p) && (p.email || '').toLowerCase() !== (principalProfile.email || '').toLowerCase()
+  );
 
   const handleOpenSltModal = (existingAssignment?: SpecialRoleAssignment) => {
     if (existingAssignment) {
@@ -162,14 +256,46 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
       setSltName(existingAssignment.userName);
       setSltEmail(existingAssignment.userEmail);
       setSltTitle(existingAssignment.title || 'Vice Principal');
+      setSltScopeType(
+        existingAssignment.scopeType ||
+          (existingAssignment.managedGrades &&
+          existingAssignment.managedGrades.length > 0 &&
+          existingAssignment.managedGrades.length < 4
+            ? 'custom'
+            : 'all')
+      );
+      setSltManagedGrades(
+        existingAssignment.managedGrades && existingAssignment.managedGrades.length > 0
+          ? existingAssignment.managedGrades
+          : ['9', '10', '11', '12']
+      );
+      setSltSectionScopeType(
+        existingAssignment.managedSections && existingAssignment.managedSections.length > 0
+          ? 'custom'
+          : 'all'
+      );
+      setSltManagedSections(existingAssignment.managedSections || []);
       setSltPermissions({
-        canAuditMarks: true,
-        canVerifySyllabus: true,
-        canBroadcastDepartment: true,
-        canManageResources: true,
-        canViewAnalytics: true,
-        canApproveClearances: true,
-        ...existingAssignment.permissions,
+        canViewAnalytics: existingAssignment.permissions?.canViewAnalytics ?? true,
+        canExportStatements: existingAssignment.permissions?.canExportStatements ?? true,
+        canManageHub: existingAssignment.permissions?.canManageHub ?? true,
+        canManageSettings: existingAssignment.permissions?.canManageSettings ?? false,
+        canResetPasswords: existingAssignment.permissions?.canResetPasswords ?? true,
+        canAuditMarks: existingAssignment.permissions?.canAuditMarks ?? true,
+        canReleaseMarks: existingAssignment.permissions?.canReleaseMarks ?? true,
+        canEditMarksRegisters: existingAssignment.permissions?.canEditMarksRegisters ?? true,
+        canManageExamTerms: existingAssignment.permissions?.canManageExamTerms ?? true,
+        canVerifySyllabus: existingAssignment.permissions?.canVerifySyllabus ?? true,
+        canManageLateEntries: existingAssignment.permissions?.canManageLateEntries ?? true,
+        canManageAttendance: existingAssignment.permissions?.canManageAttendance ?? true,
+        canApproveLeaveRequests: existingAssignment.permissions?.canApproveLeaveRequests ?? true,
+        canLogBehaviorIncidents: existingAssignment.permissions?.canLogBehaviorIncidents ?? true,
+        canViewDisciplineRecords: existingAssignment.permissions?.canViewDisciplineRecords ?? true,
+        canViewDirectory: existingAssignment.permissions?.canViewDirectory ?? true,
+        canEditStudentProfiles: existingAssignment.permissions?.canEditStudentProfiles ?? true,
+        canManageClasses: existingAssignment.permissions?.canManageClasses ?? true,
+        canAssignTeachers: existingAssignment.permissions?.canAssignTeachers ?? true,
+        canBroadcastAnnouncements: existingAssignment.permissions?.canBroadcastAnnouncements ?? true,
       });
       setSltMode('existing');
     } else {
@@ -181,17 +307,46 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
       setSltTitle('Vice Principal');
       setSltPassword('woodlem123');
       setSltCode(`SLT-${String(assignments.filter((a) => a.roleType === 'slt').length + 1).padStart(3, '0')}`);
+      setSltScopeType('all');
+      setSltManagedGrades(['9', '10', '11', '12']);
+      setSltSectionScopeType('all');
+      setSltManagedSections([]);
       setSltPermissions({
-        canAuditMarks: true,
-        canVerifySyllabus: true,
-        canBroadcastDepartment: true,
-        canManageResources: true,
         canViewAnalytics: true,
-        canApproveClearances: true,
+        canExportStatements: true,
+        canManageHub: true,
+        canManageSettings: false,
+        canResetPasswords: true,
+        canAuditMarks: true,
+        canReleaseMarks: true,
+        canEditMarksRegisters: true,
+        canManageExamTerms: true,
+        canVerifySyllabus: true,
+        canManageLateEntries: true,
+        canManageAttendance: true,
+        canApproveLeaveRequests: true,
+        canLogBehaviorIncidents: true,
+        canViewDisciplineRecords: true,
+        canViewDirectory: true,
+        canEditStudentProfiles: true,
+        canManageClasses: true,
+        canAssignTeachers: true,
+        canBroadcastAnnouncements: true,
       });
       setSltMode('existing');
     }
     setIsSltModalOpen(true);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleCloseSltEditor = () => {
+    setIsSltModalOpen(false);
+    setEditingSltId(null);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const handleSaveSltAssignment = async () => {
@@ -201,6 +356,15 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
       let targetUserName = sltName;
       let targetUserEmail = sltEmail;
 
+      const finalManagedGrades =
+        sltScopeType === 'all'
+          ? ['9', '10', '11', '12']
+          : sltManagedGrades.length > 0
+          ? sltManagedGrades
+          : ['9', '10', '11', '12'];
+      const finalManagedSections =
+        sltScopeType === 'all' || sltSectionScopeType === 'all' ? [] : sltManagedSections;
+
       if (editingSltId) {
         // Editing existing appointment
         const existingAssignment = assignments.find((a) => a.id === editingSltId);
@@ -208,19 +372,27 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
         targetUserName = existingAssignment?.userName || sltName;
         targetUserEmail = existingAssignment?.userEmail || sltEmail;
 
+        const updatePayload: any = {
+          role: 'principal',
+          special_role: 'slt',
+          designation: sltTitle || 'Senior Leadership Team (SLT)',
+          managed_grades: finalManagedGrades,
+          managed_sections: finalManagedSections,
+        };
+
         if (targetUserId) {
-          await supabase.from('profiles').update({
-            role: 'principal',
-            special_role: 'slt',
-            designation: sltTitle || 'Senior Leadership Team (SLT)',
-          }).eq('id', targetUserId);
+          try {
+            await supabase.from('profiles').update(updatePayload).eq('id', targetUserId);
+          } catch (e) {
+            console.warn('Profile ID update notice:', e);
+          }
         }
         if (targetUserEmail) {
-          await supabase.from('profiles').update({
-            role: 'principal',
-            special_role: 'slt',
-            designation: sltTitle || 'Senior Leadership Team (SLT)',
-          }).eq('email', targetUserEmail.toLowerCase());
+          try {
+            await supabase.from('profiles').update(updatePayload).eq('email', targetUserEmail.toLowerCase());
+          } catch (e) {
+            console.warn('Profile email update notice:', e);
+          }
         }
       } else if (sltMode === 'existing') {
         const existingUser = profiles.find((p) => p.id === selectedSltUserId || p.email?.toLowerCase() === selectedSltUserId?.toLowerCase());
@@ -233,11 +405,17 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
         targetUserName = existingUser.name;
         targetUserEmail = existingUser.email;
 
-        await supabase.from('profiles').update({
-          role: 'principal',
-          special_role: 'slt',
-          designation: sltTitle || 'Senior Leadership Team (SLT)',
-        }).eq('id', existingUser.id);
+        try {
+          await supabase.from('profiles').update({
+            role: 'principal',
+            special_role: 'slt',
+            designation: sltTitle || 'Senior Leadership Team (SLT)',
+            managed_grades: finalManagedGrades,
+            managed_sections: finalManagedSections,
+          } as any).eq('id', existingUser.id);
+        } catch (e) {
+          console.warn('Profile role update notice:', e);
+        }
       } else {
         if (!sltName.trim() || !sltEmail.trim()) {
           alert('Please provide a name and email for the SLT member.');
@@ -264,6 +442,8 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
                 designation: sltTitle || 'Vice Principal',
                 user_code: cleanCode,
                 admission_number: cleanCode,
+                managed_grades: finalManagedGrades,
+                managed_sections: finalManagedSections,
               },
             },
           });
@@ -284,7 +464,7 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
 
         targetUserId = createdAuthUserId || existingProf?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'slt_' + Date.now());
 
-        // 1. Guaranteed clean PostgreSQL schema payload for public.profiles
+        // 2. Guaranteed clean PostgreSQL schema payload for public.profiles
         const dbProfile: any = {
           id: targetUserId,
           name: targetUserName,
@@ -304,11 +484,13 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
           }
         }
 
-        // Try updating designation and special_role if table columns exist
+        // Try updating designation, special_role, and scopes
         try {
           await supabase.from('profiles').update({
             designation: sltTitle || 'Vice Principal',
             special_role: 'slt',
+            managed_grades: finalManagedGrades,
+            managed_sections: finalManagedSections,
           } as any).eq('email', targetUserEmail);
         } catch (e) {
           // Ignore if optional columns are absent in DB
@@ -326,6 +508,9 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
         userEmail: targetUserEmail,
         roleType: 'slt',
         title: sltTitle || 'Senior Leadership Team (SLT)',
+        scopeType: sltScopeType,
+        managedGrades: finalManagedGrades,
+        managedSections: finalManagedSections,
         permissions: sltPermissions,
         assignedAt: new Date().toISOString(),
         assignedBy: isCurrentLoggedInUserPrincipal ? 'Principal' : (currentUser.name || 'Admin'),
@@ -335,7 +520,7 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
       await saveSpecialRoleAssignments(updated);
       setAssignments(updated);
       setIsSltModalOpen(false);
-      showToast(`${sltTitle || 'SLT Member'} permissions saved successfully.`);
+      showToast(`${sltTitle || 'SLT Member'} jurisdiction & powers saved successfully.`);
       if (onRefreshData) {
         await onRefreshData();
       }
@@ -429,10 +614,17 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
           await supabase.from('profiles').update({ special_role: 'none', department: null }).eq('id', oldAssignment.userId);
         }
 
+        const deptDef = ACADEMIC_DEPARTMENTS.find((d) => d.name === selectedDept);
+        const deptPrimarySubject = deptDef?.subjects?.[0] || '';
+        const targetSubject = targetTeacher.subject && targetTeacher.subject !== 'English' 
+          ? targetTeacher.subject 
+          : (deptPrimarySubject || targetTeacher.subject || 'Physical Education');
+
         await supabase.from('profiles').update({
           special_role: 'hod',
           department: selectedDept,
           designation: customTitle || `Head of ${selectedDept}`,
+          subject: targetSubject,
         }).eq('id', targetTeacher.id);
 
         const remaining = assignments.filter((a) => !(a.roleType === 'hod' && a.department === selectedDept));
@@ -543,6 +735,1390 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
     if (onRefreshData) onRefreshData();
   };
 
+  const handleOpenAdminModal = () => {
+    const defaultCandidate = profiles.find((p) => p.role === 'teacher' && !p.email.toLowerCase().startsWith('admin@'));
+    setSelectedAdminUserId(defaultCandidate?.id || '');
+    setAdminName('');
+    setAdminEmail('');
+    setAdminTitle('System Administrator');
+    setAdminPassword('woodlem123');
+    setAdminCode(`ADM-${String(adminProfiles.length + 1).padStart(3, '0')}`);
+    setAdminMode('existing');
+    setIsAdminModalOpen(true);
+  };
+
+  const handleSaveAdminAssignment = async () => {
+    setIsSaving(true);
+    try {
+      if (adminMode === 'existing') {
+        const target = profiles.find((p) => p.id === selectedAdminUserId);
+        if (!target) {
+          alert('Please select a valid staff member.');
+          setIsSaving(false);
+          return;
+        }
+        await supabase.from('profiles').update({
+          role: 'admin',
+          designation: adminTitle || 'System Administrator',
+        }).eq('id', target.id);
+      } else {
+        if (!adminName.trim() || !adminEmail.trim()) {
+          alert('Please provide a name and email.');
+          setIsSaving(false);
+          return;
+        }
+        const targetEmail = adminEmail.trim().toLowerCase();
+        const targetName = adminName.trim();
+        const cleanCode = (adminCode || '').trim() || 'ADM-001';
+        const assignedPass = adminPassword || 'woodlem123';
+
+        let createdId: string | null = null;
+        try {
+          const isolatedClient = createIsolatedSupabaseClient();
+          const { data: authRes } = await isolatedClient.auth.signUp({
+            email: targetEmail,
+            password: assignedPass,
+            options: {
+              data: {
+                name: targetName,
+                role: 'admin',
+                designation: adminTitle || 'System Administrator',
+                user_code: cleanCode,
+                admission_number: cleanCode,
+              },
+            },
+          });
+          if (authRes?.user) createdId = authRes.user.id;
+        } catch (e) {
+          console.warn('Auth notice for Admin:', e);
+        }
+
+        const newId = createdId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'adm_' + Date.now());
+        const dbProfile: any = {
+          id: newId,
+          name: targetName,
+          email: targetEmail,
+          role: 'admin',
+          designation: adminTitle || 'System Administrator',
+          user_code: cleanCode,
+          admission_number: cleanCode,
+        };
+        await supabase.from('profiles').upsert([dbProfile], { onConflict: 'email' });
+        await saveUserPasswordToCloudAndLocal(newId, targetEmail, assignedPass);
+      }
+
+      setIsAdminModalOpen(false);
+      showToast('System Administrator delegated successfully.');
+      if (onRefreshData) onRefreshData();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save administrator.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRevokeAdminRole = async (userId: string) => {
+    if (!confirm('Are you sure you want to revoke administrator access from this account?')) return;
+    setIsSaving(true);
+    try {
+      await supabase.from('profiles').update({
+        role: 'teacher',
+        designation: 'Faculty Member',
+      }).eq('id', userId);
+      showToast('Administrator privileges revoked.');
+      if (onRefreshData) onRefreshData();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to revoke admin role.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const hodAssignments = assignments.filter((a) => a.roleType === 'hod');
+  const coordinatorAssignments = assignments.filter((a) => a.roleType === 'coordinator');
+
+  const isCurrentLoggedInUserAdmin = currentUser.role === 'admin' && !isSltUser(currentUser);
+  const canManageAccess = isCurrentLoggedInUserPrincipal || isCurrentLoggedInUserAdmin;
+
+  if (!canManageAccess) {
+    return (
+      <div style={{ padding: '40px 24px', textAlign: 'center', background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8 }}>
+        <ShieldAlert size={40} style={{ color: '#DC2626', margin: '0 auto 12px' }} />
+        <h2 style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 700, color: '#1A1A1A', fontFamily: 'var(--font-display)' }}>
+          Access Restricted: Institutional Governance
+        </h2>
+        <p style={{ margin: 0, fontSize: 13, color: '#6B6963', maxWidth: 460, marginLeft: 'auto', marginRight: 'auto' }}>
+          Special roles and institutional appointments are strictly governed by the Executive Head of School (Principal) and System Administrators.
+        </p>
+      </div>
+    );
+  }
+
+  // ── FULL PAGE: SENIOR LEADERSHIP JURISDICTION & POWERS EDITOR ──
+  if (isSltModalOpen) {
+    const totalPowersCount = Object.values(sltPermissions).filter(Boolean).length;
+    const editingAssignment = editingSltId ? assignments.find((a) => a.id === editingSltId) : null;
+    const memberName = editingAssignment ? editingAssignment.userName : (sltMode === 'existing' ? profiles.find((p) => p.id === selectedSltUserId)?.name || '' : sltName);
+    const memberEmail = editingAssignment ? editingAssignment.userEmail : (sltMode === 'existing' ? profiles.find((p) => p.id === selectedSltUserId)?.email || '' : sltEmail);
+    const memberDesignation = editingAssignment ? (editingAssignment.title || 'Senior Leadership Team') : (sltTitle || 'Senior Leadership Team');
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, width: '100%', paddingBottom: 40, maxWidth: 1200, margin: '0 auto' }}>
+        {/* Toast Notification */}
+        {saveToast && (
+          <div
+            style={{
+              position: 'fixed',
+              bottom: 24,
+              right: 24,
+              background: saveToast.type === 'warn' ? '#92400E' : '#1A1A1A',
+              color: '#FFFFFF',
+              padding: '12px 20px',
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+              zIndex: 1000,
+            }}
+          >
+            {saveToast.type === 'warn' ? <AlertCircle size={17} style={{ color: '#FDE68A' }} /> : <CheckCircle2 size={17} style={{ color: '#A7F3D0' }} />}
+            {saveToast.message}
+          </div>
+        )}
+
+        {/* ── TOP BREADCRUMB & EXECUTIVE HEADER ── */}
+        <div
+          style={{
+            background: '#FFFFFF',
+            border: '1px solid var(--border-color)',
+            borderRadius: 10,
+            padding: '18px 24px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 14,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+          }}
+        >
+          {/* Breadcrumb Bar */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #F1F0EB', paddingBottom: 12 }}>
+            <button
+              type="button"
+              onClick={handleCloseSltEditor}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '7px 14px',
+                borderRadius: 6,
+                border: '1px solid var(--border-color)',
+                background: '#FAF9F6',
+                color: 'var(--neutral-dark)',
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#F2F1EC';
+                e.currentTarget.style.borderColor = '#D6D4CC';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = '#FAF9F6';
+                e.currentTarget.style.borderColor = 'var(--border-color)';
+              }}
+            >
+              <ArrowLeft size={15} />
+              <span>Back to Special Access &amp; Roles</span>
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  background: '#EFF6FF',
+                  color: '#1D4ED8',
+                  padding: '4px 10px',
+                  borderRadius: 12,
+                  letterSpacing: '0.04em',
+                }}
+              >
+                EXECUTIVE GOVERNANCE
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  background: totalPowersCount > 0 ? '#EAF3EF' : '#FEF3C7',
+                  color: totalPowersCount > 0 ? '#2C6E6A' : '#92400E',
+                  padding: '4px 10px',
+                  borderRadius: 12,
+                }}
+              >
+                {totalPowersCount} / 20 Powers Active
+              </span>
+            </div>
+          </div>
+
+          {/* Title & Action Buttons Row */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 10,
+                  background: 'linear-gradient(135deg, #EAF3EF 0%, #D8ECE5 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#2C6E6A',
+                  flexShrink: 0,
+                  boxShadow: '0 2px 5px rgba(44,110,106,0.15)',
+                }}
+              >
+                <Crown size={26} />
+              </div>
+              <div>
+                <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: 'var(--neutral-dark)', letterSpacing: '-0.01em', fontFamily: 'var(--font-display)' }}>
+                  {editingSltId ? 'Edit Senior Leadership Jurisdiction & Powers' : 'Appoint Senior Leadership Team (SLT) Member'}
+                </h1>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+                  Assign executive designation, enforce strict grade/section jurisdiction, and calibrate delegated institutional authorities.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button
+                type="button"
+                onClick={handleCloseSltEditor}
+                style={{
+                  padding: '9px 18px',
+                  borderRadius: 6,
+                  border: '1px solid var(--border-color)',
+                  background: '#FFFFFF',
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  color: 'var(--neutral-dark)',
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveSltAssignment}
+                disabled={isSaving}
+                style={{
+                  padding: '9px 24px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: '#1A1A1A',
+                  color: '#FFFFFF',
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: isSaving ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+                }}
+              >
+                <ShieldCheck size={16} />
+                <span>{isSaving ? 'Saving Delegated Authority...' : editingSltId ? 'Save Changes' : 'Confirm SLT Appointment'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ── 1. EXECUTIVE IDENTITY & DESIGNATION PRESETS ── */}
+        <div
+          style={{
+            background: '#FFFFFF',
+            border: '1px solid var(--border-color)',
+            borderRadius: 10,
+            padding: '20px 24px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid #F1F0EB', paddingBottom: 12 }}>
+            <div style={{ width: 30, height: 30, borderRadius: 6, background: '#EAF3EF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2C6E6A' }}>
+              <UserCheck size={16} />
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', color: 'var(--neutral-dark)', letterSpacing: '0.04em' }}>
+                Executive Member Identity &amp; Title
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                Target institutional leader and official administrative designation.
+              </div>
+            </div>
+          </div>
+
+          {editingSltId ? (
+            /* Editing Banner for existing SLT member */
+            <div
+              style={{
+                background: '#FAF9F6',
+                border: '1px solid var(--border-color)',
+                borderRadius: 8,
+                padding: '14px 18px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 12,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: '50%',
+                    background: '#1A1A1A',
+                    color: '#FFFFFF',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 700,
+                    fontSize: 16,
+                  }}
+                >
+                  {(memberName || 'S').slice(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--neutral-dark)' }}>
+                    {memberName}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
+                    {memberEmail}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    padding: '4px 12px',
+                    borderRadius: 6,
+                    background: '#EAF3EF',
+                    color: '#2C6E6A',
+                    border: '1px solid #C7E4D8',
+                  }}
+                >
+                  {memberDesignation}
+                </span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    padding: '4px 10px',
+                    borderRadius: 6,
+                    background: '#EFF6FF',
+                    color: '#1D4ED8',
+                  }}
+                >
+                  Active Executive
+                </span>
+              </div>
+            </div>
+          ) : (
+            /* New Appointment: Tab mode switch and selection */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'flex', gap: 8, background: '#FAF9F6', border: '1px solid var(--border-color)', padding: 4, borderRadius: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setSltMode('existing')}
+                  style={{
+                    flex: 1,
+                    padding: '9px 14px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: sltMode === 'existing' ? '#FFFFFF' : 'transparent',
+                    color: sltMode === 'existing' ? 'var(--neutral-dark)' : 'var(--text-secondary)',
+                    fontWeight: sltMode === 'existing' ? 700 : 500,
+                    fontSize: 12.5,
+                    cursor: 'pointer',
+                    boxShadow: sltMode === 'existing' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  Appoint Existing Staff / Faculty Member
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSltMode('new')}
+                  style={{
+                    flex: 1,
+                    padding: '9px 14px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: sltMode === 'new' ? '#FFFFFF' : 'transparent',
+                    color: sltMode === 'new' ? 'var(--neutral-dark)' : 'var(--text-secondary)',
+                    fontWeight: sltMode === 'new' ? 700 : 500,
+                    fontSize: 12.5,
+                    cursor: 'pointer',
+                    boxShadow: sltMode === 'new' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  Create Dedicated Senior Leadership Account
+                </button>
+              </div>
+
+              {sltMode === 'existing' ? (
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--neutral-dark)', marginBottom: 6, display: 'block' }}>
+                    Select Staff / Faculty Member
+                  </label>
+                  <CustomSelect
+                    value={selectedSltUserId}
+                    onChange={(val) => setSelectedSltUserId(val)}
+                    placeholder="-- Choose Staff / Faculty --"
+                    searchable={true}
+                    options={[
+                      { value: '', label: '-- Choose Staff / Faculty --' },
+                      ...profiles
+                        .filter((p) => p.role !== 'student' && p.role !== 'parent')
+                        .map((p) => ({
+                          value: p.id,
+                          label: `${p.name} (${p.email}) - ${p.designation || p.role}`,
+                        })),
+                    ]}
+                  />
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--neutral-dark)', marginBottom: 6, display: 'block' }}>
+                        Senior Leader Full Name
+                      </label>
+                      <input
+                        type="text"
+                        value={sltName}
+                        onChange={(e) => setSltName(e.target.value)}
+                        placeholder="e.g. Dr. Robert Vance"
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          borderRadius: 6,
+                          border: '1px solid var(--border-color)',
+                          background: '#FFFFFF',
+                          fontSize: 13,
+                        }}
+                      />
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--neutral-dark)', marginBottom: 6, display: 'block' }}>
+                        Official SLT Email Address
+                      </label>
+                      <input
+                        type="email"
+                        value={sltEmail}
+                        onChange={(e) => setSltEmail(e.target.value)}
+                        placeholder="e.g. vp.academics@woodlempark.ae"
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          borderRadius: 6,
+                          border: '1px solid var(--border-color)',
+                          background: '#FFFFFF',
+                          fontSize: 13,
+                        }}
+                      />
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--neutral-dark)', marginBottom: 6, display: 'block' }}>
+                        Staff Code / ID
+                      </label>
+                      <input
+                        type="text"
+                        value={sltCode}
+                        onChange={(e) => setSltCode(e.target.value)}
+                        placeholder="SLT-001"
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          borderRadius: 6,
+                          border: '1px solid var(--border-color)',
+                          background: '#FFFFFF',
+                          fontSize: 13,
+                        }}
+                      />
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--neutral-dark)', marginBottom: 6, display: 'block' }}>
+                        Preset Password
+                      </label>
+                      <input
+                        type="text"
+                        value={sltPassword}
+                        onChange={(e) => setSltPassword(e.target.value)}
+                        placeholder="woodlem123"
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          borderRadius: 6,
+                          border: '1px solid var(--border-color)',
+                          background: '#FFFFFF',
+                          fontSize: 13,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Title / Designation Presets */}
+          <div className="form-group" style={{ margin: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <label className="form-label" style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--neutral-dark)', margin: 0 }}>
+                Executive Title &amp; Role Presets
+              </label>
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                Click a preset to automatically configure recommended jurisdiction and powers:
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+              {SLT_ROLE_PRESETS.map((preset) => {
+                const isSelected = sltTitle === preset.title;
+                return (
+                  <button
+                    key={preset.title}
+                    type="button"
+                    onClick={() => {
+                      setSltTitle(preset.title);
+                      setSltScopeType(preset.defaultScopeType);
+                      setSltManagedGrades(preset.defaultGrades || ['9', '10', '11', '12']);
+                      setSltSectionScopeType('all');
+                      setSltManagedSections([]);
+                      setSltPermissions({ ...preset.defaultPermissions });
+                    }}
+                    style={{
+                      padding: '7px 14px',
+                      borderRadius: 6,
+                      border: isSelected ? '1.5px solid #2C6E6A' : '1px solid var(--border-color)',
+                      background: isSelected ? '#EAF3EF' : '#FFFFFF',
+                      color: isSelected ? '#2C6E6A' : 'var(--neutral-dark)',
+                      fontSize: 12,
+                      fontWeight: isSelected ? 700 : 500,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      transition: 'all 0.12s ease',
+                      boxShadow: isSelected ? '0 1px 3px rgba(44,110,106,0.1)' : 'none',
+                    }}
+                  >
+                    {isSelected ? <Check size={13} /> : <Crown size={12} style={{ color: '#A8A29E' }} />}
+                    {preset.title}
+                  </button>
+                );
+              })}
+            </div>
+            <input
+              type="text"
+              value={sltTitle}
+              onChange={(e) => setSltTitle(e.target.value)}
+              placeholder="e.g. Vice Principal, Head of Secondary, Academic Director"
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: 6,
+                border: '1px solid var(--border-color)',
+                background: '#FFFFFF',
+                fontSize: 13,
+              }}
+            />
+          </div>
+        </div>
+
+        {/* ── 2. INSTITUTIONAL JURISDICTION & COHORT SCOPING ── */}
+        <div
+          style={{
+            background: '#FFFFFF',
+            borderRadius: 10,
+            padding: '20px 24px',
+            border: '1px solid var(--border-color)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #F1F0EB', paddingBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 30, height: 30, borderRadius: 6, background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1D4ED8' }}>
+                <Building size={16} />
+              </div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', color: 'var(--neutral-dark)', letterSpacing: '0.04em' }}>
+                  Institutional Jurisdiction &amp; Cohort Scoping
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                  Control the exact high school grade cohorts and classroom sections this SLT member can govern.
+                </div>
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: 11.5,
+                fontWeight: 700,
+                background: sltScopeType === 'all' ? '#EFF6FF' : '#EAF3EF',
+                color: sltScopeType === 'all' ? '#1D4ED8' : '#2C6E6A',
+                padding: '4px 12px',
+                borderRadius: 12,
+              }}
+            >
+              {sltScopeType === 'all'
+                ? 'Whole School (Grades 9-12)'
+                : `${sltManagedGrades.length} Grade(s) • ${sltSectionScopeType === 'all' ? 'All Sections' : `${sltManagedSections.length} Sections`}`}
+            </span>
+          </div>
+
+          {/* Primary Scope Toggle: Two Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
+            <button
+              type="button"
+              onClick={() => {
+                setSltScopeType('all');
+                setSltManagedGrades(['9', '10', '11', '12']);
+                setSltSectionScopeType('all');
+                setSltManagedSections([]);
+              }}
+              style={{
+                padding: '16px 18px',
+                borderRadius: 8,
+                border: sltScopeType === 'all' ? '2px solid #1D4ED8' : '1px solid var(--border-color)',
+                background: sltScopeType === 'all' ? '#F8FAFC' : '#FAF9F6',
+                textAlign: 'left',
+                cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+                boxShadow: sltScopeType === 'all' ? '0 2px 5px rgba(29,78,216,0.08)' : 'none',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: sltScopeType === 'all' ? '#1D4ED8' : 'var(--neutral-dark)' }}>
+                  Whole Institution
+                </span>
+                {sltScopeType === 'all' && <CheckCircle2 size={18} style={{ color: '#1D4ED8' }} />}
+              </div>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                All Grades (9, 10, 11, 12) &amp; every classroom section across the institution.
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSltScopeType('custom');
+                if (sltManagedGrades.length === 0) {
+                  setSltManagedGrades(['9', '10']);
+                }
+              }}
+              style={{
+                padding: '16px 18px',
+                borderRadius: 8,
+                border: sltScopeType === 'custom' ? '2px solid #2C6E6A' : '1px solid var(--border-color)',
+                background: sltScopeType === 'custom' ? '#F0FAF6' : '#FAF9F6',
+                textAlign: 'left',
+                cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+                boxShadow: sltScopeType === 'custom' ? '0 2px 5px rgba(44,110,106,0.08)' : 'none',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: sltScopeType === 'custom' ? '#2C6E6A' : 'var(--neutral-dark)' }}>
+                  Custom Grade Cohorts &amp; Sections
+                </span>
+                {sltScopeType === 'custom' && <CheckCircle2 size={18} style={{ color: '#2C6E6A' }} />}
+              </div>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                Restrict jurisdiction to designated high school grades and fine-grained sections.
+              </span>
+            </button>
+          </div>
+
+          {/* Sub-scoping for Custom Grades and Sections */}
+          {sltScopeType === 'custom' && (
+            <div
+              style={{
+                background: '#FAF9F6',
+                borderRadius: 8,
+                border: '1px solid var(--border-color)',
+                padding: '16px 18px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 16,
+              }}
+            >
+              {/* Grade Level Selector */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--neutral-dark)' }}>
+                    1. Select Designated Grade Cohorts
+                  </span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => setSltManagedGrades(['9', '10'])}
+                      style={{ padding: '4px 10px', fontSize: 11, background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      Secondary (9-10)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSltManagedGrades(['11', '12'])}
+                      style={{ padding: '4px 10px', fontSize: 11, background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      Senior (11-12)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSltManagedGrades(['9', '10', '11', '12'])}
+                      style={{ padding: '4px 10px', fontSize: 11, background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      All (9-12)
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+                  {['9', '10', '11', '12'].map((g) => {
+                    const isGradeSelected = sltManagedGrades.includes(g);
+                    const gradeSectionCount = availableSections.filter((s) => s.startsWith(`${g}-`)).length;
+                    return (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => {
+                          if (isGradeSelected) {
+                            if (sltManagedGrades.length <= 1) {
+                              alert('At least one grade must be selected.');
+                              return;
+                            }
+                            setSltManagedGrades(sltManagedGrades.filter((x) => x !== g));
+                            setSltManagedSections(sltManagedSections.filter((sec) => !sec.startsWith(`${g}-`)));
+                          } else {
+                            setSltManagedGrades([...sltManagedGrades, g].sort((a, b) => Number(a) - Number(b)));
+                          }
+                        }}
+                        style={{
+                          padding: '12px 14px',
+                          borderRadius: 8,
+                          border: isGradeSelected ? '2px solid #2C6E6A' : '1px solid var(--border-color)',
+                          background: isGradeSelected ? '#EAF3EF' : '#FFFFFF',
+                          color: isGradeSelected ? '#2C6E6A' : 'var(--neutral-dark)',
+                          fontWeight: isGradeSelected ? 700 : 500,
+                          fontSize: 13,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                          transition: 'all 0.12s ease',
+                        }}
+                      >
+                        {isGradeSelected ? <CheckSquare size={16} /> : <Square size={16} style={{ color: '#A8A29E' }} />}
+                        <span>Grade {g}</span>
+                        {gradeSectionCount > 0 && (
+                          <span style={{ fontSize: 10.5, color: isGradeSelected ? '#2C6E6A' : 'var(--text-secondary)', opacity: 0.8 }}>
+                            ({gradeSectionCount} sec)
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Section Granularity Toggle */}
+              <div style={{ borderTop: '1px dashed #E2E8F0', paddingTop: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--neutral-dark)' }}>
+                    2. Class Section Authority
+                  </span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSltSectionScopeType('all');
+                        setSltManagedSections([]);
+                      }}
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: 5,
+                        border: sltSectionScopeType === 'all' ? '1.5px solid #2C6E6A' : '1px solid var(--border-color)',
+                        background: sltSectionScopeType === 'all' ? '#EAF3EF' : '#FFFFFF',
+                        color: sltSectionScopeType === 'all' ? '#2C6E6A' : 'var(--neutral-dark)',
+                        fontSize: 11.5,
+                        fontWeight: sltSectionScopeType === 'all' ? 700 : 500,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      All Sections in Selected Grades
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSltSectionScopeType('custom');
+                        if (sltManagedSections.length === 0) {
+                          const initial = availableSections.filter((sec) =>
+                            sltManagedGrades.some((g) => sec.startsWith(`${g}-`))
+                          );
+                          setSltManagedSections(initial);
+                        }
+                      }}
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: 5,
+                        border: sltSectionScopeType === 'custom' ? '1.5px solid #2C6E6A' : '1px solid var(--border-color)',
+                        background: sltSectionScopeType === 'custom' ? '#EAF3EF' : '#FFFFFF',
+                        color: sltSectionScopeType === 'custom' ? '#2C6E6A' : 'var(--neutral-dark)',
+                        fontSize: 11.5,
+                        fontWeight: sltSectionScopeType === 'custom' ? 700 : 500,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Specific Sections Only
+                    </button>
+                  </div>
+                </div>
+
+                {/* Fine-grained sections selection */}
+                {sltSectionScopeType === 'custom' ? (
+                  <div style={{ background: '#FFFFFF', padding: '14px 16px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                        Select the exact classroom sections to grant oversight:
+                      </span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const visible = availableSections.filter((sec) =>
+                              sltManagedGrades.some((g) => sec.startsWith(`${g}-`))
+                            );
+                            setSltManagedSections(visible);
+                          }}
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: 11,
+                            background: '#FAF9F6',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                          }}
+                        >
+                          Select All Visible
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSltManagedSections([])}
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: 11,
+                            background: '#FAF9F6',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                          }}
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {availableSections
+                        .filter((sec) => sltManagedGrades.some((g) => sec.startsWith(`${g}-`)))
+                        .map((sec) => {
+                          const isChecked = sltManagedSections.includes(sec);
+                          return (
+                            <button
+                              key={sec}
+                              type="button"
+                              onClick={() => {
+                                if (isChecked) {
+                                  setSltManagedSections(sltManagedSections.filter((s) => s !== sec));
+                                } else {
+                                  setSltManagedSections([...sltManagedSections, sec]);
+                                }
+                              }}
+                              style={{
+                                padding: '6px 12px',
+                                borderRadius: 6,
+                                border: isChecked ? '1.5px solid #2C6E6A' : '1px solid var(--border-color)',
+                                background: isChecked ? '#EAF3EF' : '#FAF9F6',
+                                color: isChecked ? '#2C6E6A' : 'var(--neutral-dark)',
+                                fontWeight: isChecked ? 700 : 500,
+                                fontSize: 12,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                transition: 'all 0.12s ease',
+                              }}
+                            >
+                              {isChecked && <Check size={12} />}
+                              Section {sec}
+                            </button>
+                          );
+                        })}
+                    </div>
+
+                    {sltManagedSections.length === 0 && (
+                      <div style={{ marginTop: 10, fontSize: 11.5, color: '#DC2626', fontWeight: 600 }}>
+                        ⚠️ Warning: No sections selected. Please select at least one section or switch to &quot;All Sections in Selected Grades&quot;.
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontStyle: 'italic', marginTop: 4 }}>
+                    SLT member will oversee all classroom sections across Grade {sltManagedGrades.join(', ')}.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── 3. DELEGATED INSTITUTIONAL POWERS MATRIX (4 DOMAINS) ── */}
+        <div
+          style={{
+            background: '#FFFFFF',
+            borderRadius: 10,
+            padding: '20px 24px',
+            border: '1px solid var(--border-color)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #F1F0EB', paddingBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 30, height: 30, borderRadius: 6, background: '#EAF3EF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2C6E6A' }}>
+                <ShieldCheck size={16} />
+              </div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', color: 'var(--neutral-dark)', letterSpacing: '0.04em' }}>
+                  Delegated Institutional Powers Matrix
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                  Granted exclusively by the Executive Head of School (Principal) to calibrate exact operational authorities.
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#2C6E6A', background: '#EAF3EF', padding: '4px 12px', borderRadius: 12 }}>
+                {totalPowersCount} / 20 Powers Active
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setSltPermissions({
+                    canViewAnalytics: true,
+                    canExportStatements: true,
+                    canManageHub: true,
+                    canManageSettings: true,
+                    canResetPasswords: true,
+                    canAuditMarks: true,
+                    canReleaseMarks: true,
+                    canEditMarksRegisters: true,
+                    canManageExamTerms: true,
+                    canVerifySyllabus: true,
+                    canManageLateEntries: true,
+                    canManageAttendance: true,
+                    canApproveLeaveRequests: true,
+                    canLogBehaviorIncidents: true,
+                    canViewDisciplineRecords: true,
+                    canViewDirectory: true,
+                    canEditStudentProfiles: true,
+                    canManageClasses: true,
+                    canAssignTeachers: true,
+                    canBroadcastAnnouncements: true,
+                  })
+                }
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 5,
+                  border: '1px solid var(--border-color)',
+                  background: '#FFFFFF',
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  color: 'var(--neutral-dark)',
+                }}
+              >
+                Grant All (20)
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setSltPermissions({
+                    canViewAnalytics: false,
+                    canExportStatements: false,
+                    canManageHub: false,
+                    canManageSettings: false,
+                    canResetPasswords: false,
+                    canAuditMarks: false,
+                    canReleaseMarks: false,
+                    canEditMarksRegisters: false,
+                    canManageExamTerms: false,
+                    canVerifySyllabus: false,
+                    canManageLateEntries: false,
+                    canManageAttendance: false,
+                    canApproveLeaveRequests: false,
+                    canLogBehaviorIncidents: false,
+                    canViewDisciplineRecords: false,
+                    canViewDirectory: false,
+                    canEditStudentProfiles: false,
+                    canManageClasses: false,
+                    canAssignTeachers: false,
+                    canBroadcastAnnouncements: false,
+                  })
+                }
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 5,
+                  border: '1px solid var(--border-color)',
+                  background: '#FFFFFF',
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                Revoke All
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
+            {/* Quadrant 1: Academic & Assessment Governance */}
+            <div style={{ background: '#FAF9F6', borderRadius: 8, border: '1px solid var(--border-color)', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ECEAE5', paddingBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', color: '#2C6E6A', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <BookOpen size={14} /> Academic &amp; Assessment
+                </span>
+                <span style={{ fontSize: 11, color: '#2C6E6A', fontWeight: 700, background: '#EAF3EF', padding: '2px 8px', borderRadius: 10 }}>
+                  {[
+                    sltPermissions.canAuditMarks,
+                    sltPermissions.canReleaseMarks,
+                    sltPermissions.canEditMarksRegisters,
+                    sltPermissions.canManageExamTerms,
+                    sltPermissions.canVerifySyllabus,
+                  ].filter(Boolean).length} / 5
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[
+                  { key: 'canAuditMarks', label: 'Audit Exam Marks Registers', sub: 'Review raw marks, class registers & report sheets' },
+                  { key: 'canReleaseMarks', label: 'Publish & Release Exam Results', sub: 'Authorize score release to students & parents' },
+                  { key: 'canEditMarksRegisters', label: 'Direct Marks Ledger Modification', sub: 'Edit raw student scores in teacher gradebooks' },
+                  { key: 'canManageExamTerms', label: 'Exam Terms & Weightings', sub: 'Configure terms, assessment weightings & curves' },
+                  { key: 'canVerifySyllabus', label: 'Syllabus Coverage & Pacing', sub: 'Audit teacher lesson delivery and curriculum plans' },
+                ].map(({ key, label, sub }) => (
+                  <label
+                    key={key}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 10,
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                      background: (sltPermissions as any)[key] ? '#FFFFFF' : 'transparent',
+                      border: (sltPermissions as any)[key] ? '1px solid #D6D4CC' : '1px solid transparent',
+                      cursor: 'pointer',
+                      transition: 'all 0.12s ease',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!(sltPermissions as any)[key]}
+                      onChange={(e) => setSltPermissions({ ...sltPermissions, [key]: e.target.checked })}
+                      style={{ marginTop: 2, accentColor: '#2C6E6A' }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>{label}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>{sub}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Quadrant 2: Attendance, Conduct & Pastoral Care */}
+            <div style={{ background: '#FAF9F6', borderRadius: 8, border: '1px solid var(--border-color)', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ECEAE5', paddingBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', color: '#1D4ED8', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Clock size={14} /> Attendance, Conduct &amp; Pastoral
+                </span>
+                <span style={{ fontSize: 11, color: '#1D4ED8', fontWeight: 700, background: '#EFF6FF', padding: '2px 8px', borderRadius: 10 }}>
+                  {[
+                    sltPermissions.canManageLateEntries,
+                    sltPermissions.canManageAttendance,
+                    sltPermissions.canApproveLeaveRequests,
+                    sltPermissions.canLogBehaviorIncidents,
+                    sltPermissions.canViewDisciplineRecords,
+                  ].filter(Boolean).length} / 5
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[
+                  { key: 'canManageLateEntries', label: 'Gate Late Entry Desk', sub: 'Log morning arrivals, print digital gate slips' },
+                  { key: 'canManageAttendance', label: 'Daily Attendance Registers', sub: 'Audit daily presence, excuse unexcused absences' },
+                  { key: 'canApproveLeaveRequests', label: 'Leave Request Approvals', sub: 'Authorize official medical and personal leave slips' },
+                  { key: 'canLogBehaviorIncidents', label: 'Behavior & Infraction Points', sub: 'Issue disciplinary notices, merits and demerits' },
+                  { key: 'canViewDisciplineRecords', label: 'Confidential Pastoral Dossiers', sub: 'Access complete student incident history & notes' },
+                ].map(({ key, label, sub }) => (
+                  <label
+                    key={key}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 10,
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                      background: (sltPermissions as any)[key] ? '#FFFFFF' : 'transparent',
+                      border: (sltPermissions as any)[key] ? '1px solid #D6D4CC' : '1px solid transparent',
+                      cursor: 'pointer',
+                      transition: 'all 0.12s ease',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!(sltPermissions as any)[key]}
+                      onChange={(e) => setSltPermissions({ ...sltPermissions, [key]: e.target.checked })}
+                      style={{ marginTop: 2, accentColor: '#1D4ED8' }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>{label}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>{sub}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Quadrant 3: Classes, Cohorts & Directory Governance */}
+            <div style={{ background: '#FAF9F6', borderRadius: 8, border: '1px solid var(--border-color)', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ECEAE5', paddingBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', color: '#7C5CBF', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Users size={14} /> Classes, Cohorts &amp; Directory
+                </span>
+                <span style={{ fontSize: 11, color: '#7C5CBF', fontWeight: 700, background: '#F3EFFA', padding: '2px 8px', borderRadius: 10 }}>
+                  {[
+                    sltPermissions.canViewDirectory,
+                    sltPermissions.canEditStudentProfiles,
+                    sltPermissions.canManageClasses,
+                    sltPermissions.canAssignTeachers,
+                    sltPermissions.canBroadcastAnnouncements,
+                  ].filter(Boolean).length} / 5
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[
+                  { key: 'canViewDirectory', label: 'User Directory Oversight', sub: 'Search and browse students, parents, faculty rosters' },
+                  { key: 'canEditStudentProfiles', label: 'Modify Student & Guardian Records', sub: 'Update student profiles, contact details & admissions' },
+                  { key: 'canManageClasses', label: 'Class Sections & Batches', sub: 'Create classroom sections, archive and configure batches' },
+                  { key: 'canAssignTeachers', label: 'Faculty & Timetable Allocations', sub: 'Assign subject teachers and class tutors to classes' },
+                  { key: 'canBroadcastAnnouncements', label: 'Executive School Broadcasts', sub: 'Issue school-wide alerts, bulletins and notices' },
+                ].map(({ key, label, sub }) => (
+                  <label
+                    key={key}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 10,
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                      background: (sltPermissions as any)[key] ? '#FFFFFF' : 'transparent',
+                      border: (sltPermissions as any)[key] ? '1px solid #D6D4CC' : '1px solid transparent',
+                      cursor: 'pointer',
+                      transition: 'all 0.12s ease',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!(sltPermissions as any)[key]}
+                      onChange={(e) => setSltPermissions({ ...sltPermissions, [key]: e.target.checked })}
+                      style={{ marginTop: 2, accentColor: '#7C5CBF' }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>{label}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>{sub}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Quadrant 4: Executive Analytics, Hub & Operations */}
+            <div style={{ background: '#FAF9F6', borderRadius: 8, border: '1px solid var(--border-color)', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ECEAE5', paddingBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', color: '#D97706', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <BarChart3 size={14} /> Analytics, Hub &amp; Operations
+                </span>
+                <span style={{ fontSize: 11, color: '#D97706', fontWeight: 700, background: '#FEF3C7', padding: '2px 8px', borderRadius: 10 }}>
+                  {[
+                    sltPermissions.canViewAnalytics,
+                    sltPermissions.canExportStatements,
+                    sltPermissions.canManageHub,
+                    sltPermissions.canResetPasswords,
+                    sltPermissions.canManageSettings,
+                  ].filter(Boolean).length} / 5
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[
+                  { key: 'canViewAnalytics', label: 'Executive Intelligence & Dashboards', sub: 'Full access to cohort performance curves & analytics' },
+                  { key: 'canExportStatements', label: 'Ministry & Board Statements', sub: 'Generate official grade registers and PDF/CSV dossiers' },
+                  { key: 'canManageHub', label: 'Holistic Activities & Co-Curricular Hub', sub: 'Oversee house points, clubs, events and competitions' },
+                  { key: 'canResetPasswords', label: 'Reset Credentials & Passwords', sub: 'Delegate password reset capabilities for accounts' },
+                  { key: 'canManageSettings', label: 'System Settings & Access Policies', sub: 'Administrative preferences and platform parameters' },
+                ].map(({ key, label, sub }) => (
+                  <label
+                    key={key}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 10,
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                      background: (sltPermissions as any)[key] ? '#FFFFFF' : 'transparent',
+                      border: (sltPermissions as any)[key] ? '1px solid #D6D4CC' : '1px solid transparent',
+                      cursor: 'pointer',
+                      transition: 'all 0.12s ease',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!(sltPermissions as any)[key]}
+                      onChange={(e) => setSltPermissions({ ...sltPermissions, [key]: e.target.checked })}
+                      style={{ marginTop: 2, accentColor: '#D97706' }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>{label}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>{sub}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── 4. STICKY BOTTOM ACTION FOOTER ── */}
+        <div
+          style={{
+            position: 'sticky',
+            bottom: 0,
+            zIndex: 10,
+            background: '#FFFFFF',
+            border: '1px solid var(--border-color)',
+            borderRadius: 10,
+            padding: '14px 24px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 12,
+            boxShadow: '0 -4px 16px rgba(0,0,0,0.06)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#1A1A1A', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 }}>
+              <ShieldCheck size={16} />
+            </div>
+            <div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                {sltTitle || 'Senior Leadership Member'} • {sltScopeType === 'all' ? 'Whole School (Grades 9-12)' : `Grades: ${sltManagedGrades.join(', ')} (${sltSectionScopeType === 'all' ? 'All Sections' : `${sltManagedSections.length} Sections`})`}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                {totalPowersCount} of 20 institutional powers authorized
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button
+              type="button"
+              onClick={handleCloseSltEditor}
+              style={{
+                padding: '9px 18px',
+                borderRadius: 6,
+                border: '1px solid var(--border-color)',
+                background: '#FFFFFF',
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: 'pointer',
+                color: 'var(--neutral-dark)',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveSltAssignment}
+              disabled={isSaving}
+              style={{
+                padding: '9px 26px',
+                borderRadius: 6,
+                border: 'none',
+                background: '#1A1A1A',
+                color: '#FFFFFF',
+                fontSize: 12.5,
+                fontWeight: 700,
+                cursor: isSaving ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+              }}
+            >
+              <ShieldCheck size={16} />
+              <span>{isSaving ? 'Saving Delegated Authority...' : editingSltId ? 'Save Changes' : 'Confirm SLT Appointment'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Toast Notification */}
@@ -570,260 +2146,77 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
         </div>
       )}
 
-      {/* ── TOP BANNER: SPECIAL DASHBOARDS & ACCESS DELEGATION CONSOLE ── */}
+      {/* ── 1. PRINCIPAL EXECUTIVE ACCOUNT ── */}
       <div
         style={{
           background: '#FFFFFF',
           border: '1px solid var(--border-color)',
-          borderRadius: 10,
-          padding: '16px 20px',
+          borderRadius: 8,
+          padding: '14px 18px',
           display: 'flex',
           alignItems: 'center',
-          gap: 12,
+          justifyContent: 'space-between',
+          gap: 16,
           boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
         }}
       >
-        <div
-          style={{
-            width: 38,
-            height: 38,
-            borderRadius: 8,
-            background: '#EAF3EF',
-            border: '1px solid #C7E4D8',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#2C6E6A',
-            flexShrink: 0,
-          }}
-        >
-          <ShieldCheck size={20} />
-        </div>
-        <div>
-          <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0, color: 'var(--neutral-dark)', fontFamily: 'var(--font-display)' }}>
-            Special Dashboards &amp; Access Delegation Console
-          </h2>
-          <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
-            Delegate institutional oversight, appoint Head of Departments (HODs), and configure stage coordinator privileges.
-          </p>
-        </div>
-      </div>
-
-      {/* ── CARD 1: IMMUTABLE ROOT PRINCIPAL EXECUTIVE AUTHORITY ── */}
-      <div
-        style={{
-          background: '#FFFFFF',
-          border: '1px solid #F5DEB3',
-          borderRadius: 10,
-          padding: '20px 22px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 16,
-          boxShadow: '0 2px 6px rgba(217, 119, 6, 0.05)',
-        }}
-      >
-        {/* Principal Header Row */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div
-              style={{
-                width: 52,
-                height: 52,
-                borderRadius: 10,
-                background: '#D97706',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#FFFFFF',
-                boxShadow: '0 4px 12px rgba(217, 119, 6, 0.25)',
-              }}
-            >
-              <Crown size={26} />
-            </div>
-
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--neutral-dark)', fontFamily: 'var(--font-display)' }}>
-                  {principalProfile.name || 'Dr. Maya Patel'}
-                </span>
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 800,
-                    padding: '2px 8px',
-                    borderRadius: 4,
-                    background: '#FFFBEB',
-                    color: '#92400E',
-                    border: '1px solid #F5DEB3',
-                    letterSpacing: '0.04em',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                  }}
-                >
-                  <Lock size={11} /> INDEPENDENT EXECUTIVE AUTHORITY
-                </span>
-              </div>
-              <div style={{ fontSize: 12, color: '#78716C', marginTop: 3 }}>
-                {principalProfile.email || 'principal@woodlempark.ae'} • {principalProfile.designation || 'Principal & Executive Head of School'} • Identifier: {principalProfile.user_code || 'PRN-001'}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{
-              fontSize: 11.5,
-              fontWeight: 600,
-              color: '#92400E',
-              background: '#FEF3C7',
-              border: '1px solid #FDE68A',
-              padding: '6px 12px',
-              borderRadius: 6,
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 8,
+              background: '#1A1A1A',
               display: 'flex',
               alignItems: 'center',
-              gap: 6,
-            }}>
-              <ShieldAlert size={13} /> Dedicated Principal Account ({principalProfile.email || 'principal@woodlempark.ae'})
-            </span>
+              justifyContent: 'center',
+              color: '#FFFFFF',
+              flexShrink: 0,
+            }}
+          >
+            <Crown size={20} />
           </div>
-        </div>
-
-        {/* Root Institutional Capabilities Bullets (All Granted & Locked) */}
-        <div style={{ borderTop: '1px solid #F5DEB3', paddingTop: 14 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 800, color: '#8A5D16', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>
-            Root Institutional Capabilities (All Granted &amp; Locked):
+          <div>
+            <div style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--neutral-dark)', fontFamily: 'var(--font-display)' }}>
+              {principalProfile.name || 'Principal'}
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+              {principalProfile.email} • {principalProfile.designation || 'Principal & Executive Head of School'}
+            </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px' }}>
-            {[
-              'Full Administrative Control & Settings',
-              'School-Wide Dynamic Analytics & Graphs',
-              'All Classrooms & Mark Registers Direct Audit',
-              'Role & Access Delegation Authority',
-              'Syllabus & Curriculum Pace Supervision',
-              'Parent Clearances & Link Authorizations',
-            ].map((cap) => (
-              <div key={cap} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: '#44403C' }}>
-                <CheckCircle2 size={15} style={{ color: '#2C6E6A', flexShrink: 0 }} />
-                <span>{cap}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Security Protocol Alert */}
-        <div
-          style={{
-            background: '#FFFDF9',
-            border: '1px dashed #F5DEB3',
-            borderRadius: 6,
-            padding: '9px 12px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            fontSize: 11,
-            color: '#8A5D16',
-          }}
-        >
-          <ShieldAlert size={15} style={{ color: '#D97706', flexShrink: 0 }} />
-          <span>
-            <strong>Security Protocol:</strong> The Principal account is a protected executive entity. Standard system administrators cannot revoke privileges, limit access, or delete this account. Deletion / role revocation can only be executed by the Principal from their authenticated account.
-          </span>
         </div>
       </div>
 
-      {/* ── CARD 1.5: SENIOR LEADERSHIP TEAM (SLT) APPOINTMENT SECTION ── */}
+      {/* ── 2. SYSTEM ADMINISTRATORS (DELEGATED BY PRINCIPAL) ── */}
       <div
         style={{
           background: '#FFFFFF',
           border: '1px solid var(--border-color)',
-          borderRadius: 10,
-          padding: '18px 20px',
+          borderRadius: 8,
+          padding: '16px 18px',
           display: 'flex',
           flexDirection: 'column',
           gap: 14,
           boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div
-              style={{
-                width: 38,
-                height: 38,
-                borderRadius: 8,
-                background: '#EAF3EF',
-                border: '1px solid #C7E4D8',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#2C6E6A',
-              }}
-            >
-              <Crown size={20} />
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--neutral-dark)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                  SENIOR LEADERSHIP TEAM (SLT)
-                </span>
-                <span style={{ fontSize: 9.5, fontWeight: 800, padding: '2px 6px', borderRadius: 4, background: '#EAF3EF', color: '#2C6E6A', border: '1px solid #C7E4D8' }}>
-                  EXECUTIVE GOVERNANCE
-                </span>
-              </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--neutral-dark)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+              SYSTEM ADMINISTRATORS (IT &amp; ADMINISTRATION)
+            </span>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+              Administrative powers delegated and governed by the Executive Head of School (Principal).
             </div>
           </div>
 
-          {sltAssignments.length > 0 && (
+          {isCurrentLoggedInUserPrincipal && (
             <button
-              onClick={() => handleOpenSltModal()}
+              onClick={handleOpenAdminModal}
               style={{
-                padding: '7px 14px',
+                padding: '6px 12px',
                 borderRadius: 6,
                 background: '#1A1A1A',
-                color: '#FFFFFF',
-                border: 'none',
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              <Plus size={14} /> Appoint SLT Member
-            </button>
-          )}
-        </div>
-
-        {/* SLT Cards Grid or Empty State */}
-        {sltAssignments.length === 0 ? (
-          <div
-            style={{
-              padding: '24px 16px',
-              background: '#FAF9F6',
-              border: '1px dashed var(--border-color)',
-              borderRadius: 8,
-              textAlign: 'center',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#EAF3EF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2C6E6A' }}>
-              <Crown size={22} />
-            </div>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>No Senior Leadership Team (SLT) Members Appointed</span>
-            <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', maxWidth: 480, margin: 0 }}>
-              The Principal can appoint Vice Principals, Academic Directors, and Deans to delegate school-wide analytics, curriculum supervision, and mark register verification.
-            </p>
-            <button
-              onClick={() => handleOpenSltModal()}
-              style={{
-                marginTop: 6,
-                padding: '6px 14px',
-                borderRadius: 6,
-                background: '#2C6E6A',
                 color: '#FFFFFF',
                 border: 'none',
                 fontSize: 11.5,
@@ -834,14 +2227,20 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
                 gap: 5,
               }}
             >
-              <Plus size={13} /> Appoint First SLT Member
+              <Plus size={13} /> Appoint Administrator
             </button>
+          )}
+        </div>
+
+        {adminProfiles.length === 0 ? (
+          <div style={{ padding: '20px 16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 12 }}>
+            No secondary system administrators assigned.
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
-            {sltAssignments.map((slt) => (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+            {adminProfiles.map((adm) => (
               <div
-                key={slt.id}
+                key={adm.id}
                 style={{
                   border: '1px solid var(--border-color)',
                   borderRadius: 8,
@@ -849,94 +2248,57 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
                   background: '#FAF9F6',
                   display: 'flex',
                   flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  gap: 12,
+                  gap: 4,
                 }}
               >
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                        {slt.userName}
-                      </div>
-                      <div style={{ fontSize: 11, color: '#2C6E6A', fontWeight: 600, marginTop: 2 }}>
-                        {slt.title || 'Senior Leadership Team'}
-                      </div>
-                    </div>
-
-                    <span
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                    {adm.name || 'System Admin'}
+                  </div>
+                  {isCurrentLoggedInUserPrincipal && (
+                    <button
+                      type="button"
+                      onClick={() => handleRevokeAdminRole(adm.id)}
+                      title="Revoke Admin Role"
                       style={{
-                        fontSize: 9.5,
-                        fontWeight: 800,
-                        padding: '2px 6px',
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#A8A29E',
+                        padding: '4px',
                         borderRadius: 4,
-                        background: '#EAF3EF',
-                        color: '#2C6E6A',
-                        border: '1px solid #C7E4D8',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = '#DC2626';
+                        e.currentTarget.style.background = '#FEE2E2';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color = '#A8A29E';
+                        e.currentTarget.style.background = 'transparent';
                       }}
                     >
-                      EXECUTIVE
-                    </span>
-                  </div>
-
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 8 }}>
-                    Email: <strong>{slt.userEmail}</strong>
-                  </div>
-
-                  {/* Delegated Capabilities Badges */}
-                  <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                    {slt.permissions.canViewAnalytics && (
-                      <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: '#EAF3EF', color: '#2C6E6A' }}>
-                        ✓ Analytics
-                      </span>
-                    )}
-                    {slt.permissions.canAuditMarks && (
-                      <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: '#F3EFFA', color: '#7C5CBF' }}>
-                        ✓ Marks Audit
-                      </span>
-                    )}
-                    {slt.permissions.canVerifySyllabus && (
-                      <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: '#FEF3C7', color: '#92400E' }}>
-                        ✓ Syllabus
-                      </span>
-                    )}
-                    {slt.permissions.canBroadcastDepartment && (
-                      <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: '#FFE4E6', color: '#E11D48' }}>
-                        ✓ Broadcasts
-                      </span>
-                    )}
-                    {slt.permissions.canApproveClearances && (
-                      <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: '#EBF3F7', color: '#2B5B75' }}>
-                        ✓ Clearances
-                      </span>
-                    )}
-                    {slt.permissions.canManageResources && (
-                      <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: '#F0FDF4', color: '#166534' }}>
-                        ✓ Resources
-                      </span>
-                    )}
-                  </div>
+                      <Trash2 size={13} />
+                    </button>
+                  )}
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: '1px solid var(--border-color)', marginTop: 4 }}>
-                  <span style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
-                    Authority delegated by Principal
-                  </span>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button
-                      type="button"
-                      className="btn-row-action btn-edit"
-                      onClick={() => handleOpenSltModal(slt)}
-                    >
-                      <Edit2 size={11} /> Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-row-action btn-delete"
-                      onClick={() => handleRemoveAssignment(slt.id, 'slt')}
-                    >
-                      <Trash2 size={11} /> Revoke
-                    </button>
+                <div
+                  style={{
+                    marginTop: 6,
+                    padding: '6px 10px',
+                    background: '#FFFFFF',
+                    border: '1px dashed #D5D3CC',
+                    borderRadius: 6,
+                  }}
+                >
+                  <div style={{ fontSize: 11.5, color: '#2C6E6A', fontWeight: 600 }}>
+                    {adm.designation || 'System Administrator'}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 1 }}>
+                    {adm.email}
                   </div>
                 </div>
               </div>
@@ -945,32 +2307,227 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
         )}
       </div>
 
-      {/* ── CARD 2: DEPARTMENT HEADS (HODs) APPOINTMENT GRID ── */}
+      {/* ── 3. SENIOR LEADERSHIP TEAM (SLT) ── */}
       <div
         style={{
           background: '#FFFFFF',
           border: '1px solid var(--border-color)',
-          borderRadius: 10,
-          padding: '18px 20px',
+          borderRadius: 8,
+          padding: '16px 18px',
           display: 'flex',
           flexDirection: 'column',
           gap: 14,
           boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <div>
-            <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--neutral-dark)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-              DEPARTMENT HEADS (HODS)
-            </span>
-            <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
-              Teachers appointed as HODs receive specialized departmental dashboards, cross-class syllabus tracking, and mark register verification.
-            </p>
-          </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--neutral-dark)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            SENIOR LEADERSHIP TEAM (SLT)
+          </span>
+
+          <button
+            onClick={() => handleOpenSltModal()}
+            style={{
+              padding: '6px 12px',
+              borderRadius: 6,
+              background: '#1A1A1A',
+              color: '#FFFFFF',
+              border: 'none',
+              fontSize: 11.5,
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+            }}
+          >
+            <Plus size={13} /> Appoint SLT Member
+          </button>
         </div>
 
-        {/* HOD Cards Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+        {sltAssignments.length === 0 ? (
+          <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 12 }}>
+            No Senior Leadership Team members appointed yet.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+            {sltAssignments.map((slt) => {
+              const activePowersCount = Object.values(slt.permissions || {}).filter(Boolean).length;
+              const isWholeSchool =
+                !slt.scopeType ||
+                slt.scopeType === 'all' ||
+                (!slt.managedGrades || slt.managedGrades.length === 4) &&
+                  (!slt.managedSections || slt.managedSections.length === 0);
+
+              return (
+                <div
+                  key={slt.id}
+                  style={{
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 8,
+                    padding: '14px 16px',
+                    background: '#FAF9F6',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                    transition: 'background 0.12s, border-color 0.12s',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                        {slt.userName}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#2C6E6A', fontWeight: 600, marginTop: 1 }}>
+                        {slt.title || 'Senior Leadership'}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenSltModal(slt)}
+                        title="Configure Jurisdiction & Delegated Powers"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#78716C',
+                          padding: '4px',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.color = '#1A1A1A';
+                          e.currentTarget.style.background = '#EBEAE5';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.color = '#78716C';
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        <Edit2 size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAssignment(slt.id, 'slt')}
+                        title="Revoke Role"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#A8A29E',
+                          padding: '4px',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.color = '#DC2626';
+                          e.currentTarget.style.background = '#FEE2E2';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.color = '#A8A29E';
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      padding: '8px 10px',
+                      background: '#FFFFFF',
+                      border: '1px solid #E7E5E4',
+                      borderRadius: 6,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                    }}
+                  >
+                    <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
+                      {slt.userEmail}
+                    </div>
+
+                    {/* Scope Badge */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        fontSize: 10.5,
+                        color: isWholeSchool ? '#1D4ED8' : '#2C6E6A',
+                        background: isWholeSchool ? '#EFF6FF' : '#EAF3EF',
+                        padding: '4px 7px',
+                        borderRadius: 4,
+                        fontWeight: 600,
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      <Building size={11} style={{ flexShrink: 0 }} />
+                      <span>
+                        {isWholeSchool
+                          ? 'Whole School (Grades 9-12 • All Sections)'
+                          : `Grades ${slt.managedGrades?.join(', ') || 'None'}${
+                              slt.managedSections && slt.managedSections.length > 0
+                                ? ` • Sections: ${slt.managedSections.join(', ')}`
+                                : ' • All Sections'
+                            }`}
+                      </span>
+                    </div>
+
+                    {/* Active Powers Badge */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        fontSize: 10,
+                        color: 'var(--text-secondary)',
+                        borderTop: '1px dashed #E7E5E4',
+                        paddingTop: 5,
+                      }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <ShieldCheck size={11} style={{ color: '#2C6E6A' }} />
+                        <strong style={{ color: 'var(--neutral-dark)' }}>{activePowersCount} / 20</strong> Powers Active
+                      </span>
+                      <span style={{ fontSize: 9.5, color: '#78716C', fontStyle: 'italic' }}>
+                        Governed by Principal
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── 3. DEPARTMENT HEADS (HODs) ── */}
+      <div
+        style={{
+          background: '#FFFFFF',
+          border: '1px solid var(--border-color)',
+          borderRadius: 8,
+          padding: '16px 18px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 14,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--neutral-dark)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            DEPARTMENT HEADS (HODS)
+          </span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
           {ACADEMIC_DEPARTMENTS.map((dept) => {
             const assignment = hodAssignments.find((a) => a.department === dept.name);
             const isAssigned = !!assignment;
@@ -981,108 +2538,137 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
                 style={{
                   border: '1px solid var(--border-color)',
                   borderRadius: 8,
-                  padding: '14px 16px',
+                  padding: '12px 14px',
                   background: '#FAF9F6',
                   display: 'flex',
                   flexDirection: 'column',
+                  gap: 4,
+                  minHeight: 88,
                   justifyContent: 'space-between',
-                  gap: 12,
+                  transition: 'background 0.12s, border-color 0.12s',
                 }}
               >
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                      <span
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 800,
-                          padding: '2px 6px',
-                          borderRadius: 4,
-                          background: dept.bg,
-                          color: dept.color,
-                        }}
-                      >
-                        {dept.code}
-                      </span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                        {dept.name}
-                      </span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                      {dept.name}
                     </div>
 
-                    <span
+                    {isAssigned ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAppointModal('hod', dept.name)}
+                          title="Edit HOD Appointment"
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#78716C',
+                            padding: '4px',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.color = '#1A1A1A';
+                            e.currentTarget.style.background = '#EBEAE5';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.color = '#78716C';
+                            e.currentTarget.style.background = 'transparent';
+                          }}
+                        >
+                          <Edit2 size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAssignment(assignment.id, 'hod')}
+                          title="Revoke HOD"
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#A8A29E',
+                            padding: '4px',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.color = '#DC2626';
+                            e.currentTarget.style.background = '#FEE2E2';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.color = '#A8A29E';
+                            e.currentTarget.style.background = 'transparent';
+                          }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenAppointModal('hod', dept.name)}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#2C6E6A',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          padding: '2px 6px',
+                          borderRadius: 4,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 3,
+                          flexShrink: 0,
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = '#EAF3EF')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <Plus size={11} /> Appoint
+                      </button>
+                    )}
+                  </div>
+
+                  {isAssigned ? (
+                    <div
                       style={{
-                        fontSize: 9.5,
-                        fontWeight: 700,
-                        padding: '2px 6px',
-                        borderRadius: 4,
-                        background: isAssigned ? '#EAF3EF' : '#F5F4F0',
-                        color: isAssigned ? '#2D6E5D' : 'var(--text-secondary)',
+                        marginTop: 8,
+                        padding: '6px 10px',
+                        background: '#FFFFFF',
+                        border: '1px dashed #D5D3CC',
+                        borderRadius: 6,
                       }}
                     >
-                      {isAssigned ? 'APPOINTED' : 'VACANT'}
-                    </span>
-                  </div>
-
-                  <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 4 }}>
-                    Subjects: {dept.subjects.join(', ')}
-                  </div>
-
-                  {isAssigned && (
-                    <div style={{ marginTop: 10, padding: '8px 10px', background: '#FFFFFF', borderRadius: 6, border: '1px solid #EBEAE5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                          {assignment.userName}
-                        </div>
-                        <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
-                          {assignment.userEmail}
-                        </div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                        {assignment.userName}
                       </div>
-
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <button
-                          type="button"
-                          className="btn-row-action btn-edit"
-                          onClick={() => handleOpenAppointModal('hod', dept.name)}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-row-action btn-delete"
-                          onClick={() => handleRemoveAssignment(assignment.id, 'hod')}
-                        >
-                          Revoke
-                        </button>
+                      <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 1 }}>
+                        {assignment.userEmail}
                       </div>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        padding: '6px 10px',
+                        background: '#FFFFFF',
+                        border: '1px dashed #E5E3DC',
+                        borderRadius: 6,
+                        color: '#A8A29E',
+                        fontSize: 11,
+                        fontStyle: 'italic',
+                      }}
+                    >
+                      Unassigned
                     </div>
                   )}
                 </div>
-
-                {!isAssigned && (
-                  <button
-                    onClick={() => handleOpenAppointModal('hod', dept.name)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                      color: '#2C6E6A',
-                      background: 'transparent',
-                      border: '1px dashed #2C6E6A',
-                      borderRadius: 6,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 4,
-                      transition: 'all 0.12s',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = '#EAF3EF')}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <Plus size={13} /> Appoint Faculty as HOD
-                  </button>
-                )}
               </div>
             );
           })}
@@ -1318,8 +2904,8 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
           </div>
         </div>
       )}
-      {/* ── APPOINT SLT MEMBER MODAL ── */}
-      {isSltModalOpen && (
+      {/* ── APPOINT SYSTEM ADMINISTRATOR MODAL ── */}
+      {isAdminModalOpen && (
         <div
           style={{
             position: 'fixed',
@@ -1337,267 +2923,138 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
               background: '#FFFFFF',
               borderRadius: 12,
               width: '100%',
-              maxWidth: 520,
+              maxWidth: 480,
               padding: '24px',
               display: 'flex',
               flexDirection: 'column',
               gap: 16,
               boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
-              maxHeight: '90vh',
-              overflowY: 'auto',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                <div style={{ width: 34, height: 34, borderRadius: 8, background: '#EAF3EF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2C6E6A' }}>
-                  <Crown size={18} />
-                </div>
-                <div>
-                  <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0, color: 'var(--neutral-dark)' }}>
-                    {editingSltId ? 'Edit SLT Member Permissions' : 'Appoint Senior Leadership Team (SLT) Member'}
-                  </h3>
-                  <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
-                    Assign executive designation and customize delegated institutional powers.
-                  </p>
-                </div>
+              <div>
+                <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0, color: 'var(--neutral-dark)' }}>
+                  Appoint System Administrator
+                </h3>
+                <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
+                  Delegate operational and IT administration authority under Principal governance.
+                </p>
               </div>
               <button
-                onClick={() => setIsSltModalOpen(false)}
+                onClick={() => setIsAdminModalOpen(false)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
               >
                 <X size={18} />
               </button>
             </div>
 
-            {!editingSltId && (
-              <div style={{ display: 'flex', gap: 8, background: '#FAF9F6', border: '1px solid var(--border-color)', padding: 4, borderRadius: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => setSltMode('existing')}
-                  style={{
-                    flex: 1,
-                    padding: '7px 10px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: sltMode === 'existing' ? '#FFFFFF' : 'transparent',
-                    color: sltMode === 'existing' ? 'var(--neutral-dark)' : 'var(--text-secondary)',
-                    fontWeight: sltMode === 'existing' ? 700 : 500,
-                    fontSize: 12,
-                    cursor: 'pointer',
-                    boxShadow: sltMode === 'existing' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                  }}
-                >
-                  Appoint Existing Staff Member
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSltMode('new')}
-                  style={{
-                    flex: 1,
-                    padding: '7px 10px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: sltMode === 'new' ? '#FFFFFF' : 'transparent',
-                    color: sltMode === 'new' ? 'var(--neutral-dark)' : 'var(--text-secondary)',
-                    fontWeight: sltMode === 'new' ? 700 : 500,
-                    fontSize: 12,
-                    cursor: 'pointer',
-                    boxShadow: sltMode === 'new' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                  }}
-                >
-                  Create Dedicated SLT Account
-                </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setAdminMode('existing')}
+                style={{
+                  flex: 1,
+                  padding: '7px',
+                  borderRadius: 6,
+                  border: adminMode === 'existing' ? '1px solid #1A1A1A' : '1px solid var(--border-color)',
+                  background: adminMode === 'existing' ? '#1A1A1A' : '#FAF9F6',
+                  color: adminMode === 'existing' ? '#FFFFFF' : 'var(--neutral-dark)',
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Promote Existing Staff
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminMode('new')}
+                style={{
+                  flex: 1,
+                  padding: '7px',
+                  borderRadius: 6,
+                  border: adminMode === 'new' ? '1px solid #1A1A1A' : '1px solid var(--border-color)',
+                  background: adminMode === 'new' ? '#1A1A1A' : '#FAF9F6',
+                  color: adminMode === 'new' ? '#FFFFFF' : 'var(--neutral-dark)',
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Create Dedicated Admin
+              </button>
+            </div>
+
+            {adminMode === 'existing' ? (
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
+                  Select Staff Member
+                </label>
+                <CustomSelect
+                  value={selectedAdminUserId}
+                  onChange={(val) => setSelectedAdminUserId(val)}
+                  placeholder="-- Choose Staff Member --"
+                  searchable={true}
+                  options={[
+                    { value: '', label: '-- Choose Staff Member --' },
+                    ...teachers.map((t) => ({
+                      value: t.id,
+                      label: `${t.name} (${t.email})`,
+                    })),
+                  ]}
+                />
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div>
+                  <label className="form-label" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>Admin Full Name</label>
+                  <input
+                    type="text"
+                    value={adminName}
+                    onChange={(e) => setAdminName(e.target.value)}
+                    placeholder="e.g. IT Administrator"
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid var(--border-color)', fontSize: 12 }}
+                  />
+                </div>
+                <div>
+                  <label className="form-label" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>Admin Email Address</label>
+                  <input
+                    type="email"
+                    value={adminEmail}
+                    onChange={(e) => setAdminEmail(e.target.value)}
+                    placeholder="e.g. admin2@woodlempark.ae"
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid var(--border-color)', fontSize: 12 }}
+                  />
+                </div>
+                <div>
+                  <label className="form-label" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>Initial Password</label>
+                  <input
+                    type="text"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid var(--border-color)', fontSize: 12 }}
+                  />
+                </div>
               </div>
             )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {sltMode === 'existing' && !editingSltId ? (
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
-                    Select Staff / Faculty Member
-                  </label>
-                  <CustomSelect
-                    value={selectedSltUserId}
-                    onChange={(val) => setSelectedSltUserId(val)}
-                    placeholder="-- Choose Staff / Faculty --"
-                    searchable={true}
-                    options={[
-                      { value: '', label: '-- Choose Staff / Faculty --' },
-                      ...profiles
-                        .filter((p) => p.role !== 'student' && p.role !== 'parent')
-                        .map((p) => ({
-                          value: p.id,
-                          label: `${p.name} (${p.email}) - ${p.designation || p.role}`,
-                        })),
-                    ]}
-                  />
-                </div>
-              ) : sltMode === 'new' && !editingSltId ? (
-                <>
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
-                      Senior Leader Full Name
-                    </label>
-                    <input
-                      type="text"
-                      value={sltName}
-                      onChange={(e) => setSltName(e.target.value)}
-                      placeholder="e.g. Dr. Robert Vance"
-                      style={{
-                        width: '100%',
-                        padding: '8px 12px',
-                        borderRadius: 6,
-                        border: '1px solid var(--border-color)',
-                        background: '#FFFFFF',
-                        fontSize: 12.5,
-                      }}
-                    />
-                  </div>
-
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
-                      Official SLT Email Address
-                    </label>
-                    <input
-                      type="email"
-                      value={sltEmail}
-                      onChange={(e) => setSltEmail(e.target.value)}
-                      placeholder="e.g. vp.academics@woodlempark.ae"
-                      style={{
-                        width: '100%',
-                        padding: '8px 12px',
-                        borderRadius: 6,
-                        border: '1px solid var(--border-color)',
-                        background: '#FFFFFF',
-                        fontSize: 12.5,
-                      }}
-                    />
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
-                        Staff Code / ID
-                      </label>
-                      <input
-                        type="text"
-                        value={sltCode}
-                        onChange={(e) => setSltCode(e.target.value)}
-                        placeholder="SLT-001"
-                        style={{
-                          width: '100%',
-                          padding: '8px 12px',
-                          borderRadius: 6,
-                          border: '1px solid var(--border-color)',
-                          background: '#FFFFFF',
-                          fontSize: 12.5,
-                        }}
-                      />
-                    </div>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
-                        Preset Password
-                      </label>
-                      <input
-                        type="text"
-                        value={sltPassword}
-                        onChange={(e) => setSltPassword(e.target.value)}
-                        placeholder="woodlem123"
-                        style={{
-                          width: '100%',
-                          padding: '8px 12px',
-                          borderRadius: 6,
-                          border: '1px solid var(--border-color)',
-                          background: '#FFFFFF',
-                          fontSize: 12.5,
-                        }}
-                      />
-                    </div>
-                  </div>
-                </>
-              ) : null}
-
-              {/* Title / Designation Presets */}
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
-                  Executive Title / Designation
-                </label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                  {SLT_ROLE_PRESETS.map((preset) => (
-                    <button
-                      key={preset.title}
-                      type="button"
-                      onClick={() => {
-                        setSltTitle(preset.title);
-                        setSltPermissions({ ...preset.defaultPermissions });
-                      }}
-                      style={{
-                        padding: '4px 9px',
-                        borderRadius: 4,
-                        border: sltTitle === preset.title ? '1px solid #C7E4D8' : '1px solid var(--border-color)',
-                        background: sltTitle === preset.title ? '#EAF3EF' : '#FAF9F6',
-                        color: sltTitle === preset.title ? '#2C6E6A' : 'var(--neutral-dark)',
-                        fontSize: 11,
-                        fontWeight: sltTitle === preset.title ? 700 : 500,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {preset.title}
-                    </button>
-                  ))}
-                </div>
-                <input
-                  type="text"
-                  value={sltTitle}
-                  onChange={(e) => setSltTitle(e.target.value)}
-                  placeholder="e.g. Vice Principal, Head of Secondary, Academic Director"
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: 6,
-                    border: '1px solid var(--border-color)',
-                    background: '#FFFFFF',
-                    fontSize: 12.5,
-                  }}
-                />
-              </div>
-
-              {/* Permissions Checklist */}
-              <div style={{ background: '#FAF9F6', borderRadius: 8, padding: '12px 14px', border: '1px solid var(--border-color)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--neutral-dark)' }}>
-                    Delegated Executive Powers &amp; Permissions
-                  </div>
-                  <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>Granted by Principal</span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px' }}>
-                  {[
-                    { key: 'canViewAnalytics', label: 'School-Wide Analytics' },
-                    { key: 'canAuditMarks', label: 'Marks Register Direct Audit' },
-                    { key: 'canVerifySyllabus', label: 'Syllabus & Pace Supervision' },
-                    { key: 'canBroadcastDepartment', label: 'Institutional Broadcasts' },
-                    { key: 'canManageResources', label: 'Curriculum & Resources' },
-                    { key: 'canApproveClearances', label: 'Parent Link Clearances' },
-                  ].map(({ key, label }) => (
-                    <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, cursor: 'pointer', color: 'var(--neutral-dark)' }}>
-                      <input
-                        type="checkbox"
-                        checked={(sltPermissions as any)[key]}
-                        onChange={(e) => setSltPermissions({ ...sltPermissions, [key]: e.target.checked })}
-                      />
-                      <span>{label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
+            <div>
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>Designation Title</label>
+              <input
+                type="text"
+                value={adminTitle}
+                onChange={(e) => setAdminTitle(e.target.value)}
+                placeholder="e.g. System Administrator"
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid var(--border-color)', fontSize: 12 }}
+              />
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
               <button
                 type="button"
-                onClick={() => setIsSltModalOpen(false)}
+                onClick={() => setIsAdminModalOpen(false)}
                 style={{
-                  padding: '8px 14px',
+                  padding: '7px 14px',
                   borderRadius: 6,
                   border: '1px solid var(--border-color)',
                   background: '#FFFFFF',
@@ -1611,10 +3068,10 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
               </button>
               <button
                 type="button"
-                onClick={handleSaveSltAssignment}
+                onClick={handleSaveAdminAssignment}
                 disabled={isSaving}
                 style={{
-                  padding: '8px 18px',
+                  padding: '7px 16px',
                   borderRadius: 6,
                   border: 'none',
                   background: '#1A1A1A',
@@ -1622,12 +3079,9 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
                   fontSize: 12,
                   fontWeight: 700,
                   cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
                 }}
               >
-                {isSaving ? 'Saving...' : editingSltId ? 'Save Changes' : 'Confirm Appointment'}
+                {isSaving ? 'Saving...' : 'Grant Admin Access'}
               </button>
             </div>
           </div>

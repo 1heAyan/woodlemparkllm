@@ -27,6 +27,7 @@ import {
   OfflineAssessment,
   OfflineAssessmentMark,
   isAuthenticHubActivity,
+  StudentCustomTopic,
 } from '@/lib/supabaseClient';
 import { loadLateEntries, loadAuthorizedStaffIds, fetchCloudAuthorizedStaffIds } from '@/lib/lateEntryHelper';
 import {
@@ -57,7 +58,6 @@ import { CsSubmissionSavePayload } from '@/components/CSLab/StudentCSLabView';
 import { StudentDashboard } from '@/components/Student/StudentDashboard';
 import { TeacherDashboard } from '@/components/Teacher/TeacherDashboard';
 import { AdminDashboard } from '@/components/Admin/AdminDashboard';
-import { PrincipalDashboard } from '@/components/Principal/PrincipalDashboard';
 import { ParentDashboard } from '@/components/Parent/ParentDashboard';
 import { isPrincipalUser, isSltUser, DEFAULT_PRINCIPAL_RECORD, loadSpecialRoleAssignments, saveSpecialRoleAssignments } from '@/lib/specialRolesHelper';
 import { sanitizeUserCode, normalizeAdmissionNumber, normalizeStudentName, isMatchingStudent } from '@/lib/userCodeHelper';
@@ -133,6 +133,7 @@ export default function WoodlemApp() {
     return {};
   });
   const [studentSyllabusProgress, setStudentSyllabusProgress] = useState<Record<string, boolean>>({});
+  const [studentCustomTopics, setStudentCustomTopics] = useState<StudentCustomTopic[]>([]);
   const [classResources, setClassResources] = useState<ClassResource[]>([]);
   const [classBroadcasts, setClassBroadcasts] = useState<ClassBroadcast[]>([]);
   const [lateEntries, setLateEntries] = useState<LateEntryRecord[]>([]);
@@ -171,6 +172,9 @@ export default function WoodlemApp() {
   // Load All Cloud Data from Supabase
   const loadAllData = useCallback(async () => {
     try {
+      // Calculate active operational cutoff (last 90 days) for high-frequency logs
+      const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
       const [
         profRes,
         testRes,
@@ -179,6 +183,7 @@ export default function WoodlemApp() {
         achRes,
         attRes,
         hubRes,
+        hubEnrollmentsRes,
         parentDocRes,
         subClassRes,
         classResRes,
@@ -192,25 +197,98 @@ export default function WoodlemApp() {
         offlineAssessRes,
         offlineMarksRes,
       ] = await Promise.all([
-        supabase.from('profiles').select('*').limit(10000),
-        supabase.from('tests').select('*').order('created_at', { ascending: false }).limit(10000),
-        supabase.from('assignments').select('*').order('created_at', { ascending: false }).limit(10000),
-        supabase.from('syllabus_terms').select('*, syllabus_topics(*)').order('order_num', { ascending: true }).limit(10000),
-        supabase.from('achievements').select('*').order('created_at', { ascending: false }).limit(10000),
-        supabase.from('attendance').select('*').limit(10000),
-        supabase.from('hub_activities').select('*').order('created_at', { ascending: false }).limit(10000),
-        supabase.from('parent_documents').select('*').order('created_at', { ascending: false }).limit(10000),
-        supabase.from('subject_classes').select('*').order('created_at', { ascending: true }).limit(10000),
-        supabase.from('class_resources').select('*').order('created_at', { ascending: false }).limit(10000),
-        supabase.from('class_broadcasts').select('*').order('created_at', { ascending: false }).limit(10000),
-        supabase.from('test_results').select('*').limit(10000),
-        supabase.from('assignment_submissions').select('*').limit(10000),
-        supabase.from('student_syllabus_progress').select('*').limit(10000),
-        supabase.from('cs_questions').select('*').order('created_at', { ascending: false }).limit(10000),
-        supabase.from('cs_submissions').select('*').limit(10000),
-        supabase.from('cs_lab_sessions').select('*').order('updated_at', { ascending: false }).limit(10000),
-        supabase.from('offline_assessments').select('*').limit(10000),
-        supabase.from('offline_assessment_marks').select('*').limit(50000),
+        supabase
+          .from('profiles')
+          .select('*')
+          .limit(5000),
+        supabase
+          .from('tests')
+          .select('id, title, description, subject, grade, section, duration_minutes, total_marks, passing_marks, created_by, created_at, is_published, questions')
+          .order('created_at', { ascending: false })
+          .limit(500),
+        supabase
+          .from('assignments')
+          .select('id, title, description, subject, grade, section, due_date, total_marks, attachment_name, attachment_url, created_by, created_at')
+          .order('created_at', { ascending: false })
+          .limit(500),
+        supabase
+          .from('syllabus_terms')
+          .select('*, syllabus_topics(*)')
+          .order('order_num', { ascending: true })
+          .limit(200),
+        supabase
+          .from('achievements')
+          .select('id, student_id, title, description, desc_text, file_name, file_url, created_at')
+          .order('created_at', { ascending: false })
+          .limit(2000),
+        supabase
+          .from('attendance')
+          .select('date, student_id, status')
+          .gte('date', ninetyDaysAgo)
+          .limit(15000),
+        supabase
+          .from('hub_activities')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(1000),
+        supabase
+          .from('hub_enrollments')
+          .select('activity_id, student_id, enrolled_at')
+          .limit(20000),
+        supabase
+          .from('parent_documents')
+          .select('id, student_id, doc_type, document_type, status, file_name, file_url, uploaded_at')
+          .order('uploaded_at', { ascending: false })
+          .limit(1000),
+        supabase
+          .from('subject_classes')
+          .select('id, name, subject, class_name, section, room, teacher_id, teacher_name, enrolled_student_ids, created_at')
+          .order('created_at', { ascending: true })
+          .limit(2000),
+        supabase
+          .from('class_resources')
+          .select('id, class_id, teacher_id, teacher_name, title, description, resource_type, file_name, file_url, file_size, external_link, topic_tag, created_at')
+          .order('created_at', { ascending: false })
+          .limit(500),
+        supabase
+          .from('class_broadcasts')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(2000),
+        supabase
+          .from('test_results')
+          .select('test_id, student_id, student_name, score, feedback, submitted_at')
+          .limit(5000),
+        supabase
+          .from('assignment_submissions')
+          .select('assignment_id, student_id, student_name, file_name, file_url, notes, text_answer, grade, score, feedback, submitted_at')
+          .limit(5000),
+        supabase
+          .from('student_syllabus_progress')
+          .select('student_id, topic_id, is_completed, updated_at')
+          .limit(5000),
+        supabase
+          .from('cs_questions')
+          .select('id, title, description, language, starter_code, test_cases, difficulty, grade, points, created_at')
+          .order('created_at', { ascending: false })
+          .limit(100),
+        supabase
+          .from('cs_submissions')
+          .select('id, question_id, student_id, status, score, passed_tests, total_tests, submitted_at')
+          .limit(1000),
+        supabase
+          .from('cs_lab_sessions')
+          .select('id, session_id, student_id, status, started_at, updated_at')
+          .order('updated_at', { ascending: false })
+          .limit(500),
+        supabase
+          .from('offline_assessments')
+          .select('id, class_id, teacher_id, title, assessment_date, maximum_marks, notes, created_at')
+          .limit(500),
+        supabase
+          .from('offline_assessment_marks')
+          .select('id, assessment_id, student_id, marks, teacher_note, is_visible_to_student, updated_at')
+          .limit(15000),
       ]);
 
       // Extract all cloud-stored user avatars from Supabase
@@ -272,8 +350,10 @@ export default function WoodlemApp() {
       });
 
       if (profRes.error) {
+        console.error('Failed to load profiles from Supabase:', profRes.error);
         setSchemaError('The school portal is currently synchronizing. Please refresh the page if data does not appear immediately.');
       } else {
+        setSchemaError(null);
         const studentInfoMap = extractStudentAdditionalInfoFromHub(hubRes.data || []);
 
         const loadedProfiles: UserProfile[] = (profRes.data || []).map((p: any) => {
@@ -308,7 +388,9 @@ export default function WoodlemApp() {
             if (p.role !== 'admin') {
               supabase.from('profiles').update({ role: 'admin' }).eq('id', p.id).then(() => {});
             }
-          } else if (emailLower === 'principal@woodlempark.ae' || emailLower === 'principal@woodlem.com' || isPrincipalUser(p) || isSltUser(p) || specialRole === 'slt') {
+          } else if (emailLower === 'principal@woodlempark.ae' || emailLower === 'principal@woodlem.com' || isPrincipalUser(p)) {
+            role = 'principal';
+          } else if ((isSltUser(p) || specialRole === 'slt') && p.role === 'principal') {
             role = 'principal';
           }
 
@@ -349,6 +431,10 @@ export default function WoodlemApp() {
 
           const resolvedParentEmail = p.parent_email || studentExtra?.parent_email || undefined;
           const resolvedHouseColour = p.house_colour || studentExtra?.house_colour || undefined;
+          const resolvedSubject = p.subject || (isStudent ? studentExtra?.subject : undefined) || null;
+          const resolvedEnrolledSubjects = isStudent
+            ? (studentExtra?.enrolled_subjects || (resolvedSubject ? resolvedSubject.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined))
+            : undefined;
 
           let cachedDeact = false;
           try {
@@ -373,6 +459,8 @@ export default function WoodlemApp() {
 
           return {
             ...p,
+            subject: resolvedSubject,
+            enrolled_subjects: resolvedEnrolledSubjects,
             parent_email: resolvedParentEmail,
             house_colour: resolvedHouseColour,
             can_manage_late_entry: lateEntryAccess,
@@ -566,6 +654,20 @@ export default function WoodlemApp() {
 
       setLeaveRequests(builtLeaves);
 
+      // Extract all cloud-stored student custom syllabus topics
+      const builtCustomTopics: StudentCustomTopic[] = [];
+      (achRes.data || []).forEach((ach: any) => {
+        if (ach.title === '__STUDENT_SYLLABUS_TOPIC__' && (ach.desc_text || ach.description)) {
+          try {
+            const parsed = JSON.parse(ach.desc_text || ach.description);
+            if (parsed && parsed.id && !builtCustomTopics.some((t) => t.id === parsed.id)) {
+              builtCustomTopics.push(parsed);
+            }
+          } catch (e) {}
+        }
+      });
+      setStudentCustomTopics(builtCustomTopics);
+
       const builtAchievements: Achievement[] = (achRes.data || [])
         .filter(
           (ach: any) =>
@@ -609,12 +711,28 @@ export default function WoodlemApp() {
       });
       setAttendance(attMap);
 
+      const enrollmentsByActId: Record<string, string[]> = {};
+      (hubEnrollmentsRes.data || []).forEach((row: any) => {
+        if (!row.activity_id || !row.student_id) return;
+        if (!enrollmentsByActId[row.activity_id]) {
+          enrollmentsByActId[row.activity_id] = [];
+        }
+        if (!enrollmentsByActId[row.activity_id].includes(row.student_id)) {
+          enrollmentsByActId[row.activity_id].push(row.student_id);
+        }
+      });
+
       const builtHub: HubActivity[] = (hubRes.data || [])
         .filter(isAuthenticHubActivity)
-        .map((act: any) => ({
-          ...act,
-          enrolled_student_ids: Array.isArray(act.enrolled_student_ids) ? act.enrolled_student_ids : [],
-        }));
+        .map((act: any) => {
+          const directIds = Array.isArray(act.enrolled_student_ids) ? act.enrolled_student_ids : [];
+          const relIds = enrollmentsByActId[act.id] || [];
+          const mergedIds = Array.from(new Set([...directIds, ...relIds]));
+          return {
+            ...act,
+            enrolled_student_ids: mergedIds,
+          };
+        });
       setHubActivities(builtHub);
 
       // Load parent clearance documents directly from Supabase with cloud file URLs
@@ -695,6 +813,9 @@ export default function WoodlemApp() {
       const sylProgMap: Record<string, boolean> = {};
       (sylProgRes.data || []).forEach((row: any) => {
         sylProgMap[`${row.student_id}_${row.topic_id}`] = !!row.is_completed;
+      });
+      builtCustomTopics.forEach((ct) => {
+        sylProgMap[`${ct.student_id}_${ct.id}`] = true;
       });
       setStudentSyllabusProgress(sylProgMap);
 
@@ -885,7 +1006,7 @@ export default function WoodlemApp() {
       window.addEventListener('woodlem-password-updated', handlePasswordEvent);
     }
 
-    // Subscribe to real-time database updates across public schema with debounce protection
+    // Subscribe to real-time database updates across public schema with conservative debounce
     let realtimeDebounceTimer: NodeJS.Timeout | null = null;
     const channel = supabase
       .channel('woodlem-realtime')
@@ -893,7 +1014,7 @@ export default function WoodlemApp() {
         if (realtimeDebounceTimer) clearTimeout(realtimeDebounceTimer);
         realtimeDebounceTimer = setTimeout(() => {
           loadAllData();
-        }, 1500);
+        }, 5000);
       })
       .subscribe();
 
@@ -975,6 +1096,7 @@ export default function WoodlemApp() {
     grade?: string;
     classLetter?: string;
     subject?: string | null;
+    enrolledSubjects?: string[];
     assignedClass?: string | null;
     linkedStudentIds?: string[];
     parentEmail?: string;
@@ -1104,14 +1226,20 @@ export default function WoodlemApp() {
       const assignedPwd = userData.password || 'woodlem123';
       await saveUserPasswordToCloudAndLocal(profileId, userData.email, assignedPwd);
 
-      // Persist student additional info (parent_email, house_colour) with multi-layer fallback
-      if (userData.role === 'student' && (cleanParentEmail || cleanHouseColour)) {
+      // Persist student additional info (parent_email, house_colour, subject, enrolled_subjects) with multi-layer fallback
+      if (userData.role === 'student') {
+        const studentEnrolled = (userData.enrolledSubjects && userData.enrolledSubjects.length > 0)
+          ? userData.enrolledSubjects
+          : (userData.subject ? userData.subject.split(',').map((s) => s.trim()).filter(Boolean) : undefined);
+
         await persistStudentAdditionalInfo(profileId, {
           studentId: profileId,
           email: userData.email.trim().toLowerCase(),
           admissionNumber: cleanCode || '',
           parent_email: cleanParentEmail,
           house_colour: cleanHouseColour,
+          subject: userData.subject || undefined,
+          enrolled_subjects: studentEnrolled,
         });
 
         // Auto-provision or link Parent account if parentEmail provided
@@ -1281,6 +1409,9 @@ export default function WoodlemApp() {
               : (cleanUserCode ? `Student ${cleanUserCode}` : `Account ${idx + 1}`);
         }
 
+        const finalSubject = u.subject || existingProf?.subject || null;
+        const resolvedEnrolled = finalSubject ? finalSubject.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+
         const fullProfileObj: UserProfile & { temp_password?: string } = {
           id: profileId,
           name: finalName,
@@ -1290,7 +1421,8 @@ export default function WoodlemApp() {
           admission_number: finalCode || undefined,
           grade: u.role === 'student' ? cleanGrade : '',
           class_letter: u.role === 'student' ? cleanClass : '',
-          subject: existingProf?.subject || null,
+          subject: finalSubject,
+          enrolled_subjects: resolvedEnrolled,
           assigned_class: existingProf?.assigned_class || null,
           temp_password: u.password || 'woodlem123',
           linked_student_ids: u.role === 'parent' ? resolvedLinkedStudentIds : [],
@@ -1308,7 +1440,7 @@ export default function WoodlemApp() {
           admission_number: cleanAdmission,
           grade: u.role === 'student' ? (cleanGrade || '10') : '',
           class_letter: u.role === 'student' ? (cleanClass || 'A') : '',
-          subject: existingProf?.subject || null,
+          subject: finalSubject,
           assigned_class: existingProf?.assigned_class || null,
         };
         dbPayloads.push(dbItem);
@@ -1362,20 +1494,26 @@ export default function WoodlemApp() {
         saveUserPasswordToCloudAndLocal(u.id, u.email, u.temp_password || 'woodlem123');
       }
 
-      // 4b. Persist student additional info (parent_email, house_colour) and auto-provision parent accounts
+      // 4b. Persist student additional info (parent_email, house_colour, subject) and auto-provision parent accounts
       for (let i = 0; i < users.length; i++) {
         const row = users[i];
         const prof = processedProfiles[i];
-        if (row && prof && row.role === 'student' && (row.parentEmail || row.houseColour)) {
+        if (row && prof && row.role === 'student') {
           const pEm = row.parentEmail ? row.parentEmail.trim().toLowerCase() : undefined;
           const hCol = row.houseColour ? row.houseColour.trim() : undefined;
-          persistStudentAdditionalInfo(prof.id, {
-            studentId: prof.id,
-            email: prof.email,
-            admissionNumber: prof.admission_number || '',
-            parent_email: pEm,
-            house_colour: hCol,
-          });
+          const subj = prof.subject || undefined;
+          const enrolledSubjs = prof.enrolled_subjects;
+          if (pEm || hCol || subj) {
+            persistStudentAdditionalInfo(prof.id, {
+              studentId: prof.id,
+              email: prof.email,
+              admissionNumber: prof.admission_number || '',
+              parent_email: pEm,
+              house_colour: hCol,
+              subject: subj,
+              enrolled_subjects: enrolledSubjs,
+            });
+          }
 
           if (pEm) {
             const parentId = 'parent_' + pEm.replace(/[^a-zA-Z0-9]/g, '_');
@@ -1503,6 +1641,7 @@ export default function WoodlemApp() {
         grade: updatedUser.role === 'student' ? (updatedUser.grade ?? '') : '',
         class_letter: updatedUser.role === 'student' ? (updatedUser.class_letter ?? '') : '',
         subject: updatedUser.subject ?? null,
+        enrolled_subjects: updatedUser.enrolled_subjects || (updatedUser.subject ? updatedUser.subject.split(',').map((s) => s.trim()).filter(Boolean) : undefined),
         assigned_class: updatedUser.assigned_class ?? null,
         linked_student_ids: updatedUser.linked_student_ids ?? [],
         parent_email: updatedUser.role === 'student' ? (updatedUser.parent_email?.trim().toLowerCase() || undefined) : undefined,
@@ -1513,6 +1652,9 @@ export default function WoodlemApp() {
       if (updatedUser.role === 'student') {
         const studentParentEmail = updatedUser.parent_email ? updatedUser.parent_email.trim().toLowerCase() : undefined;
         const studentHouseColour = updatedUser.house_colour ? updatedUser.house_colour.trim() : undefined;
+        const studentEnrolled = updatedUser.enrolled_subjects && updatedUser.enrolled_subjects.length > 0
+          ? updatedUser.enrolled_subjects
+          : (updatedUser.subject ? updatedUser.subject.split(',').map((s) => s.trim()).filter(Boolean) : undefined);
 
         persistStudentAdditionalInfo(profileId, {
           studentId: profileId,
@@ -1520,6 +1662,8 @@ export default function WoodlemApp() {
           admissionNumber: (updatedUser.admission_number || updatedUser.user_code || '').trim(),
           parent_email: studentParentEmail,
           house_colour: studentHouseColour,
+          subject: updatedUser.subject || undefined,
+          enrolled_subjects: studentEnrolled,
         });
 
         if (studentParentEmail) {
@@ -1543,39 +1687,72 @@ export default function WoodlemApp() {
             }
           }
         }
+
+        if (updatedUser.assigned_parent_ids !== undefined) {
+          const assignedSet = new Set(updatedUser.assigned_parent_ids);
+          for (const parent of profiles) {
+            if (parent.role !== 'parent') continue;
+            const currentLinked = parent.linked_student_ids || [];
+            const shouldBeLinked = assignedSet.has(parent.id) || (studentParentEmail && parent.email?.toLowerCase().trim() === studentParentEmail);
+            if (shouldBeLinked && !currentLinked.includes(profileId)) {
+              const updatedLinked = [...currentLinked, profileId];
+              supabase.from('profiles').update({ linked_student_ids: updatedLinked }).eq('id', parent.id).then(() => {});
+            } else if (!shouldBeLinked && currentLinked.includes(profileId)) {
+              const updatedLinked = currentLinked.filter((id) => id !== profileId);
+              supabase.from('profiles').update({ linked_student_ids: updatedLinked }).eq('id', parent.id).then(() => {});
+            }
+          }
+        }
       }
 
       // 1. Optimistically update local profiles state immediately
       setProfiles((prev) => {
-        const exists = prev.some((p) => p.id === profileId || (p.email && (p.email.toLowerCase() === cleanEmail || p.email.toLowerCase() === originalEmail)));
-        if (!exists) return [...prev, fullProfileData];
-        return prev.map((p) =>
-          p.id === profileId || (p.email && (p.email.toLowerCase() === cleanEmail || p.email.toLowerCase() === originalEmail))
-            ? fullProfileData
-            : p
-        );
+        const assignedSet = updatedUser.role === 'student' && updatedUser.assigned_parent_ids !== undefined
+          ? new Set(updatedUser.assigned_parent_ids)
+          : null;
+        const studentParentEmail = updatedUser.parent_email ? updatedUser.parent_email.trim().toLowerCase() : undefined;
+
+        let next = prev.map((p) => {
+          if (p.id === profileId || (p.email && (p.email.toLowerCase() === cleanEmail || p.email.toLowerCase() === originalEmail))) {
+            return fullProfileData;
+          }
+          if (assignedSet && p.role === 'parent') {
+            const currentLinked = p.linked_student_ids || [];
+            const shouldBeLinked = assignedSet.has(p.id) || (studentParentEmail && p.email?.toLowerCase().trim() === studentParentEmail);
+            if (shouldBeLinked && !currentLinked.includes(profileId)) {
+              return { ...p, linked_student_ids: [...currentLinked, profileId] };
+            } else if (!shouldBeLinked && currentLinked.includes(profileId)) {
+              return { ...p, linked_student_ids: currentLinked.filter((id) => id !== profileId) };
+            }
+          }
+          return p;
+        });
+
+        const exists = next.some((p) => p.id === profileId || (p.email && (p.email.toLowerCase() === cleanEmail || p.email.toLowerCase() === originalEmail)));
+        if (!exists) next.push(fullProfileData);
+        return next;
       });
 
       // 2. Prepare database payload with ONLY verified PostgreSQL columns of public.profiles
-      // (Do NOT include avatar_url or temp_password as they are not columns in public.profiles)
+      // (Verified columns: id, name, email, role, user_code, admission_number, grade, class_letter, subject, assigned_class, linked_student_ids, temp_password, can_manage_late_entry)
       const dbPayload: any = {
         id: profileId,
         name: updatedUser.name.trim(),
         email: cleanEmail,
         role: updatedUser.role,
-        user_code: updatedUser.user_code?.trim() || '',
-        admission_number: (updatedUser.admission_number || updatedUser.user_code || '').trim(),
-        grade: updatedUser.grade ?? '',
-        class_letter: updatedUser.class_letter ?? '',
-        subject: updatedUser.subject ?? null,
+        user_code: updatedUser.role === 'parent' ? '' : (updatedUser.user_code?.trim() || ''),
+        admission_number: updatedUser.role === 'parent' ? '' : ((updatedUser.admission_number || updatedUser.user_code || '').trim()),
+        grade: updatedUser.role === 'student' ? (updatedUser.grade ?? '') : (updatedUser.role === 'teacher' && updatedUser.assigned_class ? (updatedUser.grade ?? '') : ''),
+        class_letter: updatedUser.role === 'student' ? (updatedUser.class_letter ?? '') : (updatedUser.role === 'teacher' && updatedUser.assigned_class ? (updatedUser.class_letter ?? '') : ''),
+        subject: (updatedUser.role === 'teacher' || updatedUser.role === 'student') ? (updatedUser.subject ?? null) : null,
         assigned_class: updatedUser.assigned_class ?? null,
-        linked_student_ids: updatedUser.linked_student_ids ?? [],
+        linked_student_ids: updatedUser.role === 'parent' ? (updatedUser.linked_student_ids ?? []) : [],
       };
-      if (updatedUser.is_deactivated !== undefined) {
-        dbPayload.is_deactivated = updatedUser.is_deactivated;
-        dbPayload.deactivated_at = updatedUser.deactivated_at ?? (updatedUser.is_deactivated ? new Date().toISOString() : null);
+      if (updatedUser.temp_password) dbPayload.temp_password = updatedUser.temp_password;
+      if (updatedUser.can_manage_late_entry !== undefined) dbPayload.can_manage_late_entry = updatedUser.can_manage_late_entry;
 
-        // Sync local storage deactivation cache
+      // Handle deactivation sync (persisted in dedicated local cache and state; NOT a DB column)
+      if (updatedUser.is_deactivated !== undefined) {
         try {
           let currentDeactivated: string[] = [];
           const stored = typeof window !== 'undefined' ? localStorage.getItem('woodlem_deactivated_user_ids_v1') : null;
@@ -1592,16 +1769,52 @@ export default function WoodlemApp() {
         } catch (e) {}
       }
 
+      // Handle special role assignments sync (persisted via hub_activities & localStorage; NOT a profiles DB column)
+      if (updatedUser.special_role || updatedUser.department || updatedUser.designation) {
+        try {
+          const currentAssignments = await loadSpecialRoleAssignments(profiles);
+          const existingIdx = currentAssignments.findIndex(
+            (a) => a.userId === profileId || (a.userEmail && a.userEmail.toLowerCase() === cleanEmail)
+          );
+          if (updatedUser.special_role && updatedUser.special_role !== 'none') {
+            const roleAssignment: any = {
+              id: existingIdx >= 0 ? currentAssignments[existingIdx].id : `sr_${Date.now()}`,
+              userId: profileId,
+              userEmail: cleanEmail,
+              userName: updatedUser.name.trim(),
+              roleType: updatedUser.special_role,
+              title: updatedUser.designation || (updatedUser.special_role === 'hod' ? `HOD ${updatedUser.department || ''}` : updatedUser.special_role.toUpperCase()),
+              department: updatedUser.department,
+              managedGrades: updatedUser.managed_grades,
+            };
+            if (existingIdx >= 0) {
+              currentAssignments[existingIdx] = { ...currentAssignments[existingIdx], ...roleAssignment };
+            } else {
+              currentAssignments.push(roleAssignment);
+            }
+          } else if (existingIdx >= 0) {
+            currentAssignments.splice(existingIdx, 1);
+          }
+          await saveSpecialRoleAssignments(currentAssignments);
+        } catch (e) {
+          console.warn('Special role sync notice:', e);
+        }
+      }
+
       // Execute safe multi-tier update verified with .select()
       let dbUpdated = false;
+      console.log('[WOODLEM SAVE] Saving subject:', dbPayload.subject, '| profileId:', profileId, '| email:', cleanEmail);
 
       // Tier 1: Try update by exact ID
       if (profileId) {
         const { data: resId, error: errId } = await supabase.from('profiles').update(dbPayload).eq('id', profileId).select();
         if (!errId && resId && resId.length > 0) {
           dbUpdated = true;
+          console.log('[WOODLEM SAVE] ✅ Tier 1 (by ID) success. DB subject now:', resId[0]?.subject);
         } else if (errId) {
-          console.warn('Supabase update by ID notice:', errId);
+          console.warn('[WOODLEM SAVE] ❌ Tier 1 (by ID) failed:', errId);
+        } else {
+          console.warn('[WOODLEM SAVE] ⚠️ Tier 1 (by ID) returned 0 rows — profile not found by ID');
         }
       }
 
@@ -1610,6 +1823,9 @@ export default function WoodlemApp() {
         const { data: resOrig, error: errOrig } = await supabase.from('profiles').update(dbPayload).eq('email', originalEmail).select();
         if (!errOrig && resOrig && resOrig.length > 0) {
           dbUpdated = true;
+          console.log('[WOODLEM SAVE] ✅ Tier 2 (by originalEmail) success. DB subject now:', resOrig[0]?.subject);
+        } else {
+          console.warn('[WOODLEM SAVE] ❌ Tier 2 (by originalEmail) failed or 0 rows:', errOrig);
         }
       }
 
@@ -1618,20 +1834,24 @@ export default function WoodlemApp() {
         const { data: resNew, error: errNew } = await supabase.from('profiles').update(dbPayload).eq('email', cleanEmail).select();
         if (!errNew && resNew && resNew.length > 0) {
           dbUpdated = true;
+          console.log('[WOODLEM SAVE] ✅ Tier 3 (by cleanEmail) success. DB subject now:', resNew[0]?.subject);
         }
       }
 
       // Tier 4: Direct upsert with conflict resolution
       if (!dbUpdated) {
+        console.warn('[WOODLEM SAVE] ⚠️ All tiers failed, attempting upsert...');
         const { error: upsertErr } = await supabase.from('profiles').upsert([dbPayload], { onConflict: 'id' });
         if (!upsertErr) {
           dbUpdated = true;
+          console.log('[WOODLEM SAVE] ✅ Tier 4 upsert by ID success');
         } else {
           const { error: emailUpsertErr } = await supabase.from('profiles').upsert([dbPayload], { onConflict: 'email' });
           if (!emailUpsertErr) {
             dbUpdated = true;
+            console.log('[WOODLEM SAVE] ✅ Tier 4 upsert by email success');
           } else {
-            console.error('Database profile upsert notice:', emailUpsertErr);
+            console.error('[WOODLEM SAVE] ❌ All save tiers failed:', emailUpsertErr);
           }
         }
       }
@@ -1685,8 +1905,41 @@ export default function WoodlemApp() {
         })
       );
 
-      // Re-fetch all data to ensure complete cloud database consistency
-      await loadAllData();
+      // 7. Targeted re-fetch of ONLY this profile from Supabase
+      try {
+        const { data: freshProfile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', profileId)
+          .maybeSingle();
+        if (freshProfile) {
+          const mergedFresh: UserProfile = {
+            ...freshProfile,
+            ...fullProfileData,
+            // Always lock in what was explicitly submitted so stale DB read never clobbers it
+            subject: fullProfileData.subject ?? freshProfile.subject ?? null,
+            enrolled_subjects: fullProfileData.enrolled_subjects,
+          };
+          setProfiles((prev) =>
+            prev.map((p) =>
+              p.id === profileId || (p.email && p.email.toLowerCase() === cleanEmail)
+                ? mergedFresh
+                : p
+            )
+          );
+        } else {
+          // Fallback: lock our data in
+          setProfiles((prev) =>
+            prev.map((p) =>
+              p.id === profileId || (p.email && p.email.toLowerCase() === cleanEmail)
+                ? fullProfileData
+                : p
+            )
+          );
+        }
+      } catch (e) {
+        // Non-critical: optimistic update is already correct
+      }
 
       recordAuditLog('EDIT_ACHIEVEMENT' as any, updatedUser.name, `Updated profile details for ${updatedUser.name}`);
       alert(`Profile for "${updatedUser.name}" updated successfully.`);
@@ -1750,8 +2003,8 @@ export default function WoodlemApp() {
         try {
           await supabase.from('class_resources').delete().eq('teacher_id', userId);
           if (userEmail) await supabase.from('class_resources').delete().eq('teacher_id', userEmail);
-          await supabase.from('class_broadcasts').delete().eq('author_id', userId);
-          if (userEmail) await supabase.from('class_broadcasts').delete().eq('author_id', userEmail);
+          await supabase.from('class_broadcasts').delete().eq('teacher_id', userId);
+          if (userEmail) await supabase.from('class_broadcasts').delete().eq('teacher_id', userEmail);
         } catch (e) {}
 
         // Delete tests and assignments authored by this teacher
@@ -2649,6 +2902,58 @@ export default function WoodlemApp() {
     }
   };
 
+  const handleCreateStudentCustomTopic = async (topicData: Omit<StudentCustomTopic, 'id'>) => {
+    const newTopic: StudentCustomTopic = {
+      ...topicData,
+      id: `cust-top-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      created_at: new Date().toISOString(),
+    };
+
+    setStudentCustomTopics((prev) => [newTopic, ...prev]);
+
+    const progressKey = `${newTopic.student_id}_${newTopic.id}`;
+    setStudentSyllabusProgress((prev) => ({ ...prev, [progressKey]: true }));
+
+    try {
+      await supabase.from('achievements').insert([
+        {
+          id: newTopic.id,
+          student_id: newTopic.student_id,
+          title: '__STUDENT_SYLLABUS_TOPIC__',
+          description: JSON.stringify(newTopic),
+          desc_text: JSON.stringify(newTopic),
+          created_at: newTopic.created_at,
+        },
+      ]);
+      await supabase.from('student_syllabus_progress').upsert({
+        id: progressKey,
+        student_id: newTopic.student_id,
+        topic_id: newTopic.id,
+        is_completed: true,
+        updated_at: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.warn('Error saving student custom topic:', err);
+    }
+  };
+
+  const handleDeleteStudentCustomTopic = async (topicId: string, studentId: string) => {
+    setStudentCustomTopics((prev) => prev.filter((t) => t.id !== topicId));
+    const progressKey = `${studentId}_${topicId}`;
+    setStudentSyllabusProgress((prev) => {
+      const next = { ...prev };
+      delete next[progressKey];
+      return next;
+    });
+
+    try {
+      await supabase.from('achievements').delete().eq('id', topicId);
+      await supabase.from('student_syllabus_progress').delete().eq('id', progressKey);
+    } catch (err) {
+      console.warn('Error deleting student custom topic:', err);
+    }
+  };
+
   // Audit Logging helper
   const recordAuditLog = useCallback(
     async (
@@ -3367,10 +3672,14 @@ export default function WoodlemApp() {
     videoUrl?: string;
     attachedFileName?: string;
     targetGrades: string[];
+    location?: string;
+    maxCapacity?: number;
+    enrolledStudentIds?: string[];
   }) => {
+    const newActivityId = 'hub-' + Date.now();
     await supabase.from('hub_activities').insert([
       {
-        id: 'hub-' + Date.now(),
+        id: newActivityId,
         title: data.title,
         type: data.type,
         description: data.description,
@@ -3382,12 +3691,22 @@ export default function WoodlemApp() {
         created_by: currentUser?.id || currentUser?.name || 'teacher',
       },
     ]);
+
+    if (data.enrolledStudentIds && data.enrolledStudentIds.length > 0) {
+      const enrollmentRows = data.enrolledStudentIds.map((stId) => ({
+        activity_id: newActivityId,
+        student_id: stId,
+      }));
+      await supabase.from('hub_enrollments').insert(enrollmentRows);
+    }
+
     loadAllData();
   };
 
   const handleUpdateHubActivity = async (id: string, data: {
     title: string; type: string; description: string; date: string;
     videoUrl?: string; targetGrades: string[]; location?: string; maxCapacity?: number;
+    enrolledStudentIds?: string[];
   }) => {
     await supabase.from('hub_activities').update({
       title: data.title,
@@ -3397,7 +3716,45 @@ export default function WoodlemApp() {
       video_url: data.videoUrl || '',
       target_grades: data.targetGrades,
     }).eq('id', id);
+
+    if (data.enrolledStudentIds !== undefined) {
+      await supabase.from('hub_enrollments').delete().eq('activity_id', id);
+      if (data.enrolledStudentIds.length > 0) {
+        const rows = data.enrolledStudentIds.map((stId) => ({
+          activity_id: id,
+          student_id: stId,
+        }));
+        await supabase.from('hub_enrollments').insert(rows);
+      }
+    }
+
     setEditingHubActivity(null);
+    loadAllData();
+  };
+
+  const handleUpdateHubEnrollments = async (activityId: string, studentIds: string[]) => {
+    try {
+      await supabase.from('hub_enrollments').delete().eq('activity_id', activityId);
+      if (studentIds.length > 0) {
+        const rows = studentIds.map((stId) => ({
+          activity_id: activityId,
+          student_id: stId,
+        }));
+        await supabase.from('hub_enrollments').insert(rows);
+      }
+      setHubActivities((prev) =>
+        prev.map((act) =>
+          act.id === activityId ? { ...act, enrolled_student_ids: studentIds } : act
+        )
+      );
+      recordAuditLog(
+        'EDIT_ACHIEVEMENT' as any,
+        activityId,
+        `Updated Holistic Activity enrollments (${studentIds.length} students enrolled)`
+      );
+    } catch (e) {
+      console.error('Update hub enrollments error:', e);
+    }
     loadAllData();
   };
 
@@ -3606,6 +3963,44 @@ export default function WoodlemApp() {
     file_name?: string;
     file_url?: string;
   }) => {
+    const taggedIds = [...(broadcastData.tagged_resource_ids || [])];
+
+    // If teacher attached a file directly with the broadcast/circular, save it into class_resources and tag it
+    if (broadcastData.file_name && broadcastData.file_url) {
+      const resourceId = `res-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const ext = (broadcastData.file_name || '').split('.').pop()?.toLowerCase() || '';
+      let rType: ResourceType = 'doc';
+      if (ext === 'pdf') rType = 'pdf';
+      else if (['ppt', 'pptx'].includes(ext)) rType = 'slides';
+      else if (['doc', 'docx'].includes(ext)) rType = 'doc';
+      else if (['xls', 'xlsx', 'csv'].includes(ext)) rType = 'worksheet';
+      else if (['mp4', 'mov', 'webm'].includes(ext)) rType = 'video';
+      else rType = 'other';
+
+      const resourceRow: ClassResource = {
+        id: resourceId,
+        class_id: broadcastData.class_id,
+        teacher_id: currentUser?.id || 'teacher',
+        teacher_name: currentUser?.name || 'Teacher',
+        title: broadcastData.file_name,
+        description: `Attachment for announcement: ${broadcastData.title.trim()}`,
+        resource_type: rType,
+        file_name: broadcastData.file_name,
+        file_url: broadcastData.file_url,
+        file_size: '',
+        external_link: '',
+        topic_tag: 'Announcement Attachment',
+        created_at: new Date().toISOString(),
+      };
+      try {
+        await supabase.from('class_resources').insert([resourceRow]);
+        setClassResources((prev) => [resourceRow, ...prev]);
+        taggedIds.push(resourceId);
+      } catch (err) {
+        console.warn('Failed to insert broadcast file into class_resources:', err);
+      }
+    }
+
     const newBroadcast: ClassBroadcast = {
       id: `cast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       class_id: broadcastData.class_id,
@@ -3615,25 +4010,47 @@ export default function WoodlemApp() {
       content: broadcastData.content.trim(),
       is_pinned: !!broadcastData.is_pinned,
       priority: broadcastData.priority || 'normal',
-      tagged_resource_ids: broadcastData.tagged_resource_ids || [],
+      tagged_resource_ids: taggedIds,
       file_name: broadcastData.file_name,
       file_url: broadcastData.file_url,
       created_at: new Date().toISOString(),
     };
 
+    // Optimistically update local state immediately
     setClassBroadcasts((prev) => [newBroadcast, ...prev]);
 
+    // Send only valid columns of public.class_broadcasts
+    const dbPayload = {
+      id: newBroadcast.id,
+      class_id: newBroadcast.class_id,
+      teacher_id: newBroadcast.teacher_id,
+      teacher_name: newBroadcast.teacher_name,
+      title: newBroadcast.title,
+      content: newBroadcast.content,
+      is_pinned: newBroadcast.is_pinned,
+      priority: newBroadcast.priority,
+      tagged_resource_ids: newBroadcast.tagged_resource_ids,
+      created_at: newBroadcast.created_at,
+    };
+
     try {
-      await supabase.from('class_broadcasts').insert([newBroadcast]);
-    } catch (e) {
+      const { error } = await supabase.from('class_broadcasts').insert([dbPayload]);
+      if (error) {
+        console.error('Error inserting class broadcast into Supabase:', error);
+        alert('Could not save announcement to server: ' + error.message);
+      } else {
+        recordAuditLog(
+          'CREATE_ACHIEVEMENT' as any,
+          newBroadcast.title,
+          `Broadcasted announcement to class with ${newBroadcast.tagged_resource_ids?.length || 0} tagged resources`
+        );
+      }
+    } catch (e: any) {
       console.error('Error inserting class broadcast:', e);
+      alert('Could not save announcement: ' + (e?.message || 'Network error'));
     }
 
-    recordAuditLog(
-      'CREATE_ACHIEVEMENT' as any,
-      newBroadcast.title,
-      `Broadcasted announcement to class with ${newBroadcast.tagged_resource_ids?.length || 0} tagged resources`
-    );
+    loadAllData();
   };
 
   const handleDeleteBroadcast = async (broadcastId: string) => {
@@ -3895,6 +4312,9 @@ export default function WoodlemApp() {
           testResults={testResults}
           assignmentSubmissions={assignmentSubmissions}
           studentSyllabusProgress={studentSyllabusProgress}
+          studentCustomTopics={studentCustomTopics}
+          onCreateStudentCustomTopic={handleCreateStudentCustomTopic}
+          onDeleteStudentCustomTopic={handleDeleteStudentCustomTopic}
           onSubmitTest={handleSaveTestResult}
           onSubmitAssignment={handleSubmitAssignment}
           onToggleTopicCheck={handleToggleTopicCheck}
@@ -3922,6 +4342,8 @@ export default function WoodlemApp() {
           tests={tests}
           assignments={assignments}
           syllabus={syllabus}
+          studentSyllabusProgress={studentSyllabusProgress}
+          studentCustomTopics={studentCustomTopics}
           achievements={achievements}
           attendance={attendance}
           lateEntries={lateEntries}
@@ -3972,6 +4394,7 @@ export default function WoodlemApp() {
           onOpenCreateHubActivityModal={() => setIsCreateHubActivityOpen(true)}
           onDeleteHubActivity={handleDeleteHubActivity}
           onEditHubActivity={(act) => setEditingHubActivity(act)}
+          onUpdateHubEnrollments={handleUpdateHubEnrollments}
           onUpdateCurrentUser={handleUpdateCurrentUser}
           onRefreshData={loadAllData}
           onSignOut={handleSignOut}
@@ -3982,24 +4405,7 @@ export default function WoodlemApp() {
           onDeleteCsQuestion={handleDeleteCsQuestion}
           onOverrideCsSubmission={handleOverrideCsSubmission}
         />
-      ) : isPrincipalUser(currentUser) || isSltUser(currentUser) || currentUser.role === 'principal' ? (
-        <PrincipalDashboard
-          currentUser={currentUser}
-          profiles={activeProfiles}
-          subjectClasses={subjectClasses}
-          tests={tests}
-          syllabus={syllabus}
-          attendance={attendance}
-          testResults={testResults}
-          offlineAssessments={offlineAssessments}
-          offlineMarks={offlineMarks}
-          achievements={achievements}
-          hubActivities={hubActivities}
-          parentDocuments={parentDocuments}
-          onSignOut={handleSignOut}
-          onRefreshData={loadAllData}
-        />
-      ) : currentUser.role === 'admin' ? (
+      ) : isPrincipalUser(currentUser) || isSltUser(currentUser) || currentUser.role === 'principal' || currentUser.role === 'admin' ? (
         <AdminDashboard
           currentUser={currentUser}
           profiles={profiles}
@@ -4135,6 +4541,7 @@ export default function WoodlemApp() {
           })()
         }
         userRole={currentUser?.role}
+        profiles={activeProfiles}
       />
 
       <ProvisionUserModal

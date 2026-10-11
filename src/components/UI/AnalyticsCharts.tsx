@@ -172,7 +172,7 @@ export const MatrixTrendChart: React.FC<MatrixTrendChartProps> = ({
   const [activeGranularity, setActiveGranularity] = useState<'weekly' | 'monthly' | 'yearly'>('monthly');
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
-  const hasData = overallAverage > 0 && data && data.some((b) => b.count > 0);
+  const hasData = data && data.some((b) => b.count > 0);
   const totalScoreCount = data.reduce((acc, b) => acc + b.count, 0) || 1;
 
   // Real columns mapped directly from score brackets (A+, A, B, C, D, F)
@@ -283,18 +283,8 @@ export const MatrixTrendChart: React.FC<MatrixTrendChartProps> = ({
       </div>
 
       {/* ── SVG & WAFFLE-MATRIX CHART CANVAS ── */}
-      {!hasData ? (
-        <div style={{ padding: '48px 20px', textAlign: 'center' }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>
-            No Academic Assessment Data Recorded Yet
-          </div>
-          <p style={{ fontSize: 11.5, color: '#8C8983', margin: '4px 0 0' }}>
-            Performance brackets and assessment trends will populate automatically once faculty record graded tests and examinations.
-          </p>
-        </div>
-      ) : (
-        <div style={{ position: 'relative', width: '100%', height: 230, display: 'flex', marginTop: 10 }}>
-          {/* Left Y-Axis Scale */}
+      <div style={{ position: 'relative', width: '100%', height: 230, display: 'flex', marginTop: 10 }}>
+        {/* Left Y-Axis Scale */}
           <div
             style={{
               display: 'flex',
@@ -483,7 +473,6 @@ export const MatrixTrendChart: React.FC<MatrixTrendChartProps> = ({
             )}
           </div>
         </div>
-      )}
     </div>
   );
 };
@@ -710,6 +699,13 @@ const STATUS_TONE: Record<RegisterStatus, { bg: string; fg: string }> = {
   Pending: { bg: '#F4F3F1', fg: '#8C8983' },
 };
 
+function extractGrade(sc: SubjectClass | string | null | undefined): string {
+  if (!sc) return '10';
+  const str = typeof sc === 'string' ? sc : `${sc.class_name || ''} ${sc.name || ''}`;
+  const m = str.match(/\b(9|10|11|12)\b/i) || str.match(/Grade\s*(\d+)/i) || str.match(/(\d+)/);
+  return m ? m[1] : '10';
+}
+
 export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
   subjectClasses = [],
   profiles = [],
@@ -720,113 +716,106 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
 
   const students = useMemo(() => profiles.filter((p) => p.role === 'student'), [profiles]);
-  const teachers = useMemo(() => profiles.filter((p) => p.role === 'teacher'), [profiles]);
 
   const registers = useMemo(() => {
     if (subjectClasses.length === 0) return [];
 
-    // assessment_id -> its term, so marks can be traced back to maximum_marks.
-    const assessmentById = new Map<string, OfflineAssessment>();
-    offlineAssessments.forEach((a) => assessmentById.set(a.id, a));
+    return subjectClasses.map((sc) => {
+      // 1. Cohort ID: Formatted academic code (e.g., G10-A-MAT, G12-C-PHY)
+      const targetGrade = extractGrade(sc);
+      const cleanClass = (sc.class_name || sc.name || '')
+        .replace(/^Grade\s*/i, 'G')
+        .replace(/\s+/g, '');
+      const subjCode = (sc.subject || 'GEN').slice(0, 3).toUpperCase();
+      const secMatch = (sc.section || sc.name || sc.class_name || '').match(/\b([A-Z])\b/i);
+      const secCode = secMatch ? `-${secMatch[1].toUpperCase()}` : '';
+      const id = cleanClass ? `${cleanClass}${secCode}-${subjCode}` : `CLS-${sc.id.replace(/[^a-zA-Z0-9]/g, '').slice(-5).toUpperCase()}`;
 
-    // One pass over the marks, bucketed by class_id.
-    const marksByClass = new Map<string, OfflineAssessmentMark[]>();
-    offlineMarks.forEach((m) => {
-      const term = assessmentById.get(m.assessment_id);
-      if (!term) return;
-      const bucket = marksByClass.get(term.class_id);
-      if (bucket) bucket.push(m);
-      else marksByClass.set(term.class_id, [m]);
-    });
+      const classRoom = sc.name || (sc.subject ? `${sc.subject} (${sc.class_name || 'Grade ' + targetGrade})` : `Class ${sc.class_name || targetGrade}`);
 
-    const termsByClass = new Map<string, OfflineAssessment[]>();
-    offlineAssessments.forEach((a) => {
-      const bucket = termsByClass.get(a.class_id);
-      if (bucket) bucket.push(a);
-      else termsByClass.set(a.class_id, [a]);
-    });
-
-    return subjectClasses.map((sc, idx) => {
-      const id = `#${String(idx + 1).padStart(5, '0')}`;
-      const classRoom = sc.name || sc.class_name || `Class ${idx + 1}`;
-
-      const teacherObj = teachers.find(
-        (t) => t.id === sc.teacher_id || t.name === sc.teacher_name || t.assigned_class === sc.class_name
-      );
-      const teacher = teacherObj ? teacherObj.name : sc.teacher_name || 'Faculty Member';
-
-      // Enrolled count: prefer the roster, fall back to grade/section matching.
-      let enrolledCount = (sc.enrolled_student_ids || []).length;
-      if (enrolledCount === 0) {
-        const cleanClassName = (sc.class_name || sc.name || '').replace(/^Grade\s*/i, '').trim();
-        const m = cleanClassName.match(/^(\d+)\s*[-:]?\s*([A-Z])/i) || cleanClassName.match(/^(\d+)\s+([A-Z])/i);
-        if (m) {
-          const [, g, s] = m;
-          enrolledCount = students.filter((st) => {
-            const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
-            const cleanS = (st.class_letter || '').toUpperCase().trim();
-            return cleanG === g && cleanS === s.toUpperCase();
-          }).length;
-        } else {
-          enrolledCount = students.filter((st) => (st.grade || '').toLowerCase() === cleanClassName.toLowerCase()).length;
+      // 2. Accurate Faculty Name
+      let teacher = sc.teacher_name?.trim();
+      if (!teacher || teacher === 'Faculty Member' || teacher === 'Assigned Faculty' || teacher === 'Unassigned') {
+        if (sc.teacher_id) {
+          const matchedProfile = profiles.find((p) => p.id === sc.teacher_id || p.email === sc.teacher_id);
+          if (matchedProfile?.name) {
+            teacher = matchedProfile.name;
+          }
         }
       }
+      if (!teacher) {
+        teacher = 'Faculty Member';
+      }
 
-      // Class mean matches MarkEntryModal: sum(marks) / sum(max) over graded
-      // cells only, so a partially filled register still shows the real mean
-      // of what has been entered rather than a value diluted by empty terms.
-      const terms = termsByClass.get(sc.id) || [];
-      const classMarks = marksByClass.get(sc.id) || [];
-      const termCount = terms.length;
+      // 3. Enrolled students for this classroom
+      const enrolledIds = new Set(sc.enrolled_student_ids || []);
+      const classStudents = students.filter((st) => {
+        if (enrolledIds.has(st.id)) return true;
+        if (enrolledIds.size === 0) {
+          const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
+          if (cleanG !== targetGrade) return false;
+          const sec = (st.class_letter || '').toUpperCase().trim();
+          const classSec = (sc.section || sc.name || sc.class_name || '').toUpperCase();
+          if (sec && classSec.includes(sec)) return true;
+          if (!sec) return true;
+        }
+        return false;
+      });
 
+      const enrolledCount = Math.max(enrolledIds.size, classStudents.length);
+      const studentIdSet = new Set(classStudents.map((s) => s.id));
+
+      // 4. Terms / Assessments matching this classroom
+      const classTerms = offlineAssessments.filter((a) => {
+        if (a.class_id === sc.id) return true;
+        if (a.class_id === sc.class_name) return true;
+        if (a.class_id === sc.name) return true;
+        if (a.class_id === `grade_${targetGrade}` || a.class_id === targetGrade) return true;
+        if (a.id && a.id.includes(`_g${targetGrade}_`) && (a.id.includes(`_${sc.id}`) || a.class_id === sc.id)) return true;
+        return false;
+      });
+      const termCount = classTerms.length;
+      const termIdSet = new Set(classTerms.map((t) => t.id));
+
+      // 5. Calculate class marks and mean
       let scoredSum = 0;
       let maxSum = 0;
       let enteredCells = 0;
       const studentsWithMarks = new Set<string>();
 
-      terms.forEach((term) => {
-        const max = Number(term.maximum_marks) || 0;
-        classMarks.forEach((m) => {
-          if (m.assessment_id !== term.id) return;
-          if (m.marks === null || m.marks === undefined) return;
-          const score = Number(m.marks);
-          if (!Number.isFinite(score)) return;
-          enteredCells += 1;
-          scoredSum += score;
-          maxSum += max;
-          studentsWithMarks.add(m.student_id);
-        });
+      offlineMarks.forEach((m) => {
+        if (!m || m.marks === null || m.marks === undefined || (m.marks as any) === '') return;
+        const isForTerm = termIdSet.has(m.assessment_id);
+        const isForStudent = studentIdSet.has(m.student_id) || enrolledIds.has(m.student_id);
+        if (!isForTerm && !isForStudent) return;
+
+        const score = Number(m.marks);
+        if (!Number.isFinite(score)) return;
+
+        const matchedTerm = offlineAssessments.find((a) => a.id === m.assessment_id);
+        const max = Number(matchedTerm?.maximum_marks) || (score <= 40 ? 40 : 100);
+
+        enteredCells += 1;
+        scoredSum += score;
+        maxSum += max;
+        studentsWithMarks.add(m.student_id);
       });
 
       const gradedStudents = studentsWithMarks.size;
-
-      // A cell is "expected" once a term exists and there is a student to grade.
-      const expectedCells = termCount * enrolledCount;
       const mean = maxSum > 0 && scoredSum > 0 ? `${((scoredSum / maxSum) * 100).toFixed(1)}%` : '—';
-
-      let status: RegisterStatus = 'Pending';
-      if (termCount > 0 && expectedCells > 0) {
-        if (enteredCells === 0) status = 'Pending';
-        else if (enteredCells < expectedCells) status = 'In Progress';
-        else status = 'Finalized';
-      } else if (termCount > 0 && enteredCells > 0) {
-        // No roster on the class, so fall back to "everyone we have marks for is complete".
-        status = 'Finalized';
-      }
 
       return {
         id,
         classRoom,
         classId: sc.id,
         teacher,
-        status,
         count: enrolledCount,
         termCount,
         gradedStudents,
         mean,
       };
     });
-  }, [subjectClasses, profiles, offlineAssessments, offlineMarks, students, teachers]);
+  }, [subjectClasses, profiles, offlineAssessments, offlineMarks, students]);
 
   const filteredRegisters = useMemo(() => {
     if (!searchTerm.trim()) return registers;
@@ -835,8 +824,7 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
       (r) =>
         r.classRoom.toLowerCase().includes(q) ||
         r.teacher.toLowerCase().includes(q) ||
-        r.id.toLowerCase().includes(q) ||
-        r.status.toLowerCase().includes(q)
+        r.id.toLowerCase().includes(q)
     );
   }, [registers, searchTerm]);
 
@@ -940,7 +928,6 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
                 <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 700 }}>ID</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 700 }}>CLASSROOM</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 700 }}>FACULTY</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 700 }}>STATUS</th>
                 <th style={{ textAlign: 'center', padding: '8px 10px', fontWeight: 700 }}>TERMS</th>
                 <th style={{ textAlign: 'center', padding: '8px 10px', fontWeight: 700 }}>GRADED</th>
                 <th style={{ textAlign: 'center', padding: '8px 10px', fontWeight: 700 }}>ENROLLED</th>
@@ -962,24 +949,6 @@ export const RecentRegistersTable: React.FC<RecentRegistersTableProps> = ({
                   <td style={{ padding: '10px', color: '#8C8983', fontWeight: 600 }}>{r.id}</td>
                   <td style={{ padding: '10px', fontWeight: 700, color: '#1A1A1A' }}>{r.classRoom}</td>
                   <td style={{ padding: '10px', color: '#57534E' }}>{r.teacher}</td>
-                  <td style={{ padding: '10px' }}>
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        padding: '2px 8px',
-                        borderRadius: 12,
-                        whiteSpace: 'nowrap',
-                        background: STATUS_TONE[r.status].bg,
-                        color: STATUS_TONE[r.status].fg,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                      }}
-                    >
-                      ● {r.status}
-                    </span>
-                  </td>
                   <td style={{ padding: '10px', textAlign: 'center', fontWeight: 600, color: r.termCount > 0 ? '#1A1A1A' : '#B0ADA7' }}>
                     {r.termCount}
                   </td>

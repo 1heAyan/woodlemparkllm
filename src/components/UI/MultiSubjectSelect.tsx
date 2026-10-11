@@ -139,10 +139,29 @@ export const MultiSubjectSelect: React.FC<MultiSubjectSelectProps> = ({
     return allSubjects.some((s) => s.toLowerCase() === term);
   }, [allSubjects, searchTerm]);
 
-  // Close dropdown on outside click
+  const commitExactMatchOnly = () => {
+    const clean = searchTerm.trim();
+    if (!clean) return;
+
+    // Only commit if what was typed is an exact match for an existing subject (case-insensitively)
+    const exactMatch = allSubjects.find((s) => s.toLowerCase() === clean.toLowerCase());
+    if (exactMatch) {
+      if (!selectedSubjects.some((s) => s.toLowerCase() === exactMatch.toLowerCase())) {
+        const nextArr = [...selectedSubjects, exactMatch];
+        onChange(nextArr.join(', '), nextArr);
+      }
+    }
+    setSearchTerm('');
+  };
+
+  const commitRef = useRef(commitExactMatchOnly);
+  commitRef.current = commitExactMatchOnly;
+
+  // Close dropdown on outside click and commit only if exact match
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        if (commitRef.current) commitRef.current();
         setIsOpen(false);
       }
     };
@@ -172,17 +191,18 @@ export const MultiSubjectSelect: React.FC<MultiSubjectSelectProps> = ({
   const handleAddNewCustomSubject = () => {
     const clean = searchTerm.trim();
     if (!clean) return;
-    // Capitalize each word nicely
-    const formatted = clean
+
+    const matched = allSubjects.find((s) => s.toLowerCase() === clean.toLowerCase());
+    const finalSubjectName = matched || clean
       .split(' ')
       .map((w) => (w.length > 0 ? w[0].toUpperCase() + w.slice(1) : ''))
       .join(' ');
 
-    if (!customSubjects.includes(formatted)) {
-      setCustomSubjects((prev) => [...prev, formatted]);
+    if (!customSubjects.includes(finalSubjectName)) {
+      setCustomSubjects((prev) => [...prev, finalSubjectName]);
     }
-    if (!selectedSubjects.some((s) => s.toLowerCase() === formatted.toLowerCase())) {
-      const nextArr = [...selectedSubjects, formatted];
+    if (!selectedSubjects.some((s) => s.toLowerCase() === finalSubjectName.toLowerCase())) {
+      const nextArr = [...selectedSubjects, finalSubjectName];
       onChange(nextArr.join(', '), nextArr);
     }
     setSearchTerm('');
@@ -192,10 +212,11 @@ export const MultiSubjectSelect: React.FC<MultiSubjectSelectProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (!exactMatchExists && searchTerm.trim()) {
-        handleAddNewCustomSubject();
-      } else if (filteredSubjects.length > 0) {
+      // If there are filtered matches, Enter selects the top match (e.g., Physical Education)
+      if (filteredSubjects.length > 0) {
         handleToggleSubject(filteredSubjects[0]);
+      } else if (searchTerm.trim()) {
+        handleAddNewCustomSubject();
       }
     } else if (e.key === 'Backspace' && !searchTerm && selectedSubjects.length > 0) {
       // Remove last tag
@@ -308,6 +329,7 @@ export const MultiSubjectSelect: React.FC<MultiSubjectSelectProps> = ({
       {/* Dropdown Menu */}
       {isOpen && !disabled && (
         <div
+          onMouseDown={(e) => e.preventDefault()}
           style={{
             position: 'absolute',
             top: 'calc(100% + 4px)',
@@ -326,6 +348,7 @@ export const MultiSubjectSelect: React.FC<MultiSubjectSelectProps> = ({
           {/* Add custom subject button if typed term does not exact match */}
           {!exactMatchExists && searchTerm.trim() && (
             <div
+              onMouseDown={(e) => e.preventDefault()}
               onClick={handleAddNewCustomSubject}
               style={{
                 padding: '8px 12px',
@@ -358,6 +381,7 @@ export const MultiSubjectSelect: React.FC<MultiSubjectSelectProps> = ({
               return (
                 <div
                   key={sub}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => handleToggleSubject(sub)}
                   style={{
                     padding: '7px 10px',

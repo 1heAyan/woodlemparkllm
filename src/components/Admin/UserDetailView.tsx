@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { UserProfile, ParentDocument, SubjectClass } from '@/lib/supabaseClient';
+import { supabase, UserProfile, ParentDocument, SubjectClass } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { MultiSubjectSelect } from '@/components/UI/MultiSubjectSelect';
 import { openFileInNewTab, downloadFile } from '@/lib/fileHelper';
@@ -29,6 +29,7 @@ import {
   Download,
   Search,
   Crown,
+  BookOpen,
 } from 'lucide-react';
 
 const GRADES = ['9', '10', '11', '12'] as const;
@@ -108,8 +109,109 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
   const [section, setSection] = useState<string>(() => initialClassInfo.section);
 
   // Teacher specific fields
-  const [subject, setSubject] = useState(user.subject || 'English');
+  const [subject, setSubject] = useState(user.subject || '');
   const [isClassTeacher, setIsClassTeacher] = useState(() => initialClassInfo.isClassTeacher);
+
+  // Student specific: Assigned Parent IDs & Parent Email
+  const [assignedParentIds, setAssignedParentIds] = useState<string[]>(() => {
+    const targetId = user.id;
+    const targetCode = (user.admission_number || user.user_code || '').trim().toLowerCase();
+    const targetEmail = (user.parent_email || '').trim().toLowerCase();
+    return profiles
+      .filter((p) => {
+        if (p.role !== 'parent') return false;
+        const linked = p.linked_student_ids || [];
+        const isIdLinked = Boolean(targetId && linked.includes(targetId));
+        const isCodeLinked = Boolean(targetCode && linked.some((id) => id.toLowerCase() === targetCode));
+        const isEmailMatch = Boolean(targetEmail && p.email && p.email.trim().toLowerCase() === targetEmail);
+        return isIdLinked || isCodeLinked || isEmailMatch;
+      })
+      .map((p) => p.id);
+  });
+  const [parentEmail, setParentEmail] = useState(user.parent_email || '');
+  const [isAddingParent, setIsAddingParent] = useState(false);
+  const [parentSearchTerm, setParentSearchTerm] = useState('');
+  const [newParentEmailInput, setNewParentEmailInput] = useState('');
+  const [newParentNameInput, setNewParentNameInput] = useState('');
+  const [parentAssignTab, setParentAssignTab] = useState<'search' | 'new'>('search');
+
+  const parentProfiles = useMemo(() => {
+    return profiles.filter((p) => p.role === 'parent');
+  }, [profiles]);
+
+  // Already assigned parent objects for this student
+  const assignedParentsList = useMemo(() => {
+    return assignedParentIds
+      .map((id) => profiles.find((p) => p.id === id))
+      .filter((p): p is UserProfile => Boolean(p));
+  }, [assignedParentIds, profiles]);
+
+  // Unassigned parents available to link
+  const availableParentsToAssign = useMemo(() => {
+    const assignedSet = new Set(assignedParentIds);
+    const unassigned = parentProfiles.filter((p) => !assignedSet.has(p.id));
+    if (!parentSearchTerm.trim()) return unassigned;
+    const q = parentSearchTerm.toLowerCase();
+    return unassigned.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.email && p.email.toLowerCase().includes(q))
+    );
+  }, [parentProfiles, assignedParentIds, parentSearchTerm]);
+
+  const handleAssignExistingParent = (parent: UserProfile) => {
+    if (!assignedParentIds.includes(parent.id)) {
+      setAssignedParentIds((prev) => [...prev, parent.id]);
+      if (!parentEmail) {
+        setParentEmail(parent.email);
+      }
+    }
+  };
+
+  const handleUnlinkParent = (parentId: string) => {
+    setAssignedParentIds((prev) => prev.filter((id) => id !== parentId));
+    const remaining = assignedParentsList.filter((p) => p.id !== parentId);
+    setParentEmail(remaining[0]?.email || '');
+  };
+
+  const handleAddNewParentByEmail = async () => {
+    const clean = newParentEmailInput.trim().toLowerCase();
+    if (!clean || !clean.includes('@')) {
+      alert('Please enter a valid email address for the parent.');
+      return;
+    }
+    const existing = profiles.find((p) => p.email && p.email.toLowerCase() === clean);
+    if (existing) {
+      if (!assignedParentIds.includes(existing.id)) {
+        setAssignedParentIds((prev) => [...prev, existing.id]);
+      }
+      if (!parentEmail) setParentEmail(existing.email);
+      setNewParentEmailInput('');
+      setNewParentNameInput('');
+      return;
+    }
+
+    const parentId = 'parent_' + clean.replace(/[^a-zA-Z0-9]/g, '_');
+    const parentName = newParentNameInput.trim() || 'Parent / Guardian';
+    const newParentObj: UserProfile = {
+      id: parentId,
+      name: parentName,
+      email: clean,
+      role: 'parent',
+      linked_student_ids: user.id ? [user.id] : [],
+      temp_password: 'woodlem123',
+    };
+    try {
+      await supabase.from('profiles').upsert([newParentObj], { onConflict: 'email' });
+      saveUserPasswordToCloudAndLocal(parentId, clean, 'woodlem123');
+    } catch (err) {
+      console.error('Error creating parent profile:', err);
+    }
+    setAssignedParentIds((prev) => Array.from(new Set([...prev, parentId])));
+    if (!parentEmail) setParentEmail(clean);
+    setNewParentEmailInput('');
+    setNewParentNameInput('');
+  };
 
   // Parent specific linked students
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>(user.linked_student_ids || []);
@@ -149,7 +251,15 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
     return parentDocuments.filter((d) => linkedSet.has(d.student_id));
   }, [role, selectedStudentIds, parentDocuments]);
 
+  const lastLoadedIdRef = React.useRef<string>(user.id || user.email || '');
+
   useEffect(() => {
+    const currentId = user.id || user.email || '';
+    // Only reset form fields when navigating to a DIFFERENT user
+    // If profiles refresh for the same user (e.g. after save), keep the edited values intact
+    if (currentId === lastLoadedIdRef.current) return;
+
+    lastLoadedIdRef.current = currentId;
     setName(user.name || '');
     setEmail(user.email || '');
     setRole(user.role || 'student');
@@ -164,9 +274,30 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
     setGrade(classInfo.grade);
     setSection(classInfo.section);
     setIsClassTeacher(classInfo.isClassTeacher);
-    setSubject(user.subject || 'English');
+    setSubject(user.subject || (user.enrolled_subjects ? user.enrolled_subjects.join(', ') : ''));
     setPassword(resolveUserPassword(user));
-  }, [user, subjectClasses]);
+
+    const targetId = user.id;
+    const targetCode = (user.admission_number || user.user_code || '').trim().toLowerCase();
+    const targetEmail = (user.parent_email || '').trim().toLowerCase();
+    const initParentIds = profiles
+      .filter((p) => {
+        if (p.role !== 'parent') return false;
+        const linked = p.linked_student_ids || [];
+        const isIdLinked = Boolean(targetId && linked.includes(targetId));
+        const isCodeLinked = Boolean(targetCode && linked.some((id) => id.toLowerCase() === targetCode));
+        const isEmailMatch = Boolean(targetEmail && p.email && p.email.trim().toLowerCase() === targetEmail);
+        return isIdLinked || isCodeLinked || isEmailMatch;
+      })
+      .map((p) => p.id);
+
+    setAssignedParentIds(initParentIds);
+    setParentEmail(user.parent_email || '');
+    setIsAddingParent(false);
+    setParentSearchTerm('');
+    setNewParentEmailInput('');
+    setNewParentNameInput('');
+  }, [user, subjectClasses, profiles]);
 
 
 
@@ -264,6 +395,38 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
     try {
       await saveUserPasswordToCloudAndLocal(user.id, cleanEmail, finalPassword);
 
+      // If student: synchronize parent accounts directly in Supabase
+      if (role === 'student' && user.id) {
+        const studentId = user.id;
+
+        // 1. Ensure all currently assigned parents have this student linked
+        for (const parentId of assignedParentIds) {
+          const parent = profiles.find((p) => p.id === parentId);
+          if (parent) {
+            const currentLinked = parent.linked_student_ids || [];
+            if (!currentLinked.includes(studentId)) {
+              const updatedLinked = [...currentLinked, studentId];
+              await supabase.from('profiles').update({ linked_student_ids: updatedLinked }).eq('id', parent.id);
+            }
+          }
+        }
+
+        // 2. Unlink any parents who were previously linked to this student but removed
+        const originallyLinkedParents = parentProfiles.filter((p) => {
+          const linked = p.linked_student_ids || [];
+          return linked.includes(studentId) || (user.parent_email && p.email?.toLowerCase().trim() === user.parent_email.toLowerCase().trim());
+        });
+        for (const prevParent of originallyLinkedParents) {
+          if (!assignedParentIds.includes(prevParent.id)) {
+            const updatedLinked = (prevParent.linked_student_ids || []).filter((id) => id !== studentId);
+            await supabase.from('profiles').update({ linked_student_ids: updatedLinked }).eq('id', prevParent.id);
+          }
+        }
+      }
+
+      const primaryAssignedParent = assignedParentsList[0];
+      const resolvedParentEmail = primaryAssignedParent?.email || (parentEmail?.trim().toLowerCase() || undefined);
+
       await onSave({
         ...user,
         name: name.trim(),
@@ -274,9 +437,12 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
         temp_password: finalPassword,
         grade: finalGrade,
         class_letter: finalSection,
-        subject: role === 'teacher' ? subject : null,
+        subject: (role === 'teacher' || role === 'student') ? (subject?.trim() || null) : null,
+        enrolled_subjects: role === 'student' && subject ? subject.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
         assigned_class: assignedClassStr,
         linked_student_ids: role === 'parent' ? selectedStudentIds : user.linked_student_ids,
+        parent_email: role === 'student' ? resolvedParentEmail : user.parent_email,
+        assigned_parent_ids: role === 'student' ? assignedParentIds : undefined,
       });
 
       setSaveSuccess(true);
@@ -662,6 +828,92 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                   )}
                 </div>
               )}
+
+              {/* Student Parent Contact Indicator */}
+              {role === 'student' && (
+                <div className="form-group" style={{ marginTop: 14, marginBottom: 0 }}>
+                  <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Primary Parent / Guardian Contact</span>
+                    <span style={{ fontSize: 10.5, color: '#6D28D9', fontWeight: 700 }}>
+                      {assignedParentsList.length > 0 ? `${assignedParentsList.length} Linked` : 'None Linked'}
+                    </span>
+                  </label>
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      background: '#FAF9F6',
+                      borderRadius: 6,
+                      border: '1px solid var(--border-color)',
+                      fontSize: 12,
+                      color: assignedParentsList.length > 0 ? '#1E293B' : 'var(--text-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <span>
+                      {assignedParentsList[0]
+                        ? `${assignedParentsList[0].name} (${assignedParentsList[0].email})`
+                        : parentEmail
+                        ? parentEmail
+                        : 'No parent assigned yet (use assignment card on right)'}
+                    </span>
+                    {assignedParentsList.length > 1 && (
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: '#6D28D9', background: '#EDE9FE', padding: '1px 6px', borderRadius: 10 }}>
+                        +{assignedParentsList.length - 1} more
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Student Enrolled Subjects Indicator */}
+              {role === 'student' && (
+                <div className="form-group" style={{ marginTop: 14, marginBottom: 0 }}>
+                  <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Enrolled Subjects ({subject ? subject.split(',').filter((s) => s.trim().length > 0).length : 0})</span>
+                    <span style={{ fontSize: 10.5, color: '#2C6E6A', fontWeight: 700 }}>
+                      {subject ? 'Active' : 'Not Set'}
+                    </span>
+                  </label>
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      background: '#FAF9F6',
+                      borderRadius: 6,
+                      border: '1px solid var(--border-color)',
+                      fontSize: 12,
+                      color: subject ? '#1E293B' : 'var(--text-secondary)',
+                    }}
+                  >
+                    {subject ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {subject.split(',').map((s, idx) => {
+                          const clean = s.trim();
+                          if (!clean) return null;
+                          return (
+                            <span
+                              key={idx}
+                              style={{
+                                fontSize: 11,
+                                padding: '2px 7px',
+                                borderRadius: 4,
+                                background: '#EAF3EF',
+                                color: '#2C6E6A',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {clean}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      'No subjects enrolled yet'
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* CARD 2: Security & Login Password */}
@@ -863,6 +1115,475 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                   </div>
                   <span style={{ fontSize: 11.5, fontWeight: 600, color: '#2D6E5D' }}>CBSE Curriculum</span>
                 </div>
+              </div>
+            )}
+
+            {/* ── STUDENT SUBJECTS & CURRICULUM CARD ── */}
+            {role === 'student' && (
+              <div
+                style={{
+                  background: '#FFFFFF',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 10,
+                  padding: '20px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <div>
+                    <h2
+                      style={{
+                        fontSize: 13.5,
+                        fontWeight: 700,
+                        color: 'var(--neutral-dark)',
+                        margin: 0,
+                        textTransform: 'none',
+                        letterSpacing: '0.02em',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <BookOpen size={16} style={{ color: '#2C6E6A' }} />
+                      Enrolled Subjects &amp; Academic Curriculum
+                    </h2>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+                      All subjects this student is studying for classroom enrolment, marks, and syllabus coverage tracking
+                    </div>
+                  </div>
+                  {subject && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: '#2C6E6A',
+                        background: '#EAF3EF',
+                        border: '1px solid #C7E4D8',
+                        padding: '2px 8px',
+                        borderRadius: 12,
+                      }}
+                    >
+                      {subject.split(',').filter((s) => s.trim().length > 0).length} Subjects Enrolled
+                    </span>
+                  )}
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <label className="form-label" style={{ margin: 0 }}>
+                      Studied Subjects <span style={{ color: '#EF4444' }}>*</span>
+                    </label>
+                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                      Select multiple or type to add custom
+                    </span>
+                  </div>
+                  <MultiSubjectSelect
+                    value={subject}
+                    onChange={(valStr) => setSubject(valStr)}
+                    placeholder="Search subjects or type to add custom (e.g. English, Math, Physics, Physical Education...)"
+                  />
+                  <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '6px 0 0' }}>
+                    Select all subjects this student attends this academic year. Changes will automatically update their curriculum coverage tracking and classroom access.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ── STUDENT PARENT ASSIGNMENT CARD ── */}
+            {role === 'student' && (
+              <div
+                style={{
+                  background: '#FFFFFF',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 10,
+                  padding: '20px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div>
+                    <h2
+                      style={{
+                        fontSize: 13.5,
+                        fontWeight: 700,
+                        color: 'var(--neutral-dark)',
+                        margin: 0,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <Users size={16} style={{ color: '#6D28D9' }} />
+                      Parent &amp; Guardian Assignment
+                    </h2>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+                      Parents associated with this student for Parent Portal access &amp; reports
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: '#6D28D9',
+                      background: '#EDE9FE',
+                      border: '1px solid #DDD6FE',
+                      padding: '2px 8px',
+                      borderRadius: 12,
+                    }}
+                  >
+                    {assignedParentsList.length} Assigned
+                  </span>
+                </div>
+
+                {/* LIST OF CURRENTLY ASSIGNED PARENTS */}
+                {assignedParentsList.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '20px 16px',
+                      textAlign: 'center',
+                      background: '#FAF9F6',
+                      borderRadius: 8,
+                      border: '1px dashed var(--border-color)',
+                      color: 'var(--text-secondary)',
+                      fontSize: 12.5,
+                      marginBottom: 12,
+                    }}
+                  >
+                    No parent or guardian currently linked to this student.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+                    {assignedParentsList.map((parent, idx) => (
+                      <div
+                        key={parent.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '10px 14px',
+                          background: '#FAF5FF',
+                          border: '1px solid #E9D5FF',
+                          borderRadius: 8,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <div
+                            style={{
+                              width: 34,
+                              height: 34,
+                              borderRadius: 8,
+                              background: '#6D28D9',
+                              color: '#FFFFFF',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontWeight: 700,
+                              fontSize: 13,
+                            }}
+                          >
+                            {(parent.name || 'P').charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: '#4C1D95' }}>
+                                {parent.name}
+                              </span>
+                              {idx === 0 && (
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    color: '#6D28D9',
+                                    background: '#EDE9FE',
+                                    padding: '1px 5px',
+                                    borderRadius: 4,
+                                    border: '1px solid #DDD6FE',
+                                  }}
+                                >
+                                  Primary
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: '#6B21A8', marginTop: 2, fontFamily: 'monospace' }}>
+                              {parent.email}
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleUnlinkParent(parent.id)}
+                          title={`Unlink ${parent.name}`}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '4px 8px',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: '#DC2626',
+                            background: '#FFFFFF',
+                            border: '1px solid #FECACA',
+                            borderRadius: 5,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <X size={13} />
+                          Unlink
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* ADD / LINK PARENT SECTION */}
+                {!isAddingParent ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingParent(true)}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      padding: '9px 14px',
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      color: 'var(--neutral-dark)',
+                      background: '#FFFFFF',
+                      border: '1px dashed var(--border-color)',
+                      borderRadius: 7,
+                      cursor: 'pointer',
+                      transition: 'background 0.12s',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = '#FAF9F6')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = '#FFFFFF')}
+                  >
+                    <UserPlus size={14} />
+                    Assign Parent / Guardian
+                  </button>
+                ) : (
+                  <div
+                    style={{
+                      padding: '14px',
+                      background: '#FAF9F6',
+                      border: '1px solid #E8E5DF',
+                      borderRadius: 8,
+                      marginTop: 6,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => setParentAssignTab('search')}
+                          style={{
+                            padding: '5px 10px',
+                            fontSize: 11.5,
+                            fontWeight: parentAssignTab === 'search' ? 700 : 500,
+                            color: parentAssignTab === 'search' ? '#FFFFFF' : 'var(--neutral-dark)',
+                            background: parentAssignTab === 'search' ? '#2D2C2A' : '#EFECE6',
+                            border: 'none',
+                            borderRadius: 5,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Select Existing Parent
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setParentAssignTab('new')}
+                          style={{
+                            padding: '5px 10px',
+                            fontSize: 11.5,
+                            fontWeight: parentAssignTab === 'new' ? 700 : 500,
+                            color: parentAssignTab === 'new' ? '#FFFFFF' : 'var(--neutral-dark)',
+                            background: parentAssignTab === 'new' ? '#2D2C2A' : '#EFECE6',
+                            border: 'none',
+                            borderRadius: 5,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Add by Parent Email
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddingParent(false);
+                          setParentSearchTerm('');
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          fontSize: 11.5,
+                          fontWeight: 600,
+                          color: 'var(--text-secondary)',
+                          cursor: 'pointer',
+                          padding: 0,
+                        }}
+                      >
+                        Done
+                      </button>
+                    </div>
+
+                    {parentAssignTab === 'search' ? (
+                      <div>
+                        <div style={{ position: 'relative', marginBottom: 8 }}>
+                          <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: '#9E9B95' }} />
+                          <input
+                            type="text"
+                            placeholder="Search parent by name or email..."
+                            value={parentSearchTerm}
+                            onChange={(e) => setParentSearchTerm(e.target.value)}
+                            style={{
+                              width: '100%',
+                              height: 32,
+                              padding: '0 12px 0 32px',
+                              fontSize: 12,
+                              borderRadius: 6,
+                              border: '1px solid #E5E3DF',
+                              background: '#FFFFFF',
+                              color: '#1A1A1A',
+                              outline: 'none',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                        </div>
+
+                        <div
+                          style={{
+                            maxHeight: 180,
+                            overflowY: 'auto',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 6,
+                            background: '#FFFFFF',
+                            padding: '4px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 4,
+                          }}
+                        >
+                          {availableParentsToAssign.length === 0 ? (
+                            <div style={{ padding: '16px', textAlign: 'center', fontSize: 12, color: 'var(--text-secondary)' }}>
+                              No unassigned parent accounts match the search.
+                            </div>
+                          ) : (
+                            availableParentsToAssign.map((p) => (
+                              <div
+                                key={p.id}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  padding: '7px 10px',
+                                  borderRadius: 5,
+                                  background: '#FAF9F6',
+                                  border: '1px solid #F0EEE9',
+                                }}
+                              >
+                                <div>
+                                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                                    {p.name}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                                    {p.email}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAssignExistingParent(p)}
+                                  style={{
+                                    padding: '4px 9px',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    color: '#2C6E6A',
+                                    background: '#EAF3EF',
+                                    border: '1px solid #C7E4D8',
+                                    borderRadius: 4,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  + Assign
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--neutral-dark)', marginBottom: 4, display: 'block' }}>
+                            Parent Email Address *
+                          </label>
+                          <input
+                            type="email"
+                            placeholder="e.g. parent.name@gmail.com"
+                            value={newParentEmailInput}
+                            onChange={(e) => setNewParentEmailInput(e.target.value)}
+                            style={{
+                              width: '100%',
+                              height: 32,
+                              padding: '0 10px',
+                              fontSize: 12,
+                              borderRadius: 6,
+                              border: '1px solid #E5E3DF',
+                              background: '#FFFFFF',
+                              color: '#1A1A1A',
+                              outline: 'none',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--neutral-dark)', marginBottom: 4, display: 'block' }}>
+                            Parent Full Name (Optional)
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Mrs. Fatima Khan"
+                            value={newParentNameInput}
+                            onChange={(e) => setNewParentNameInput(e.target.value)}
+                            style={{
+                              width: '100%',
+                              height: 32,
+                              padding: '0 10px',
+                              fontSize: 12,
+                              borderRadius: 6,
+                              border: '1px solid #E5E3DF',
+                              background: '#FFFFFF',
+                              color: '#1A1A1A',
+                              outline: 'none',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleAddNewParentByEmail}
+                          style={{
+                            padding: '7px 12px',
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: '#FFFFFF',
+                            background: '#2C6E6A',
+                            border: 'none',
+                            borderRadius: 6,
+                            cursor: 'pointer',
+                            marginTop: 4,
+                          }}
+                        >
+                          + Add &amp; Link Parent Account
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

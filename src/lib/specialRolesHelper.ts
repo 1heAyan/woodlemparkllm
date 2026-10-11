@@ -158,13 +158,37 @@ export interface SltRolePreset {
   title: string;
   code: string;
   description: string;
+  defaultScopeType: 'all' | 'custom';
+  defaultGrades?: string[];
+  defaultSections?: string[];
   defaultPermissions: {
-    canAuditMarks: boolean;
-    canVerifySyllabus: boolean;
-    canBroadcastDepartment: boolean;
-    canManageResources: boolean;
+    // Analytics & Operational Oversight
     canViewAnalytics: boolean;
-    canApproveClearances: boolean;
+    canExportStatements: boolean;
+    canManageHub: boolean;
+    canManageSettings: boolean;
+    canResetPasswords: boolean;
+
+    // Academic & Assessment Powers
+    canAuditMarks: boolean;
+    canReleaseMarks: boolean;
+    canEditMarksRegisters: boolean;
+    canManageExamTerms: boolean;
+    canVerifySyllabus: boolean;
+
+    // Attendance, Conduct & Pastoral Powers
+    canManageLateEntries: boolean;
+    canManageAttendance: boolean;
+    canApproveLeaveRequests: boolean;
+    canLogBehaviorIncidents: boolean;
+    canViewDisciplineRecords: boolean;
+
+    // Classes & Directory Governance
+    canViewDirectory: boolean;
+    canEditStudentProfiles: boolean;
+    canManageClasses: boolean;
+    canAssignTeachers: boolean;
+    canBroadcastAnnouncements: boolean;
   };
 }
 
@@ -172,87 +196,194 @@ export const SLT_ROLE_PRESETS: SltRolePreset[] = [
   {
     title: 'Vice Principal',
     code: 'VP',
-    description: 'Executive second-in-command with institution-wide administrative, academic, and pastoral governance oversight.',
+    description: 'Executive second-in-command with complete institution-wide academic, pastoral, and operational oversight.',
+    defaultScopeType: 'all',
+    defaultGrades: ['9', '10', '11', '12'],
     defaultPermissions: {
-      canAuditMarks: true,
-      canVerifySyllabus: true,
-      canBroadcastDepartment: true,
-      canManageResources: true,
       canViewAnalytics: true,
-      canApproveClearances: true,
+      canExportStatements: true,
+      canManageHub: true,
+      canManageSettings: true,
+      canResetPasswords: true,
+      canAuditMarks: true,
+      canReleaseMarks: true,
+      canEditMarksRegisters: true,
+      canManageExamTerms: true,
+      canVerifySyllabus: true,
+      canManageLateEntries: true,
+      canManageAttendance: true,
+      canApproveLeaveRequests: true,
+      canLogBehaviorIncidents: true,
+      canViewDisciplineRecords: true,
+      canViewDirectory: true,
+      canEditStudentProfiles: true,
+      canManageClasses: true,
+      canAssignTeachers: true,
+      canBroadcastAnnouncements: true,
     },
   },
   {
     title: 'Head of Secondary School',
     code: 'HOS',
-    description: 'Senior leader overseeing Secondary & Senior Secondary (Grades 9-12) academics, board preparedness, and faculty standards.',
+    description: 'Senior leader governing Secondary Stage (Grades 9 & 10) academic standards, student cohorts, pastoral welfare, and mark audits.',
+    defaultScopeType: 'custom',
+    defaultGrades: ['9', '10'],
     defaultPermissions: {
-      canAuditMarks: true,
-      canVerifySyllabus: true,
-      canBroadcastDepartment: true,
-      canManageResources: true,
       canViewAnalytics: true,
-      canApproveClearances: true,
+      canExportStatements: true,
+      canManageHub: true,
+      canManageSettings: false,
+      canResetPasswords: true,
+      canAuditMarks: true,
+      canReleaseMarks: true,
+      canEditMarksRegisters: true,
+      canManageExamTerms: true,
+      canVerifySyllabus: true,
+      canManageLateEntries: true,
+      canManageAttendance: true,
+      canApproveLeaveRequests: true,
+      canLogBehaviorIncidents: true,
+      canViewDisciplineRecords: true,
+      canViewDirectory: true,
+      canEditStudentProfiles: true,
+      canManageClasses: true,
+      canAssignTeachers: true,
+      canBroadcastAnnouncements: true,
+    },
+  },
+  {
+    title: 'Head of Senior Secondary',
+    code: 'HOSS',
+    description: 'Senior leader governing Senior Secondary (Grades 11 & 12) stream specializations, CBSE board cohorts, and academic moderation.',
+    defaultScopeType: 'custom',
+    defaultGrades: ['11', '12'],
+    defaultPermissions: {
+      canViewAnalytics: true,
+      canExportStatements: true,
+      canManageHub: true,
+      canManageSettings: false,
+      canResetPasswords: true,
+      canAuditMarks: true,
+      canReleaseMarks: true,
+      canEditMarksRegisters: true,
+      canManageExamTerms: true,
+      canVerifySyllabus: true,
+      canManageLateEntries: true,
+      canManageAttendance: true,
+      canApproveLeaveRequests: true,
+      canLogBehaviorIncidents: true,
+      canViewDisciplineRecords: true,
+      canViewDirectory: true,
+      canEditStudentProfiles: true,
+      canManageClasses: true,
+      canAssignTeachers: true,
+      canBroadcastAnnouncements: true,
     },
   },
   {
     title: 'Director of Academics & Curriculum',
     code: 'DIR',
-    description: 'Senior executive spearheading curriculum pace, pedagogy innovation, and cross-department quality assurance.',
+    description: 'Senior executive directing academic performance, syllabus pacing, examination registers, and learning quality across all cohorts.',
+    defaultScopeType: 'all',
+    defaultGrades: ['9', '10', '11', '12'],
     defaultPermissions: {
-      canAuditMarks: true,
-      canVerifySyllabus: true,
-      canBroadcastDepartment: true,
-      canManageResources: true,
       canViewAnalytics: true,
-      canApproveClearances: true,
+      canExportStatements: true,
+      canManageHub: true,
+      canManageSettings: false,
+      canResetPasswords: false,
+      canAuditMarks: true,
+      canReleaseMarks: true,
+      canEditMarksRegisters: true,
+      canManageExamTerms: true,
+      canVerifySyllabus: true,
+      canManageLateEntries: false,
+      canManageAttendance: false,
+      canApproveLeaveRequests: false,
+      canLogBehaviorIncidents: false,
+      canViewDisciplineRecords: false,
+      canViewDirectory: true,
+      canEditStudentProfiles: false,
+      canManageClasses: true,
+      canAssignTeachers: true,
+      canBroadcastAnnouncements: true,
     },
   },
   {
-    title: 'Dean of Student Affairs & Pastoral Care',
-    code: 'DEAN',
-    description: 'Senior leader directing student welfare, attendance compliance, parent clearances, and behavioral integrity.',
+    title: 'Head of Assessment & Examinations',
+    code: 'EXAM',
+    description: 'Executive controller managing examination terms, offline marks registers, grade analytics, mark publication, and assessment audits.',
+    defaultScopeType: 'all',
+    defaultGrades: ['9', '10', '11', '12'],
     defaultPermissions: {
-      canAuditMarks: false,
-      canVerifySyllabus: false,
-      canBroadcastDepartment: true,
-      canManageResources: true,
       canViewAnalytics: true,
-      canApproveClearances: true,
+      canExportStatements: true,
+      canManageHub: false,
+      canManageSettings: false,
+      canResetPasswords: false,
+      canAuditMarks: true,
+      canReleaseMarks: true,
+      canEditMarksRegisters: true,
+      canManageExamTerms: true,
+      canVerifySyllabus: false,
+      canManageLateEntries: false,
+      canManageAttendance: false,
+      canApproveLeaveRequests: false,
+      canLogBehaviorIncidents: false,
+      canViewDisciplineRecords: false,
+      canViewDirectory: true,
+      canEditStudentProfiles: false,
+      canManageClasses: false,
+      canAssignTeachers: false,
+      canBroadcastAnnouncements: false,
+    },
+  },
+  {
+    title: 'Dean of Student Affairs / Head of Discipline',
+    code: 'DEAN',
+    description: 'Senior leader governing student welfare, daily morning gate desk, attendance registers, behavior logs, and holistic co-curriculars.',
+    defaultScopeType: 'all',
+    defaultGrades: ['9', '10', '11', '12'],
+    defaultPermissions: {
+      canViewAnalytics: true,
+      canExportStatements: true,
+      canManageHub: true,
+      canManageSettings: false,
+      canResetPasswords: false,
+      canAuditMarks: false,
+      canReleaseMarks: false,
+      canEditMarksRegisters: false,
+      canManageExamTerms: false,
+      canVerifySyllabus: false,
+      canManageLateEntries: true,
+      canManageAttendance: true,
+      canApproveLeaveRequests: true,
+      canLogBehaviorIncidents: true,
+      canViewDisciplineRecords: true,
+      canViewDirectory: true,
+      canEditStudentProfiles: true,
+      canManageClasses: false,
+      canAssignTeachers: false,
+      canBroadcastAnnouncements: true,
     },
   },
 ];
 
 const LOCAL_STORAGE_SPECIAL_ROLES_KEY = 'woodlem_special_role_assignments_v1';
 
-// Check if user is the Principal
+// Check if user is the Principal (Strictly exclusive to Principal / Super Admin)
 export function isPrincipalUser(user: UserProfile | null | undefined): boolean {
   if (!user) return false;
-  
-  // SLT members (Vice Principals, Deans, Academic Directors) are NOT the Principal
-  if ((user.special_role as string) === 'slt') return false;
-
-  const designation = (user.designation || '').toLowerCase().trim();
-  if (
-    designation.includes('vice') ||
-    designation.includes('vp') ||
-    designation.includes('director of') ||
-    designation.includes('academic director') ||
-    designation.includes('dean') ||
-    designation.includes('head of secondary') ||
-    designation.includes('head of primary') ||
-    designation.includes('slt')
-  ) {
-    return false;
-  }
 
   const email = (user.email || '').toLowerCase().trim();
-  if (email === 'principal@woodlem.com' || email === 'principal@woodlempark.ae' || email.startsWith('principal@')) {
+  if (
+    email === 'principal@woodlem.com' ||
+    email === 'principal@woodlempark.ae' ||
+    email.startsWith('principal@') ||
+    email.startsWith('principal.')
+  ) {
     return true;
   }
-
-  if (user.is_protected_executive === true && (user.special_role as string) !== 'slt') return true;
-  if (user.special_role === 'principal') return true;
 
   if (typeof window !== 'undefined') {
     try {
@@ -260,30 +391,12 @@ export function isPrincipalUser(user: UserProfile | null | undefined): boolean {
       if (appointedEmail && email === appointedEmail) {
         return true;
       }
-      const cachedRoles = localStorage.getItem(LOCAL_STORAGE_SPECIAL_ROLES_KEY);
-      if (cachedRoles) {
-        const parsed = JSON.parse(cachedRoles);
-        if (Array.isArray(parsed)) {
-          const prin = parsed.find((a: any) => a.roleType === 'principal');
-          if (prin && (prin.userEmail?.toLowerCase() === email || prin.userId === user.id)) {
-            return true;
-          }
-        }
-      }
     } catch {
       // ignore
     }
   }
 
-  const name = (user.name || '').toLowerCase().trim();
-  if (name.includes('principal') && !name.includes('vice') && (user.role === 'admin' || user.role === 'teacher' || user.role === 'principal')) {
-    return true;
-  }
-
-  if (user.role === 'principal' && (user.special_role as string) !== 'slt' && !designation.includes('vice')) {
-    return true;
-  }
-
+  // Non-principal emails are NEVER the Principal Super Admin
   return false;
 }
 
@@ -293,7 +406,35 @@ export function isSltUser(user: UserProfile | null | undefined): boolean {
   if (isPrincipalUser(user)) return false; // Principal is distinct from SLT
   if ((user.special_role as string) === 'slt') return true;
 
+  // HODs and Stage Coordinators are faculty (teachers), NOT SLT members
+  if (user.special_role === 'hod' || user.special_role === 'coordinator') {
+    return false;
+  }
+
+  const email = (user.email || '').toLowerCase().trim();
+  if (email.startsWith('hod.') || email.startsWith('hod@') || email.includes('.hod@') || email.includes('hod_')) {
+    return false;
+  }
+
   const designation = (user.designation || '').toLowerCase().trim();
+  if (
+    designation.includes('head of department') ||
+    designation.includes('hod') ||
+    designation.includes('head of science') ||
+    designation.includes('head of math') ||
+    designation.includes('head of english') ||
+    designation.includes('head of physical education') ||
+    designation.includes('head of pe') ||
+    designation.includes('head of arts') ||
+    designation.includes('head of commerce') ||
+    designation.includes('head of social') ||
+    designation.includes('head of second languages') ||
+    designation.includes('head of cs') ||
+    designation.includes('head of it')
+  ) {
+    return false;
+  }
+
   if (
     designation.includes('vice principal') ||
     designation.includes('vice-principal') ||
@@ -302,16 +443,30 @@ export function isSltUser(user: UserProfile | null | undefined): boolean {
     designation.includes('senior leadership') ||
     designation.includes('head of secondary') ||
     designation.includes('head of primary') ||
+    designation.includes('head of discipline') ||
+    designation.includes('head of assessment') ||
+    designation.includes('head of pastoral') ||
     designation.includes('academic director') ||
     designation.includes('director of academics') ||
-    designation.includes('dean of academics') ||
-    designation.includes('dean of student')
+    designation.includes('director of curriculum') ||
+    designation.includes('dean of student') ||
+    designation.includes('dean of academic')
   ) {
     return true;
   }
 
-  const email = (user.email || '').toLowerCase().trim();
-  if (email.startsWith('vp.') || email.startsWith('slt.') || email.includes('.slt@') || email.includes('viceprincipal')) {
+  if (
+    email.startsWith('vp.') ||
+    email.startsWith('vp@') ||
+    email.startsWith('slt.') ||
+    email.startsWith('slt@') ||
+    email.includes('.slt@') ||
+    email.includes('viceprincipal') ||
+    email.startsWith('headofdiscipline') ||
+    email.startsWith('headofassessment') ||
+    email.startsWith('headofsecondary') ||
+    email.startsWith('headofprimary')
+  ) {
     return true;
   }
 

@@ -213,7 +213,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         }}
       >
         <div>
-          <span style={{ fontSize: 11.5, fontWeight: 800, color: '#2D6E5D', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 11.5, fontWeight: 800, color: '#2D6E5D', textTransform: 'none', letterSpacing: '0.02em', display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#2D6E5D' }}></span>
             Account &amp; Security
           </span>
@@ -349,7 +349,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         {/* Right Box: Change Account Password Form */}
         <div style={{ background: 'var(--surface)', border: '1px solid rgba(229, 227, 223, 0.5)', borderRadius: 16, padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 20, boxShadow: '0 8px 30px rgba(0,0,0,0.04)' }}>
           <div>
-            <span style={{ fontSize: 11.5, fontWeight: 800, color: '#2D6E5D', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Security Credentials</span>
+            <span style={{ fontSize: 11.5, fontWeight: 800, color: '#2D6E5D', textTransform: 'none', letterSpacing: '0.02em' }}>Security Credentials</span>
             <h3 style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 800, color: 'var(--neutral-dark)' }}>Change Your Password</h3>
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '6px 0 0' }}>Enter your new password below. It will immediately secure your portal login.</p>
           </div>

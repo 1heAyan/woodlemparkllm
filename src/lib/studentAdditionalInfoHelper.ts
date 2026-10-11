@@ -9,6 +9,8 @@ export interface StudentAdditionalInfo {
   email?: string;
   parent_email?: string;
   house_colour?: string;
+  subject?: string;
+  enrolled_subjects?: string[];
   additional_info?: Record<string, any>;
 }
 
@@ -103,7 +105,13 @@ export async function persistStudentAdditionalInfo(
   const cleanInfo: StudentAdditionalInfo = {
     parent_email: info.parent_email ? info.parent_email.trim().toLowerCase() : undefined,
     house_colour: info.house_colour ? info.house_colour.trim() : undefined,
-    additional_info: info.additional_info || {},
+    subject: info.subject ? info.subject.trim() : undefined,
+    enrolled_subjects: info.enrolled_subjects || (info.subject ? info.subject.split(',').map((s) => s.trim()).filter(Boolean) : undefined),
+    additional_info: {
+      ...(info.additional_info || {}),
+      ...(info.enrolled_subjects ? { enrolled_subjects: info.enrolled_subjects } : {}),
+      ...(info.subject ? { subject: info.subject } : {}),
+    },
   };
 
   if (cleanId) localMap[cleanId] = { ...(localMap[cleanId] || {}), ...cleanInfo };
@@ -115,6 +123,7 @@ export async function persistStudentAdditionalInfo(
     const updatePayload: any = {};
     if (cleanInfo.parent_email !== undefined) updatePayload.parent_email = cleanInfo.parent_email;
     if (cleanInfo.house_colour !== undefined) updatePayload.house_colour = cleanInfo.house_colour;
+    if (cleanInfo.subject !== undefined) updatePayload.subject = cleanInfo.subject;
     if (cleanInfo.additional_info !== undefined) updatePayload.additional_info = cleanInfo.additional_info;
 
     if (Object.keys(updatePayload).length > 0) {

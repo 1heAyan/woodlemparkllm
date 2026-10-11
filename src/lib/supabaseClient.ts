@@ -27,16 +27,19 @@ export interface UserProfile {
   special_role?: SpecialRoleType; // 'principal' | 'hod' | 'coordinator' | 'dean' | 'custom' | 'none'
   department?: string;           // e.g. "Science", "Mathematics", "English", "Social Science", "Computer Science", "Commerce", "Arts"
   managed_grades?: string[];     // e.g. ['9', '10'] or ['11', '12'] or ['9', '10', '11', '12']
+  managed_sections?: string[];   // e.g. ['9-A', '9-B', '10-A']
   special_permissions?: string[]; // Granular permission keys
   is_protected_executive?: boolean; // Cannot be modified or deleted by standard admin
   user_code?: string;
   admission_number?: string;
   grade?: string;
   class_letter?: string;
-  subject?: string | null;       // Teacher's subject (e.g. "English", "Math")
+  subject?: string | null;       // Teacher's subject or Student's studied subjects (comma-separated string)
+  enrolled_subjects?: string[];  // Array of subjects the student is enrolled in / studying
   assigned_class?: string | null; // Class teacher assignment (e.g. "10-D") or null
   linked_student_ids?: string[]; // For Parent: array of linked student IDs
   parent_email?: string;       // For Student: Parent's registered email address for automatic linking
+  assigned_parent_ids?: string[]; // For Student: Array of assigned parent profile IDs
   house_colour?: string;       // For Student: House colour (e.g. Ruby, Sapphire, Emerald, Topaz)
   additional_info?: Record<string, any>; // Extensible student/user attributes for future fields
   temp_password?: string;        // Admin preset / assigned credential
@@ -55,14 +58,42 @@ export interface SpecialRoleAssignment {
   roleType: SpecialRoleType;
   title: string;
   department?: string;
+  scopeType?: 'all' | 'custom';
   managedGrades?: string[];
+  managedSections?: string[];
   permissions: {
-    canAuditMarks: boolean;
-    canVerifySyllabus: boolean;
-    canBroadcastDepartment: boolean;
-    canManageResources: boolean;
-    canViewAnalytics: boolean;
-    canApproveClearances: boolean;
+    // Analytics & Operational Oversight
+    canViewAnalytics?: boolean;
+    canExportStatements?: boolean;
+    canManageHub?: boolean;
+    canManageSettings?: boolean;
+    canResetPasswords?: boolean;
+
+    // Academic & Assessment Powers
+    canAuditMarks?: boolean;
+    canReleaseMarks?: boolean;
+    canEditMarksRegisters?: boolean;
+    canManageExamTerms?: boolean;
+    canVerifySyllabus?: boolean;
+
+    // Attendance, Conduct & Pastoral Powers
+    canManageLateEntries?: boolean;
+    canManageAttendance?: boolean;
+    canApproveLeaveRequests?: boolean;
+    canLogBehaviorIncidents?: boolean;
+    canViewDisciplineRecords?: boolean;
+
+    // Classes & Directory Governance
+    canViewDirectory?: boolean;
+    canEditStudentProfiles?: boolean;
+    canManageClasses?: boolean;
+    canAssignTeachers?: boolean;
+    canBroadcastAnnouncements?: boolean;
+
+    // Legacy compatibility keys
+    canBroadcastDepartment?: boolean;
+    canManageResources?: boolean;
+    canApproveClearances?: boolean;
   };
   assignedBy: string;
   assignedAt: string;
@@ -144,6 +175,27 @@ export interface SyllabusTopic {
   title: string;
   teacher_checked: boolean;
   student_checked: boolean;
+  student_id?: string;
+  student_name?: string;
+  is_custom?: boolean;
+  notes?: string;
+  covered_at?: string;
+  created_at?: string;
+}
+
+export interface StudentCustomTopic {
+  id: string;
+  student_id: string;
+  student_name: string;
+  subject: string;
+  class_id?: string;
+  term_id?: string;
+  term_name?: string;
+  title: string;
+  notes?: string;
+  covered_at: string;
+  is_completed: boolean;
+  created_at?: string;
 }
 
 export interface SyllabusTerm {

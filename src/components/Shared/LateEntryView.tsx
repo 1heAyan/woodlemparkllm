@@ -469,8 +469,8 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
                   borderRadius: 4,
                   background: mode === 'admin' ? '#1A1A1A' : '#EAF3EF',
                   color: mode === 'admin' ? '#FFFFFF' : '#2C6E6A',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em',
+                  textTransform: 'none',
+                  letterSpacing: '0.02em',
                 }}
               >
                 {mode === 'admin' ? 'Admin Controller' : 'Gate Duty Desk'}
@@ -576,7 +576,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
               { value: 'authorized_staff', label: 'Designated Staff Access', count: authorizedStaffMembers.length },
             ]}
             height={34}
-            textTransform="uppercase"
+            textTransform="none"
           />
         </div>
       )}
@@ -608,7 +608,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
               }}
             >
               <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'none' }}>
                   Total Late
                 </div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--neutral-dark)', marginTop: 2 }}>
@@ -643,7 +643,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
               }}
             >
               <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'none' }}>
                   Students Late
                 </div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: '#2C6E6A', marginTop: 2 }}>
@@ -678,7 +678,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
               }}
             >
               <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'none' }}>
                   Teachers Late
                 </div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: '#7C5CBF', marginTop: 2 }}>
@@ -760,7 +760,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
                               borderRadius: 4,
                               background: selectedPerson.role === 'teacher' ? '#F3EFFA' : '#EAF3EF',
                               color: selectedPerson.role === 'teacher' ? '#7C5CBF' : '#2C6E6A',
-                              textTransform: 'uppercase',
+                              textTransform: 'capitalize',
                             }}
                           >
                             {selectedPerson.role}
@@ -876,7 +876,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
                                   borderRadius: 4,
                                   background: p.role === 'teacher' ? '#F3EFFA' : '#EAF3EF',
                                   color: p.role === 'teacher' ? '#7C5CBF' : '#2C6E6A',
-                                  textTransform: 'uppercase',
+                                  textTransform: 'capitalize',
                                 }}
                               >
                                 {p.role}
@@ -1262,7 +1262,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
                                 borderRadius: 4,
                                 background: entry.role === 'teacher' ? '#F3EFFA' : '#EAF3EF',
                                 color: entry.role === 'teacher' ? '#7C5CBF' : '#2C6E6A',
-                                textTransform: 'uppercase',
+                                textTransform: 'capitalize',
                                 marginRight: 6,
                               }}
                             >
@@ -1414,7 +1414,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
                                 borderRadius: 4,
                                 background: item.role === 'teacher' ? '#F3EFFA' : '#EAF3EF',
                                 color: item.role === 'teacher' ? '#7C5CBF' : '#2C6E6A',
-                                textTransform: 'uppercase',
+                                textTransform: 'capitalize',
                               }}
                             >
                               {item.role}
@@ -1673,7 +1673,7 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
                               borderRadius: 4,
                               background: entry.role === 'teacher' ? '#F3EFFA' : '#EAF3EF',
                               color: entry.role === 'teacher' ? '#7C5CBF' : '#2C6E6A',
-                              textTransform: 'uppercase',
+                              textTransform: 'capitalize',
                             }}
                           >
                             {entry.role}
@@ -1871,8 +1871,8 @@ export const LateEntryView: React.FC<LateEntryViewProps> = ({
                         background: '#EAF3EF',
                         color: '#2C6E6A',
                         border: '1px solid #C7E4D8',
-                        letterSpacing: '0.04em',
-                        textTransform: 'uppercase',
+                        letterSpacing: '0.02em',
+                        textTransform: 'none',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: 5,

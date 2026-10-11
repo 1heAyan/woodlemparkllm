@@ -1,4 +1,4 @@
-import { UserProfile, SubjectClass, TestItem, SyllabusTerm, HubActivity } from './supabaseClient';
+import { UserProfile, SubjectClass, TestItem, SyllabusTerm, HubActivity, OfflineAssessment, OfflineAssessmentMark } from './supabaseClient';
 import { TestResultRecord } from '@/components/Modals/ReviewTestResultsModal';
 
 export interface ScoreBracket {
@@ -158,6 +158,8 @@ export function computeExecutiveAnalytics({
   syllabus,
   attendance,
   testResults,
+  offlineAssessments = [],
+  offlineMarks = [],
   selectedGradeFilter = 'all',
 }: {
   profiles: UserProfile[];
@@ -166,6 +168,8 @@ export function computeExecutiveAnalytics({
   syllabus: SyllabusTerm[];
   attendance: Record<string, Record<string, string>>;
   testResults?: Record<string, TestResultRecord>;
+  offlineAssessments?: OfflineAssessment[];
+  offlineMarks?: OfflineAssessmentMark[];
   selectedGradeFilter?: string; // 'all' | '9' | '10' | '11' | '12'
 }): ExecutiveAnalyticsData {
   // 1. Filter students according to grade filter
@@ -178,10 +182,11 @@ export function computeExecutiveAnalytics({
 
   const totalEnrollment = filteredStudents.length;
 
-  // 2. Extract REAL test scores strictly from testResults
+  // 2. Extract REAL test scores from testResults AND offlineMarks (Marks Register)
   const studentScores: { studentId: string; student: UserProfile; score: number; subject: string }[] = [];
   const studentScoreMap = new Map<string, number[]>();
 
+  // A) From online testResults
   if (testResults && Object.keys(testResults).length > 0) {
     Object.values(testResults).forEach((tr: any) => {
       if (!tr || !tr.student_id) return;
@@ -205,6 +210,44 @@ export function computeExecutiveAnalytics({
           }
         }
       }
+    });
+  }
+
+  // B) From offline assessment marks (Marks Register)
+  if (offlineMarks && offlineMarks.length > 0 && offlineAssessments && offlineAssessments.length > 0) {
+    offlineMarks.forEach((m) => {
+      if (!m || !m.student_id || m.marks === null || m.marks === undefined) return;
+
+      const assessment = offlineAssessments.find((a) => a.id === m.assessment_id);
+      if (!assessment || !assessment.maximum_marks) return;
+
+      const maxMarks = assessment.maximum_marks;
+      const numMarks = Number(m.marks);
+      if (isNaN(numMarks)) return;
+
+      const pct = Math.min(100, Math.max(0, Math.round((numMarks / maxMarks) * 100)));
+
+      const st = profiles.find((p) => p.id === m.student_id);
+
+      // Grade filter: if student found, apply grade filter; if not found, include mark anyway
+      if (st) {
+        const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
+        if (selectedGradeFilter !== 'all' && cleanG !== selectedGradeFilter) return;
+      }
+
+      const cls = subjectClasses.find((c) => c.id === assessment.class_id);
+      const subjectName = cls?.subject || cls?.name || assessment.title || 'General';
+
+      studentScores.push({
+        studentId: m.student_id,
+        student: st || ({ id: m.student_id, name: 'Unknown', role: 'student', grade: '' } as any),
+        score: pct,
+        subject: subjectName,
+      });
+
+      const existing = studentScoreMap.get(m.student_id) || [];
+      existing.push(pct);
+      studentScoreMap.set(m.student_id, existing);
     });
   }
 

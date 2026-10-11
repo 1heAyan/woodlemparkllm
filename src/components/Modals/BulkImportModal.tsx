@@ -14,6 +14,7 @@ export interface BulkUserRow {
   password?: string;
   parentEmail?: string;
   houseColour?: string;
+  subject?: string;
   linkedStudentCodes?: string[];
   isValid: boolean;
   isExistingUser?: boolean;
@@ -105,6 +106,10 @@ const HOUSE_COLOUR_ALIASES = [
   'house', 'housecolour', 'housecolor', 'house_colour', 'house_color', 'studenthouse', 'schoolhouse'
 ];
 
+const SUBJECT_ALIASES = [
+  'subject', 'subjects', 'enrolled_subjects', 'enrolledsubjects', 'coursestudying', 'courses', 'disciplines'
+];
+
 const isAdmissionHdr = (cleanHdr: string) => {
   return (
     ADMISSION_ALIASES.some((a) => cleanHdr === a || cleanHdr.startsWith(a)) ||
@@ -190,6 +195,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
           rawLinked: string;
           rawParentEmail?: string;
           rawHouseColour?: string;
+          rawSubject?: string;
           sheetGrade?: string;
         }[] = [];
 
@@ -261,6 +267,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
           let colLinkedIdx = -1;
           let colParentEmailIdx = -1;
           let colHouseIdx = -1;
+          let colSubjectIdx = -1;
 
           if (headerRowIdx >= 0) {
             const headerRow = sheetAoA[headerRowIdx];
@@ -288,6 +295,8 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
                 colParentEmailIdx = colI;
               } else if (colHouseIdx === -1 && (HOUSE_COLOUR_ALIASES.some((h) => cleanHdr === h) || cleanHdr.includes('house'))) {
                 colHouseIdx = colI;
+              } else if (colSubjectIdx === -1 && (SUBJECT_ALIASES.some((s) => cleanHdr === s) || cleanHdr.includes('subject'))) {
+                colSubjectIdx = colI;
               }
             });
           }
@@ -363,6 +372,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             let rawLinked = colLinkedIdx >= 0 && row[colLinkedIdx] !== undefined ? String(row[colLinkedIdx]).trim() : '';
             let rawParentEmail = colParentEmailIdx >= 0 && row[colParentEmailIdx] !== undefined ? String(row[colParentEmailIdx]).trim() : '';
             let rawHouseColour = colHouseIdx >= 0 && row[colHouseIdx] !== undefined ? String(row[colHouseIdx]).trim() : '';
+            let rawSubject = colSubjectIdx >= 0 && row[colSubjectIdx] !== undefined ? String(row[colSubjectIdx]).trim() : '';
 
             // STRICT SANITY CHECK 1: If rawName is numeric and rawAdm has letters, SWAP THEM!
             if (isNumericString(rawName) && /[a-zA-Z]{2,}/.test(rawAdm)) {
@@ -420,6 +430,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
               rawLinked,
               rawParentEmail,
               rawHouseColour,
+              rawSubject,
               sheetGrade: gradeInSheet || undefined,
             });
           });
@@ -561,6 +572,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             password: r.rawRole?.toLowerCase() === 'admin' ? 'admin123' : 'woodlem123',
             parentEmail: r.rawParentEmail && r.rawParentEmail.includes('@') ? r.rawParentEmail.toLowerCase() : undefined,
             houseColour: r.rawHouseColour || undefined,
+            subject: r.rawSubject || matchedProfile?.subject || undefined,
             linkedStudentCodes,
             isValid,
             isExistingUser,

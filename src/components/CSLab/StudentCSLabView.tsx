@@ -4,6 +4,7 @@ import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react'
 import {
   Play, Send, ChevronLeft, Clock, FlaskConical, Code2, Database,
   ArrowRight, CheckCircle2, XCircle, AlertTriangle, Save, Terminal, X,
+  Table, Key,
 } from 'lucide-react';
 import { UserProfile, SubjectClass, CsQuestion, CsSubmission, CsLabSession, CsSubmissionStatus } from '@/lib/supabaseClient';
 import { CodeEditor } from './CodeEditor';
@@ -11,7 +12,7 @@ import { StatusChip, LabOutputPanel } from './shared';
 import { LabPlayground, LabPlaygroundHandle } from './LabPlayground';
 import { getStudentCsClasses, getQuestionsForClasses, getCsQuestionTimeStatus } from '@/lib/csLabHelper';
 import { PyRunner } from '@/lib/csLab/pyRunner';
-import { SqlLabSession, SqlStatementResult } from '@/lib/csLab/sqlRunner';
+import { SqlLabSession, SqlStatementResult, SqlSchemaIntrospection } from '@/lib/csLab/sqlRunner';
 import { gradeCsAttempt, SqlGrid } from '@/lib/csLab/grading';
 
 export interface CsSubmissionSavePayload {
@@ -159,7 +160,9 @@ export const StudentCSLabView: React.FC<StudentCSLabViewProps> = ({
   const timeStatus = activeQuestion ? getCsQuestionTimeStatus(activeQuestion, now) : null;
   const isLocked = timeStatus?.status === 'past_deadline';
 
-  // Load code when entering a question
+  const [studentSchema, setStudentSchema] = useState<SqlSchemaIntrospection | null>(null);
+
+  // Load code and introspect schema when entering a question
   useEffect(() => {
     if (!activeQuestion) return;
     setCode(activeSubmission?.code || activeQuestion.starter_code || '');
@@ -168,6 +171,22 @@ export const StudentCSLabView: React.FC<StudentCSLabViewProps> = ({
     setLastGrade(null);
     setCustomInput(activeQuestion.sample_input || '');
     setInputDirty(false);
+
+    if (activeQuestion.language === 'sql' && activeQuestion.setup_sql) {
+      (async () => {
+        try {
+          const s = new SqlLabSession(activeQuestion.setup_sql || '');
+          await s.init();
+          const intro = s.introspectSchema();
+          setStudentSchema(intro);
+          s.dispose();
+        } catch {
+          setStudentSchema(null);
+        }
+      })();
+    } else {
+      setStudentSchema(null);
+    }
   }, [activeQuestionId]);
 
   // ── Persistence ─────────────────────────────────────────────────────────
@@ -724,6 +743,52 @@ export const StudentCSLabView: React.FC<StudentCSLabViewProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Database Tables & Schema (for SQL questions) */}
+            {activeQuestion?.language === 'sql' && studentSchema?.tables && studentSchema.tables.length > 0 && (
+              <div style={{ background: '#FFFFFF', border: '1.5px solid #BEE3EC', borderRadius: 10, padding: '16px 18px', marginBottom: 14, boxShadow: '0 2px 8px rgba(0,117,143,0.05)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 800, color: '#00758F', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+                  <Database size={13} /> Available Database Tables ({studentSchema.tables.length})
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {studentSchema.tables.map((t) => (
+                    <div key={t.name} style={{ background: '#F8FBFB', border: '1px solid #D0E8EE', borderRadius: 8, padding: '10px 12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontWeight: 800, color: '#00758F', fontFamily: 'monospace', fontSize: 12.5 }}>
+                          {t.name}
+                        </span>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: '#E5F4F7', color: '#00758F' }}>
+                          {t.rowCount} rows
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {t.columns.map((c) => (
+                          <span
+                            key={c.name}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              fontSize: 11,
+                              padding: '2px 7px',
+                              borderRadius: 4,
+                              background: '#FFFFFF',
+                              border: '1px solid #BEE3EC',
+                              fontFamily: 'monospace',
+                              color: '#333',
+                            }}
+                          >
+                            {c.isPk && <Key size={10} color="#D97706" />}
+                            <strong>{c.name}</strong>
+                            <span style={{ color: '#888', fontSize: 10 }}>{c.type}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {lastGrade && (
               <div

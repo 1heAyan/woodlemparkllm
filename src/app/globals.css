@@ -370,13 +370,12 @@ body, html {
     align-items: center;
     font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.04em;
     padding: 3px 8px;
     border-radius: 4px;
     background: #1A1A1A;
     color: #FFFFFF;
     border: none;
-    text-transform: uppercase;
     line-height: 1.25;
 }
 
@@ -410,8 +409,8 @@ body, html {
 
 .nav-label { 
     font-size: 10px; 
-    text-transform: uppercase; 
-    letter-spacing: 0.07em; 
+    text-transform: none; 
+    letter-spacing: 0.04em; 
     color: #8C8A84; 
     font-weight: 700; 
     margin: 12px 0 6px 8px;
@@ -432,8 +431,8 @@ body, html {
     font-family: var(--font-label); 
     font-size: 11.5px; 
     font-weight: 600; 
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    text-transform: none;
     color: #3A3834; 
     cursor: pointer; 
     margin-bottom: 2px; 
@@ -1866,6 +1865,14 @@ textarea.form-input { resize: vertical; }
 
 .mobile-drawer {
   display: none;
+}
+
+.hide-desktop {
+  display: none !important;
+}
+
+.hide-desktop-flex {
+  display: none !important;
 }
 
 @media (max-width: 768px) {

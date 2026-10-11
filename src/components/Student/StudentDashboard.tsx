@@ -21,8 +21,10 @@ import {
   CsSubmission,
   CsLabSession,
   isAuthenticHubActivity,
+  StudentCustomTopic,
   supabase,
 } from '@/lib/supabaseClient';
+import { StudentCurriculumCoverageView } from './StudentCurriculumCoverageView';
 import { getTodayDateString } from '@/lib/lateEntryHelper';
 import { StudentCSLabView } from '@/components/CSLab/StudentCSLabView';
 import { SubmitAssignmentModal } from '../Modals/SubmitAssignmentModal';
@@ -40,6 +42,8 @@ import { openFileInNewTab, downloadFile, formatShortFileName } from '@/lib/fileH
 import { sanitizeUserCode } from '@/lib/userCodeHelper';
 import { isCsStudent } from '@/lib/csLabHelper';
 import { ApplyLeaveModal } from '../Modals/ApplyLeaveModal';
+import { ExportAttendanceModal } from '../Modals/ExportAttendanceModal';
+import { decodeMarkNote } from '../Admin/AdminAssessmentTermsView';
 import { ShieldAlert, ShieldCheck } from 'lucide-react';
 import {
   BehaviorIncidentRecord,
@@ -66,6 +70,9 @@ interface StudentDashboardProps {
   testResults?: Record<string, TestResultRecord>;
   assignmentSubmissions?: Record<string, AssignmentSubmissionRecord>;
   studentSyllabusProgress?: Record<string, boolean>;
+  studentCustomTopics?: StudentCustomTopic[];
+  onCreateStudentCustomTopic?: (topicData: Omit<StudentCustomTopic, 'id'>) => void;
+  onDeleteStudentCustomTopic?: (topicId: string, studentId: string) => void;
   onSubmitTest: (result: TestResultRecord) => void;
   onSubmitAssignment: (submission: AssignmentSubmissionRecord) => void;
   onToggleTopicCheck: (termId: string, topicId: string, role: 'teacher' | 'student', isChecked: boolean, studentId?: string) => void;
@@ -113,6 +120,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   testResults = {},
   assignmentSubmissions = {},
   studentSyllabusProgress = {},
+  studentCustomTopics = [],
+  onCreateStudentCustomTopic,
+  onDeleteStudentCustomTopic,
   onSubmitTest,
   onSubmitAssignment,
   onToggleTopicCheck,
@@ -161,6 +171,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   // Leave & Sick Note Modal state
   const [isApplyLeaveOpen, setIsApplyLeaveOpen] = useState(false);
+  const [isExportAttendanceOpen, setIsExportAttendanceOpen] = useState(false);
   const [editingLeave, setEditingLeave] = useState<LeaveRequest | null>(null);
   const [attendanceSubTab, setAttendanceSubTab] = useState<'audit' | 'leaves' | 'late_notices'>('audit');
 
@@ -238,7 +249,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   useEffect(() => {
     const fetchReleasedMarks = () => {
       supabase.from('offline_assessment_marks')
-        .select('marks, teacher_note, offline_assessments(title, assessment_date, maximum_marks, class_id)')
+        .select('marks, teacher_note, offline_assessments(title, assessment_date, maximum_marks, class_id, created_at)')
         .eq('student_id', currentStudent.id)
         .eq('is_visible_to_student', true)
         .then(({ data }) => setReleasedMarks(data || []));
@@ -1004,7 +1015,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
             {/* Navigation Options */}
             <div className="mobile-drawer-body">
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', padding: '6px 8px', letterSpacing: '0.04em' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'none', color: 'var(--text-secondary)', padding: '6px 8px', letterSpacing: '0.02em' }}>
                 Subject Classrooms ({myClasses.length})
               </div>
               {myClasses.map((cls) => {
@@ -1035,9 +1046,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
               <div style={{ height: 1, background: 'var(--border-color)', margin: '8px 0' }} />
 
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', padding: '6px 8px', letterSpacing: '0.04em' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'none', color: 'var(--text-secondary)', padding: '6px 8px', letterSpacing: '0.02em' }}>
                 Portals & Modules
               </div>
+
               <button
                 type="button"
                 className={`mobile-drawer-item ${activeNavType === 'homeroom_circulars' ? 'active' : ''}`}
@@ -1234,7 +1246,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             fontWeight: 700,
             letterSpacing: '0.08em',
             color: '#8C8A84',
-            textTransform: 'uppercase',
+            textTransform: 'none',
             borderBottom: '1px solid #E8E5DF',
             flexShrink: 0,
             textAlign: 'center',
@@ -1334,7 +1346,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   color: '#FFFFFF',
                   padding: '2px 7px',
                   borderRadius: 4,
-                  textTransform: 'uppercase',
+                  textTransform: 'none',
                   lineHeight: 1.25,
                 }}>
                   Class {cleanGrade} • Section {cleanSection}
@@ -1358,9 +1370,28 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
                 <Megaphone size={15} className="icon" style={{ color: activeNavType === 'homeroom_circulars' ? '#FFFFFF' : 'var(--text-secondary)', flexShrink: 0 }} />
                 <span className="sidebar-text" style={{ flex: 1, color: activeNavType === 'homeroom_circulars' ? '#FFFFFF' : 'inherit' }}>Class Circulars</span>
+                {myHomeroomBroadcasts.length > 0 && !sidebar.isCollapsed && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 800,
+                      padding: '1px 6px',
+                      borderRadius: 10,
+                      background: activeNavType === 'homeroom_circulars' ? 'rgba(255, 255, 255, 0.25)' : '#FEF3C7',
+                      color: activeNavType === 'homeroom_circulars' ? '#FFFFFF' : '#92400E',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {myHomeroomBroadcasts.length}
+                  </span>
+                )}
               </div>
             </button>
-            {sidebar.isCollapsed && <div className="sidebar-tooltip">Class Circulars</div>}
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">
+                Class Circulars{myHomeroomBroadcasts.length > 0 ? ` (${myHomeroomBroadcasts.length})` : ''}
+              </div>
+            )}
           </div>
 
           {/* MY ACHIEVEMENTS */}
@@ -1396,8 +1427,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                       fontWeight: 800,
                       padding: '1px 6px',
                       borderRadius: 10,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.04em',
+                      textTransform: 'none',
+                      letterSpacing: '0.02em',
                       flexShrink: 0,
                     }}
                   >
@@ -1496,6 +1527,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </div>
           )}
 
+
+
           {/* SUBJECT CLASSROOMS divider + label */}
           <div className="sidebar-nav-divider" />
           <div className="nav-label">
@@ -1509,6 +1542,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           ) : (
             myClasses.map((cls) => {
               const isSelected = activeNavType === 'class' && selectedClassId === cls.id;
+              const bcastCount = classBroadcasts.filter((b) => b.class_id === cls.id).length;
               return (
                 <div key={cls.id} className="sidebar-tooltip-wrapper">
                   <button
@@ -1525,10 +1559,30 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                           {cls.teacher_name}
                         </div>
                       </div>
+                      {bcastCount > 0 && !sidebar.isCollapsed && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 800,
+                            padding: '2px 6px',
+                            borderRadius: 10,
+                            background: isSelected ? 'rgba(255, 255, 255, 0.25)' : '#EAF3EF',
+                            color: isSelected ? '#FFFFFF' : '#2C6E6A',
+                            flexShrink: 0,
+                            marginLeft: 'auto',
+                          }}
+                          title={`${bcastCount} active announcements in stream`}
+                        >
+                          {bcastCount}
+                        </span>
+                      )}
                     </div>
                   </button>
                   {sidebar.isCollapsed && (
-                    <div className="sidebar-tooltip">{cls.name} ({cls.teacher_name})</div>
+                    <div className="sidebar-tooltip">
+                      {cls.name} ({cls.teacher_name})
+                      {bcastCount > 0 ? ` • ${bcastCount} notices` : ''}
+                    </div>
                   )}
                 </div>
               );
@@ -2505,229 +2559,185 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 </div>
               )}
 
-              {classSubTab === 'marks' && (
-                <div>
-                  <h3 className="section-title" style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Released Marks & Grades</h3>
-                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16 }}>Only marks officially released by your teacher are shown here.</p>
-                  <div className="card-list">
-                    {releasedMarks.filter((m: any) => m.offline_assessments?.class_id === activeClassObj?.id).length === 0 ? (
-                      <div className="panel-block" style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
+              {classSubTab === 'marks' && (() => {
+                const classReleasedMarks = releasedMarks.filter(
+                  (m: any) => m.offline_assessments?.class_id === activeClassObj?.id
+                );
+
+                return (
+                  <div style={{
+                    background: '#FFFFFF',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 10,
+                    overflow: 'hidden',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                    marginBottom: 24,
+                  }}>
+                    <div style={{
+                      padding: '16px 20px',
+                      borderBottom: '1px solid var(--border-color)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      background: '#FAF9F6',
+                    }}>
+                      <div>
+                        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                          Itemized Marks &amp; Assessment Records
+                        </h2>
+                        <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                          Complete digital record of official scores logged by subject teachers
+                        </p>
+                      </div>
+                      <span style={{
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        padding: '4px 10px',
+                        borderRadius: 12,
+                        background: '#F0EFEA',
+                        color: 'var(--text-secondary)',
+                      }}>
+                        {classReleasedMarks.length} record{classReleasedMarks.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+
+                    {classReleasedMarks.length === 0 ? (
+                      <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
                         No marks have been released for this class yet.
                       </div>
                     ) : (
-                      releasedMarks
-                        .filter((m: any) => m.offline_assessments?.class_id === activeClassObj?.id)
-                        .map((m: any, index) => {
-                          const score = Number(m.marks);
-                          const maxScore = Number(m.offline_assessments?.maximum_marks || 100);
-                          const pct = (score / maxScore) * 100;
-                          
-                          let letter = 'F';
-                          let letterColor = '#DC2626';
-                          let letterBg = '#FEE2E2';
-                          let statusText = 'Needs Attention';
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                          <thead>
+                            <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                              <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Date &amp; Time</th>
+                              <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Assessment Details</th>
+                              <th style={{ textAlign: 'center', padding: '10px 16px', fontWeight: 700 }}>Score</th>
+                              <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Recorded By</th>
+                              <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Context / Subject</th>
+                              <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Notes &amp; Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {classReleasedMarks.map((m: any, i: number) => {
+                              const score = Number(m.marks);
+                              const maxScore = Number(m.offline_assessments?.maximum_marks || 100);
+                              const pct = Math.round((score / maxScore) * 100);
+                              const isFailing = pct < 50;
+                              const decoded = decodeMarkNote(m.teacher_note);
 
-                          if (pct >= 90) {
-                            letter = 'A';
-                            letterColor = '#2C6E6A';
-                            letterBg = '#EAF3EF';
-                            statusText = 'Excellent';
-                          } else if (pct >= 80) {
-                            letter = 'B';
-                            letterColor = '#2C6E6A';
-                            letterBg = '#EAF3EF';
-                            statusText = 'Very Good';
-                          } else if (pct >= 70) {
-                            letter = 'C';
-                            letterColor = '#B8860B';
-                            letterBg = '#FEF3C7';
-                            statusText = 'Satisfactory';
-                          } else if (pct >= 50) {
-                            letter = 'D';
-                            letterColor = '#D97706';
-                            letterBg = '#FFEDD5';
-                            statusText = 'Pass';
-                          }
+                              const dateStr = m.offline_assessments?.assessment_date || '2026-10-06';
 
-                          return (
-                            <div
-                              className="item-card"
-                              key={index}
-                              style={{
-                                padding: '16px 18px',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                borderLeft: `4px solid ${letterColor}`,
-                                background: 'linear-gradient(to right, #FFF, #FAFBFB)',
-                              }}
-                            >
-                              <div>
-                                <span
-                                  className="badge badge-test"
+                              return (
+                                <tr
+                                  key={m.id || i}
                                   style={{
-                                    marginBottom: 5,
-                                    fontSize: 9.5,
-                                    background: '#FAF1ED',
-                                    color: '#8A532B',
-                                    border: '1px solid #F5E8E2',
+                                    borderBottom: i < classReleasedMarks.length - 1 ? '1px solid #ECEAE5' : 'none',
+                                    background: i % 2 === 0 ? '#FFFFFF' : '#FAFAF9',
                                   }}
                                 >
-                                  In-school Assessment
-                                </span>
-                                <h4 style={{ fontSize: 14, margin: '0 0 3px', fontWeight: 700 }}>
-                                  {m.offline_assessments?.title}
-                                </h4>
-                                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                                  Date of Exam: {m.offline_assessments?.assessment_date && new Date(m.offline_assessments.assessment_date + 'T00:00:00').toLocaleDateString()}
-                                </span>
-                                {m.teacher_note && (
-                                  <div
-                                    style={{
-                                      fontSize: 11,
-                                      color: '#475569',
-                                      marginTop: 6,
-                                      padding: '4px 8px',
-                                      background: '#F1F5F9',
-                                      borderRadius: 4,
+                                  <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                                    <div>{dateStr}</div>
+                                    <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
+                                      {m.offline_assessments?.created_at
+                                        ? new Date(m.offline_assessments.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                        : 'Term Exam'}
+                                    </div>
+                                  </td>
+
+                                  <td style={{ padding: '12px 16px' }}>
+                                    <div style={{ fontWeight: 700, color: isFailing ? '#A83B38' : '#2C6E6A' }}>
+                                      {m.offline_assessments?.title || 'Assessment'}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                      Category: In-School Assessment
+                                    </div>
+                                  </td>
+
+                                  <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                                    <span style={{
                                       display: 'inline-block',
-                                    }}
-                                  >
-                                    <strong>Teacher Note:</strong> {m.teacher_note}
-                                  </div>
-                                )}
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                                <div style={{ textAlign: 'right' }}>
-                                  <div style={{ fontSize: 18, fontWeight: 800, color: '#1C4D46' }}>
-                                    {score}
-                                    <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 400 }}>
-                                      {' '}/ {maxScore}
+                                      padding: '3px 10px',
+                                      borderRadius: 12,
+                                      background: isFailing ? '#FDF1F0' : '#EAF3EF',
+                                      color: isFailing ? '#A83B38' : '#2C6E6A',
+                                      fontWeight: 800,
+                                      fontSize: 12,
+                                      border: isFailing ? '1px solid #F5C6CB' : '1px solid #C7E4D8',
+                                    }}>
+                                      {score} / {maxScore} pts
                                     </span>
-                                  </div>
-                                  <span style={{ fontSize: 10, color: letterColor, fontWeight: 700, textTransform: 'uppercase' }}>
-                                    {statusText}
-                                  </span>
-                                </div>
-                                <div
-                                  style={{
-                                    width: 38,
-                                    height: 38,
-                                    borderRadius: '50%',
-                                    background: letterBg,
-                                    color: letterColor,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    fontWeight: 800,
-                                    fontSize: 15,
-                                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                                  }}
-                                >
-                                  {letter}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
+                                  </td>
+
+                                  <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                                    <div style={{ fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                                      {activeClassObj?.teacher_name || 'Subject Teacher'}
+                                    </div>
+                                    <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                                      Faculty
+                                    </div>
+                                  </td>
+
+                                  <td style={{ padding: '12px 16px' }}>
+                                    <span style={{
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      padding: '2px 8px',
+                                      borderRadius: 6,
+                                      background: '#F0EFEA',
+                                      color: 'var(--neutral-dark)',
+                                      display: 'inline-block',
+                                    }}>
+                                      {activeClassObj?.subject || activeClassObj?.name || 'Classroom'}
+                                    </span>
+                                    {(decoded.written || decoded.internal) ? (
+                                      <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 3 }}>
+                                        Theory: {decoded.written || '—'} • Internal: {decoded.internal || '—'}
+                                      </div>
+                                    ) : null}
+                                  </td>
+
+                                  <td style={{ padding: '12px 16px', maxWidth: 280 }}>
+                                    {decoded.note ? (
+                                      <div style={{ color: 'var(--neutral-dark)', fontStyle: 'italic', marginBottom: 2 }}>
+                                        "{decoded.note}"
+                                      </div>
+                                    ) : null}
+                                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                      <strong>Action:</strong> {isFailing ? 'Revision Required' : 'Satisfactory Progress'}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     )}
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
-              {/* SUBTAB 4: 📖 SYLLABUS PROGRESS (TEACHER CURRICULUM COVERAGE ONLY) */}
+              {/* SUBTAB 4: 📖 SYLLABUS PROGRESS & DUAL COVERAGE COMPARISON */}
               {classSubTab === 'syllabus' && (
-                <div>
-                  <div className="panel-block" style={{ padding: '20px 24px', marginBottom: 24 }}>
-                    <div className="progress-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <div>
-                        <h4 style={{ fontSize: 13.5, fontWeight: 700, margin: 0, color: 'var(--neutral-dark)' }}>
-                          Class Curriculum Coverage
-                        </h4>
-                        <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
-                          Official topics and lectures delivered by your teacher
-                        </span>
-                      </div>
-                      <span className="progress-value" style={{ fontSize: 16, fontWeight: 800, color: '#2C6E6A' }}>
-                        {teacherPct}%
-                      </span>
-                    </div>
-                    <div className="progress-track" style={{ height: 8, borderRadius: 4, background: '#EAE8E3' }}>
-                      <div className="progress-fill fill-teacher" style={{ width: `${teacherPct}%`, height: '100%', borderRadius: 4, background: '#2C6E6A' }}></div>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-secondary)', marginTop: 6 }}>
-                      <span>{teacherDone} of {totalTopics} Topics Completed</span>
-                      <span>{totalTopics - teacherDone} Topics Remaining</span>
-                    </div>
-                  </div>
-
-                  {subjectSyllabus.length === 0 ? (
-                    <div className="panel-block" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-                      Syllabus topics will appear as your teacher publishes them.
-                    </div>
-                  ) : (
-                    subjectSyllabus.map((term) => (
-                      <div className="panel-block" key={term.id} style={{ marginBottom: 16, padding: '18px 20px' }}>
-                        <h4 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 12px' }}>{term.name}</h4>
-                        <div className="card-list">
-                          {!term.topics || term.topics.length === 0 ? (
-                            <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>No topics listed in this term.</p>
-                          ) : (
-                            term.topics.map((topic) => (
-                              <div className="item-card" key={topic.id} style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                  <span
-                                    style={{
-                                      width: 20,
-                                      height: 20,
-                                      borderRadius: '50%',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      background: topic.teacher_checked ? '#EAF3EF' : '#F4F3F0',
-                                      color: topic.teacher_checked ? '#2D6E5D' : '#9E9B95',
-                                      border: topic.teacher_checked ? '1px solid #C7E4D8' : '1px solid var(--border-color)',
-                                    }}
-                                  >
-                                    {topic.teacher_checked ? '✓' : '—'}
-                                  </span>
-                                  <span
-                                    style={{
-                                      fontSize: 13,
-                                      fontWeight: topic.teacher_checked ? 600 : 500,
-                                      color: topic.teacher_checked ? 'var(--neutral-dark)' : 'var(--text-secondary)',
-                                    }}
-                                  >
-                                    {topic.title}
-                                  </span>
-                                </div>
-                                <span
-                                  style={{
-                                    fontSize: 10,
-                                    fontWeight: 700,
-                                    padding: '3px 8px',
-                                    borderRadius: 4,
-                                    background: topic.teacher_checked ? '#EAF3EF' : '#FAF9F6',
-                                    color: topic.teacher_checked ? '#2D6E5D' : 'var(--text-secondary)',
-                                    border: topic.teacher_checked ? '1px solid #C7E4D8' : '1px solid var(--border-color)',
-                                  }}
-                                >
-                                  {topic.teacher_checked ? 'TAUGHT IN CLASS' : 'PENDING LECTURE'}
-                                </span>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+                <StudentCurriculumCoverageView
+                  currentStudent={currentStudent}
+                  subjectClasses={subjectClasses}
+                  syllabus={syllabus}
+                  studentSyllabusProgress={studentSyllabusProgress}
+                  studentCustomTopics={studentCustomTopics}
+                  onToggleTopicCheck={onToggleTopicCheck}
+                  onCreateStudentCustomTopic={onCreateStudentCustomTopic}
+                  onDeleteStudentCustomTopic={onDeleteStudentCustomTopic}
+                  selectedClassId={selectedClassId}
+                  isScopedToClass={true}
+                />
               )}
             </div>
           </>
         )}
+
+
 
         {/* VIEW 2: GLOBAL MY ACHIEVEMENTS */}
         {activeNavType === 'awards' && (
@@ -2906,7 +2916,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                     </div>
 
                     {/* Mobile Touch Cards View */}
-                    <div className="hide-desktop" style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12 }}>
+                    <div className="hide-desktop-flex" style={{ flexDirection: 'column', gap: 10, padding: 12 }}>
                       {myAchievements.map((aw) => (
                         <div
                           key={aw.id}
@@ -3050,7 +3060,28 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   </h1>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsExportAttendanceOpen(true)}
+                    style={{
+                      padding: '7px 14px',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      borderRadius: 6,
+                      background: '#FAF9F6',
+                      border: '1px solid #C7E4D8',
+                      color: '#2C6E6A',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <Download size={14} />
+                    <span>Export Attendance Statement</span>
+                  </button>
+
                   <button
                     type="button"
                     className="btn-primary"
@@ -4674,6 +4705,15 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         onSubmit={handleApplyLeaveSubmit}
         studentName={currentStudent.name}
         studentGrade={`Grade ${cleanGrade}-${cleanSection}`}
+      />
+      {/* Export Attendance Statement Modal */}
+      <ExportAttendanceModal
+        isOpen={isExportAttendanceOpen}
+        onClose={() => setIsExportAttendanceOpen(false)}
+        attendance={attendance}
+        students={[currentStudent]}
+        classroomLabel={`Grade ${cleanGrade}-${cleanSection} — ${currentStudent.name}`}
+        teacherName="Student Self-Service"
       />
     </div>
   );

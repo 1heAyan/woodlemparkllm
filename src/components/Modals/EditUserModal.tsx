@@ -74,7 +74,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
   const [section, setSection] = useState<string>('A');
 
   // Teacher specific fields
-  const [subject, setSubject] = useState('English');
+  const [subject, setSubject] = useState(user?.subject || '');
   const [isClassTeacher, setIsClassTeacher] = useState(false);
 
   // Parent specific linked students
@@ -119,7 +119,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       setGrade(classInfo.grade);
       setSection(classInfo.section);
       setIsClassTeacher(classInfo.isClassTeacher);
-      setSubject(user.subject || 'English');
+      setSubject(user.subject || (user.enrolled_subjects ? user.enrolled_subjects.join(', ') : ''));
 
       // Student additional information
       setParentEmail(user.parent_email || '');
@@ -252,7 +252,8 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
         temp_password: finalPassword,
         grade: finalGrade,
         class_letter: finalSection,
-        subject: role === 'teacher' ? subject : null,
+        subject: (role === 'teacher' || role === 'student') ? (subject?.trim() || null) : null,
+        enrolled_subjects: role === 'student' && subject ? subject.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
         assigned_class: assignedClassStr,
         linked_student_ids: role === 'parent' ? selectedStudentIds : user.linked_student_ids,
         parent_email: role === 'student' ? (parentEmail.trim().toLowerCase() || undefined) : user.parent_email,
@@ -596,6 +597,26 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                       style={{ marginTop: 8 }}
                     />
                   )}
+                </div>
+
+                {/* Enrolled Subjects / Subjects Studying */}
+                <div className="form-group" style={{ marginTop: 14, marginBottom: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <label className="form-label" style={{ margin: 0 }}>
+                      Enrolled Subjects / Subjects Studying <span style={{ color: '#EF4444' }}>*</span>
+                    </label>
+                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                      Select multiple or type to add
+                    </span>
+                  </div>
+                  <MultiSubjectSelect
+                    value={subject}
+                    onChange={(valStr) => setSubject(valStr)}
+                    placeholder="Search or type subjects studying (e.g. English, Math, Physics, Physical Education...)"
+                  />
+                  <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                    Subjects this student attends and is tracked for in examinations, classrooms, and syllabus coverage.
+                  </p>
                 </div>
               </div>
             </div>

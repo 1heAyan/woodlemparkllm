@@ -27,6 +27,7 @@ import {
   Menu,
   X,
   ShieldAlert,
+  Download,
 } from 'lucide-react';
 import { WoodlemLogo, WoodlemEmblemSVG } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
@@ -55,6 +56,7 @@ import { getIcon } from '../Icons';
 import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
 import { ApplyLeaveModal } from '@/components/Modals/ApplyLeaveModal';
+import { ExportAttendanceModal } from '@/components/Modals/ExportAttendanceModal';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 
@@ -181,6 +183,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   const [isMobileChildPickerOpen, setIsMobileChildPickerOpen] = useState(false);
 
   const [isApplyLeaveModalOpen, setIsApplyLeaveModalOpen] = useState(false);
+  const [isExportAttendanceModalOpen, setIsExportAttendanceModalOpen] = useState(false);
   const [expandedClassIds, setExpandedClassIds] = useState<Record<string, boolean>>({});
 
   const toggleClassExpanded = (classId: string) => {
@@ -669,7 +672,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             <div className="mobile-drawer-body">
               {/* Linked Wards Section */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px' }}>
-                <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>
+                <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'none', color: 'var(--text-secondary)', letterSpacing: '0.02em' }}>
                   Linked Wards ({linkedStudents.length})
                 </span>
               </div>
@@ -702,7 +705,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
               <div style={{ height: 1, background: 'var(--border-color)', margin: '8px 0' }} />
 
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', padding: '6px 8px', letterSpacing: '0.04em' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'none', color: 'var(--text-secondary)', padding: '6px 8px', letterSpacing: '0.02em' }}>
                 Portals & Modules
               </div>
 
@@ -919,7 +922,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             fontWeight: 700,
             letterSpacing: '0.08em',
             color: '#8C8A84',
-            textTransform: 'uppercase',
+            textTransform: 'none',
             borderBottom: '1px solid #E8E5DF',
             flexShrink: 0,
             textAlign: 'center',
@@ -1019,7 +1022,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                   color: '#FFFFFF',
                   padding: '2px 7px',
                   borderRadius: 4,
-                  textTransform: 'uppercase',
+                  textTransform: 'none',
                   lineHeight: 1.25,
                 }}>
                   Parent / Guardian
@@ -1385,28 +1388,53 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
               )}
 
               {activeChild && activeTab === 'attendance' && (
-                <button
-                  type="button"
-                  onClick={() => setIsApplyLeaveModalOpen(true)}
-                  style={{
-                    height: 32,
-                    padding: '0 12px',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    background: '#EAF3EF',
-                    border: '1px solid #C7E4D8',
-                    color: '#2D6E5D',
-                    borderRadius: 6,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  <Calendar size={13} />
-                  Apply for Leave
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsExportAttendanceModalOpen(true)}
+                    style={{
+                      height: 32,
+                      padding: '0 12px',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      background: '#FAF9F6',
+                      border: '1px solid #C7E4D8',
+                      color: '#2C6E6A',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <Download size={13} />
+                    Export Statement
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsApplyLeaveModalOpen(true)}
+                    style={{
+                      height: 32,
+                      padding: '0 12px',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      background: '#EAF3EF',
+                      border: '1px solid #C7E4D8',
+                      color: '#2D6E5D',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <Calendar size={13} />
+                    Apply for Leave
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -1674,7 +1702,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                       </div>
 
                       {/* Mobile Cards View */}
-                      <div className="hide-desktop" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div className="hide-desktop-flex" style={{ flexDirection: 'column', gap: 10 }}>
                         {filteredTests.map((t) => (
                           <div
                             key={t.id}
@@ -1851,7 +1879,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                     </div>
 
                     {/* Mobile Touch Cards View */}
-                    <div className="hide-desktop" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div className="hide-desktop-flex" style={{ flexDirection: 'column', gap: 10 }}>
                       {releasedMarks.map((m: any, i: number) => {
                         const score = Number(m.marks);
                         const maxScore = Number(m.offline_assessments?.maximum_marks || 100);
@@ -3106,13 +3134,23 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
       {/* MODALS */}
 
       {activeChild && (
-        <ApplyLeaveModal
-          isOpen={isApplyLeaveModalOpen}
-          studentName={activeChild.name}
-          studentGrade={`Grade ${activeChild.grade?.replace(/[^0-9]/g, '') || '12'}`}
-          onClose={() => setIsApplyLeaveModalOpen(false)}
-          onSubmit={handleApplyLeaveSubmit}
-        />
+        <>
+          <ApplyLeaveModal
+            isOpen={isApplyLeaveModalOpen}
+            studentName={activeChild.name}
+            studentGrade={`Grade ${activeChild.grade?.replace(/[^0-9]/g, '') || '12'}`}
+            onClose={() => setIsApplyLeaveModalOpen(false)}
+            onSubmit={handleApplyLeaveSubmit}
+          />
+          <ExportAttendanceModal
+            isOpen={isExportAttendanceModalOpen}
+            onClose={() => setIsExportAttendanceModalOpen(false)}
+            attendance={attendance}
+            students={[activeChild as any]}
+            classroomLabel={`Grade ${activeChild.grade || ''} — ${activeChild.name}`}
+            teacherName="Parent Portal"
+          />
+        </>
       )}
     </div>
   );

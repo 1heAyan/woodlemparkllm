@@ -21,6 +21,7 @@ import {
   CsQuestion,
   CsSubmission,
   isAuthenticHubActivity,
+  StudentCustomTopic,
 } from '@/lib/supabaseClient';
 import { LateEntryView } from '@/components/Shared/LateEntryView';
 import { getTodayDateString, loadAuthorizedStaffIds } from '@/lib/lateEntryHelper';
@@ -32,6 +33,9 @@ import { GradeAssignmentModal, AssignmentSubmissionRecord } from '../Modals/Grad
 import { ViewFileModal } from '../Modals/ViewFileModal';
 import { EditSubjectClassModal } from '../Modals/EditSubjectClassModal';
 import { MarkEntryModal } from '../Modals/MarkEntryModal';
+import { ExportAttendanceModal } from '../Modals/ExportAttendanceModal';
+import { StudentSyllabusComparisonModal } from '../Modals/StudentSyllabusComparisonModal';
+import { ManageHubEnrollmentModal } from '../Modals/ManageHubEnrollmentModal';
 import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
@@ -47,7 +51,7 @@ import {
   ScoreDistributionChart,
   SubjectComparisonChart,
 } from '@/components/UI/AnalyticsCharts';
-import { ShieldCheck, Layers, Crown, Terminal, ShieldAlert, Scale, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Layers, Crown, Terminal, ShieldAlert, Scale, AlertCircle, BarChart2, CheckCircle2, TrendingUp, Sparkles, Eye, ArrowRight } from 'lucide-react';
 import {
   BehaviorIncidentRecord,
   computeStudentBehaviorScore,
@@ -64,6 +68,8 @@ interface TeacherDashboardProps {
   tests: TestItem[];
   assignments: AssignmentItem[];
   syllabus: SyllabusTerm[];
+  studentSyllabusProgress?: Record<string, boolean>;
+  studentCustomTopics?: StudentCustomTopic[];
   achievements: Achievement[];
   attendance: Record<string, Record<string, string>>; // date -> studentId -> status
   lateEntries?: LateEntryRecord[];
@@ -132,6 +138,7 @@ interface TeacherDashboardProps {
   onOpenCreateHubActivityModal: () => void;
   onDeleteHubActivity: (id: string) => void;
   onEditHubActivity?: (activity: HubActivity) => void;
+  onUpdateHubEnrollments?: (activityId: string, studentIds: string[]) => Promise<void> | void;
   onUpdateCurrentUser?: (user: UserProfile) => void;
   onRefreshData?: () => void;
   onSignOut: () => void;
@@ -150,6 +157,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   tests,
   assignments,
   syllabus,
+  studentSyllabusProgress = {},
+  studentCustomTopics = [],
   achievements,
   attendance,
   lateEntries = [],
@@ -189,6 +198,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   onOpenCreateHubActivityModal,
   onDeleteHubActivity,
   onEditHubActivity,
+  onUpdateHubEnrollments,
   onUpdateCurrentUser,
   onRefreshData,
   onSignOut,
@@ -200,6 +210,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   onOverrideCsSubmission,
 }) => {
   const [isEditClassModalOpen, setIsEditClassModalOpen] = useState(false);
+  const [managingEnrollmentActivity, setManagingEnrollmentActivity] = useState<HubActivity | null>(null);
   const sidebar = useSidebarState(currentUser?.id || currentUser?.email || 'teacher');
   const [selectedReviewTest, setSelectedReviewTest] = useState<TestItem | null>(null);
   const [selectedGradeAssignment, setSelectedGradeAssignment] = useState<AssignmentItem | null>(null);
@@ -404,6 +415,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // Sub-tabs inside a subject classroom: 'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'students' | 'behavior'
   const [classSubTab, setClassSubTab] = useState<'broadcasts' | 'resources' | 'tasks' | 'syllabus' | 'students' | 'behavior'>('broadcasts');
 
+  // Syllabus View Mode: 'editor' (Teacher terms & topics) | 'students' (Class coverage & student self-study breakdown)
+  const [syllabusSubView, setSyllabusSubView] = useState<'editor' | 'students'>('editor');
+  const [syllabusStudentFilter, setSyllabusStudentFilter] = useState<'all' | 'behind' | 'on_track' | 'ahead' | 'custom'>('all');
+  const [syllabusStudentSearch, setSyllabusStudentSearch] = useState('');
+  const [inspectingStudentForSyllabus, setInspectingStudentForSyllabus] = useState<UserProfile | null>(null);
+
   // Broadcasts Composer State (Full-Page Inline)
   const [broadcastTitle, setBroadcastTitle] = useState('');
   const [broadcastContent, setBroadcastContent] = useState('');
@@ -447,6 +464,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     const today = new Date().toISOString().split('T')[0];
     return today.slice(0, 7);
   });
+
+  // Export Attendance Modal
+  const [isExportAttendanceModalOpen, setIsExportAttendanceModalOpen] = useState(false);
 
   // Viewing student certificate / uploaded file preview
   const [viewingAwardFile, setViewingAwardFile] = useState<{
@@ -776,23 +796,22 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     }
   };
 
-  const handleHrPostBroadcast = (e: React.FormEvent) => {
+  const handleHrPostBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!hrBcTitle.trim()) { alert('Please enter an announcement title.'); return; }
     if (!hrBcContent.trim()) { alert('Please enter message content.'); return; }
     if (onCreateBroadcast) {
       setHrBcIsPosting(true);
-      onCreateBroadcast({
-        class_id: homeroomClassId,
-        title: hrBcTitle.trim(),
-        content: hrBcContent.trim(),
-        is_pinned: hrBcIsPinned,
-        priority: hrBcPriority,
-        file_name: hrBcFileName || undefined,
-        file_url: hrBcFileDataUrl || undefined,
-      });
-      setTimeout(() => {
-        setHrBcIsPosting(false);
+      try {
+        await onCreateBroadcast({
+          class_id: homeroomClassId,
+          title: hrBcTitle.trim(),
+          content: hrBcContent.trim(),
+          is_pinned: hrBcIsPinned,
+          priority: hrBcPriority,
+          file_name: hrBcFileName || undefined,
+          file_url: hrBcFileDataUrl || undefined,
+        });
         setHrBcTitle('');
         setHrBcContent('');
         setHrBcPriority('normal');
@@ -800,7 +819,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         setHrBcFileName('');
         setHrBcFileDataUrl('');
         setHrBcFileSize('');
-      }, 250);
+      } catch (err: any) {
+        console.error('Failed to post homeroom broadcast:', err);
+      } finally {
+        setHrBcIsPosting(false);
+      }
     }
   };
 
@@ -1135,7 +1158,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   };
 
   // Handle Broadcast Message Post (Inline Full-Page)
-  const handlePostBroadcast = (e: React.FormEvent) => {
+  const handlePostBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!broadcastTitle.trim()) {
       alert('Please enter an announcement title.');
@@ -1152,22 +1175,25 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
     if (onCreateBroadcast) {
       setIsPostingBroadcast(true);
-      onCreateBroadcast({
-        class_id: selectedClassId,
-        title: broadcastTitle.trim(),
-        content: broadcastContent.trim(),
-        is_pinned: broadcastIsPinned,
-        priority: broadcastPriority,
-        tagged_resource_ids: broadcastTaggedResourceIds,
-      });
-      setTimeout(() => {
-        setIsPostingBroadcast(false);
+      try {
+        await onCreateBroadcast({
+          class_id: selectedClassId,
+          title: broadcastTitle.trim(),
+          content: broadcastContent.trim(),
+          is_pinned: broadcastIsPinned,
+          priority: broadcastPriority,
+          tagged_resource_ids: broadcastTaggedResourceIds,
+        });
         setBroadcastTitle('');
         setBroadcastContent('');
         setBroadcastPriority('normal');
         setBroadcastIsPinned(false);
         setBroadcastTaggedResourceIds([]);
-      }, 250);
+      } catch (err: any) {
+        console.error('Failed to post announcement:', err);
+      } finally {
+        setIsPostingBroadcast(false);
+      }
     }
   };
 
@@ -1441,6 +1467,109 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   });
   const overallPct = totalTopics > 0 ? Math.round((teacherDone / totalTopics) * 100) : 0;
 
+  // Detailed student syllabus comparison analytics for active class
+  const classSyllabusStudentAnalytics = useMemo(() => {
+    const allTopics = activeClassSyllabus.flatMap((term) =>
+      (term.topics || []).map((tp) => ({
+        ...tp,
+        termId: term.id,
+        termName: term.name,
+      }))
+    );
+
+    const totalCount = allTopics.length;
+    const taughtCount = allTopics.filter((tp) => tp.teacher_checked).length;
+    const activeSubject = (activeClassObj?.subject || currentUser.subject || '').toLowerCase().trim();
+
+    // Map each student in classStudents with their progress details
+    const studentsData = classStudents.map((st) => {
+      let coveredCount = 0;
+      let needsRevisionCount = 0;
+      let aheadCount = 0;
+
+      allTopics.forEach((tp) => {
+        const key = `${st.id}_${tp.id}`;
+        const isCovered = !!studentSyllabusProgress[key];
+        if (isCovered) coveredCount++;
+
+        // Needs revision: Teacher covered in class, but student has not checked off yet
+        if (tp.teacher_checked && !isCovered) {
+          needsRevisionCount++;
+        }
+
+        // Ahead: Student covered before teacher taught it
+        if (!tp.teacher_checked && isCovered) {
+          aheadCount++;
+        }
+      });
+
+      // Filter custom topics for this student and subject
+      const customTopics = studentCustomTopics.filter((ct) => {
+        if (ct.student_id !== st.id) return false;
+        if (!activeSubject) return true;
+        const cSub = (ct.subject || '').toLowerCase().trim();
+        return cSub === activeSubject || cSub.includes(activeSubject) || activeSubject.includes(cSub);
+      });
+
+      const coveragePct = totalCount > 0 ? Math.round((coveredCount / totalCount) * 100) : 0;
+
+      let status: 'behind' | 'on_track' | 'ahead' = 'on_track';
+      if (needsRevisionCount > 0) {
+        status = 'behind';
+      } else if (aheadCount > 0 || coveredCount > taughtCount) {
+        status = 'ahead';
+      } else {
+        status = 'on_track';
+      }
+
+      return {
+        student: st,
+        coveredCount,
+        totalCount,
+        coveragePct,
+        needsRevisionCount,
+        aheadCount,
+        customTopics,
+        status,
+      };
+    });
+
+    const totalStudents = studentsData.length;
+    const avgCoveragePct =
+      totalStudents > 0
+        ? Math.round(studentsData.reduce((acc, s) => acc + s.coveragePct, 0) / totalStudents)
+        : 0;
+    const behindCount = studentsData.filter((s) => s.status === 'behind').length;
+    const onTrackCount = studentsData.filter((s) => s.status === 'on_track').length;
+    const aheadCount = studentsData.filter((s) => s.status === 'ahead').length;
+    const totalCustomTopicsLogged = studentsData.reduce((acc, s) => acc + s.customTopics.length, 0);
+
+    // Topic mastery matrix: For each topic, count how many students covered it
+    const topicMastery = allTopics.map((tp) => {
+      const studentCoveredCount = classStudents.filter((st) => !!studentSyllabusProgress[`${st.id}_${tp.id}`]).length;
+      const coverageRate = totalStudents > 0 ? Math.round((studentCoveredCount / totalStudents) * 100) : 0;
+      return {
+        ...tp,
+        studentCoveredCount,
+        coverageRate,
+      };
+    });
+
+    return {
+      allTopics,
+      totalCount,
+      taughtCount,
+      studentsData,
+      totalStudents,
+      avgCoveragePct,
+      behindCount,
+      onTrackCount,
+      aheadCount,
+      totalCustomTopicsLogged,
+      topicMastery,
+    };
+  }, [activeClassSyllabus, classStudents, studentSyllabusProgress, studentCustomTopics, activeClassObj, currentUser.subject]);
+
   // Filter achievements (only show awards for students in this teacher's homeroom section)
   const filteredAwards = achievements.filter((aw) => {
     const isHomeroomStudent = homeroomStudents.some((hs) => hs.id === aw.student_id);
@@ -1473,7 +1602,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             fontWeight: 700,
             letterSpacing: '0.08em',
             color: '#8C8A84',
-            textTransform: 'uppercase',
+            textTransform: 'none',
             borderBottom: '1px solid #E8E5DF',
             flexShrink: 0,
             textAlign: 'center',
@@ -1573,7 +1702,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   color: '#FFFFFF',
                   padding: '2px 7px',
                   borderRadius: 4,
-                  textTransform: 'uppercase',
+                  textTransform: 'none',
                   lineHeight: 1.25,
                 }}>
                   {currentUser.subject || 'Faculty'}
@@ -1745,8 +1874,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       background: '#FDF1F0',
                       color: '#A83B38',
                       border: '1px solid #F5C6CB',
-                      letterSpacing: '0.04em',
-                      textTransform: 'uppercase',
+                      letterSpacing: '0.02em',
+                      textTransform: 'none',
                     }}
                   >
                     Late Today
@@ -2012,7 +2141,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               <div className="header-top" style={{ alignItems: 'flex-start' }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', textTransform: 'uppercase' }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8' }}>
                       {activeClassObj?.subject || currentUser.subject || 'Faculty'}
                     </span>
                     {activeClassObj && (
@@ -3320,116 +3449,437 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
                   {/* SUBTAB 4: SYLLABUS COVERAGE */}
                   {classSubTab === 'syllabus' && (
-                    <div>
-                      <div className="panel-block" style={{ padding: '20px 24px', marginBottom: 20 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                          <div>
-                            <h4 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>
-                              {currentUser.subject || 'Faculty'} Curriculum Coverage
-                            </h4>
-                            <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
-                              Check off topics as you deliver lectures and assignments in class.
-                            </p>
-                          </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                      {/* SUBTAB TOGGLE */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          flexWrap: 'wrap',
+                          gap: 12,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'inline-flex',
+                            background: '#F0EFEA',
+                            padding: 3,
+                            borderRadius: 8,
+                            border: '1px solid var(--border-color)',
+                          }}
+                        >
                           <button
-                            className="btn-primary"
-                            onClick={() =>
-                              onOpenAddTermModal(
-                                activeClassObj
-                                  ? {
-                                      id: activeClassObj.id,
-                                      subject: activeClassObj.subject || currentUser.subject,
-                                      className: activeClassObj.class_name,
-                                    }
-                                  : undefined
-                              )
-                            }
-                            style={{ padding: '6px 14px', fontSize: 12 }}
+                            type="button"
+                            onClick={() => setSyllabusSubView('editor')}
+                            style={{
+                              padding: '6px 14px',
+                              fontSize: 12.5,
+                              fontWeight: 600,
+                              borderRadius: 6,
+                              border: 'none',
+                              cursor: 'pointer',
+                              background: syllabusSubView === 'editor' ? '#FFFFFF' : 'transparent',
+                              color: syllabusSubView === 'editor' ? 'var(--neutral-dark)' : 'var(--text-secondary)',
+                              boxShadow: syllabusSubView === 'editor' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                              transition: 'all 0.12s ease',
+                            }}
                           >
-                            + Add New Term
+                            Curriculum Topics
                           </button>
-                        </div>
 
-                        <div className="progress-track" style={{ height: 8, borderRadius: 4, background: '#EAE8E3' }}>
-                          <div className="progress-fill fill-teacher" style={{ width: `${overallPct}%`, height: '100%', borderRadius: 4, background: '#2D2C2A' }}></div>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 6 }}>
-                          <span>{teacherDone} of {totalTopics} Topics Completed</span>
-                          <strong>{overallPct}% Taught</strong>
+                          <button
+                            type="button"
+                            onClick={() => setSyllabusSubView('students')}
+                            style={{
+                              padding: '6px 14px',
+                              fontSize: 12.5,
+                              fontWeight: 600,
+                              borderRadius: 6,
+                              border: 'none',
+                              cursor: 'pointer',
+                              background: syllabusSubView === 'students' ? '#FFFFFF' : 'transparent',
+                              color: syllabusSubView === 'students' ? 'var(--neutral-dark)' : 'var(--text-secondary)',
+                              boxShadow: syllabusSubView === 'students' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              transition: 'all 0.12s ease',
+                            }}
+                          >
+                            <span>Student Progress</span>
+                            {classSyllabusStudentAnalytics.behindCount > 0 && (
+                              <span
+                                style={{
+                                  fontSize: 10.5,
+                                  fontWeight: 700,
+                                  padding: '1px 6px',
+                                  borderRadius: 999,
+                                  background: '#FEF3C7',
+                                  color: '#92400E',
+                                }}
+                              >
+                                {classSyllabusStudentAnalytics.behindCount}
+                              </span>
+                            )}
+                          </button>
                         </div>
                       </div>
 
-                      {activeClassSyllabus.length === 0 ? (
-                        <div style={{ padding: '64px 24px', textAlign: 'center' }}>
-                          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
-                            No syllabus terms published for {activeClassObj?.name || 'this class'} yet.
-                          </p>
-                        </div>
-                      ) : (
-                        activeClassSyllabus.map((term) => (
-                          <div className="panel-block" key={term.id} style={{ marginBottom: 16, padding: '18px 20px' }}>
+                      {/* VIEW 1: CURRICULUM EDITOR & PACING (TEACHER) */}
+                      {syllabusSubView === 'editor' && (
+                        <div>
+                          <div className="panel-block" style={{ padding: '20px 24px', marginBottom: 20 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                              <h4 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{term.name}</h4>
-                              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                                <button
-                                  type="button"
-                                  onClick={() => onOpenAddTopicModal(term.id)}
-                                  style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, border: '1px solid var(--border-color)', borderRadius: 4, background: '#FFFFFF', cursor: 'pointer' }}
-                                >
-                                  + Add Topic
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (confirm(`Delete syllabus term "${term.name}" and all its topics?`)) {
-                                      onDeleteTerm(term.id);
-                                    }
-                                  }}
-                                  style={{ padding: '4px 8px', fontSize: 11, fontWeight: 600, border: '1px solid #F5C6CB', borderRadius: 4, background: '#FDF1F0', color: '#A83B38', cursor: 'pointer' }}
-                                >
-                                  Delete Term
-                                </button>
+                              <div>
+                                <h4 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>
+                                  {currentUser.subject || 'Faculty'} Curriculum Coverage
+                                </h4>
+                                <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
+                                  Check off topics as you deliver lectures and assignments in class.
+                                </p>
                               </div>
+                              <button
+                                className="btn-primary"
+                                onClick={() =>
+                                  onOpenAddTermModal(
+                                    activeClassObj
+                                      ? {
+                                          id: activeClassObj.id,
+                                          subject: activeClassObj.subject || currentUser.subject,
+                                          className: activeClassObj.class_name,
+                                        }
+                                      : undefined
+                                  )
+                                }
+                                style={{ padding: '6px 14px', fontSize: 12 }}
+                              >
+                                + Add New Term
+                              </button>
                             </div>
 
-                            <div className="card-list">
-                              {!term.topics || term.topics.length === 0 ? (
-                                <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>No topics in this term.</p>
-                              ) : (
-                                term.topics.map((topic) => (
-                                  <div className="item-card" key={topic.id} style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                      <input
-                                        type="checkbox"
-                                        className="syllabus-checkbox"
-                                        checked={topic.teacher_checked}
-                                        onChange={(e) => onToggleTopicCheck(term.id, topic.id, 'teacher', e.target.checked)}
-                                        style={{ accentColor: '#2C6E6A', cursor: 'pointer' }}
-                                      />
-                                      <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--neutral-dark)' }}>{topic.title}</span>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: topic.teacher_checked ? '#EAF3EF' : '#FAF9F6', color: topic.teacher_checked ? '#2D6E5D' : 'var(--text-secondary)' }}>
-                                        {topic.teacher_checked ? 'TAUGHT' : 'PENDING'}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (confirm(`Delete topic "${topic.title}"?`)) {
-                                            onDeleteTopic(term.id, topic.id);
-                                          }
-                                        }}
-                                        style={{ padding: '2px 6px', fontSize: 10, fontWeight: 600, border: '1px solid #F5C6CB', borderRadius: 3, background: '#FDF1F0', color: '#A83B38', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                      >
-                                        <X size={10} />
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))
-                              )}
+                            <div className="progress-track" style={{ height: 8, borderRadius: 4, background: '#EAE8E3' }}>
+                              <div className="progress-fill fill-teacher" style={{ width: `${overallPct}%`, height: '100%', borderRadius: 4, background: '#2D2C2A' }}></div>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 6 }}>
+                              <span>{teacherDone} of {totalTopics} Topics Completed</span>
+                              <strong>{overallPct}% Taught</strong>
                             </div>
                           </div>
-                        ))
+
+                          {activeClassSyllabus.length === 0 ? (
+                            <div style={{ padding: '64px 24px', textAlign: 'center' }}>
+                              <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
+                                No syllabus terms published for {activeClassObj?.name || 'this class'} yet.
+                              </p>
+                            </div>
+                          ) : (
+                            activeClassSyllabus.map((term) => (
+                              <div className="panel-block" key={term.id} style={{ marginBottom: 16, padding: '18px 20px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                  <h4 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{term.name}</h4>
+                                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => onOpenAddTopicModal(term.id)}
+                                      style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, border: '1px solid var(--border-color)', borderRadius: 4, background: '#FFFFFF', cursor: 'pointer' }}
+                                    >
+                                      + Add Topic
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (confirm(`Delete syllabus term "${term.name}" and all its topics?`)) {
+                                          onDeleteTerm(term.id);
+                                        }
+                                      }}
+                                      style={{ padding: '4px 8px', fontSize: 11, fontWeight: 600, border: '1px solid #F5C6CB', borderRadius: 4, background: '#FDF1F0', color: '#A83B38', cursor: 'pointer' }}
+                                    >
+                                      Delete Term
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="card-list">
+                                  {!term.topics || term.topics.length === 0 ? (
+                                    <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>No topics in this term.</p>
+                                  ) : (
+                                    term.topics.map((topic) => (
+                                      <div className="item-card" key={topic.id} style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                          <input
+                                            type="checkbox"
+                                            className="syllabus-checkbox"
+                                            checked={topic.teacher_checked}
+                                            onChange={(e) => onToggleTopicCheck(term.id, topic.id, 'teacher', e.target.checked)}
+                                            style={{ accentColor: '#2C6E6A', cursor: 'pointer' }}
+                                          />
+                                          <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--neutral-dark)' }}>{topic.title}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: topic.teacher_checked ? '#EAF3EF' : '#FAF9F6', color: topic.teacher_checked ? '#2D6E5D' : 'var(--text-secondary)' }}>
+                                            {topic.teacher_checked ? 'Taught' : 'Pending'}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              if (confirm(`Delete topic "${topic.title}"?`)) {
+                                                onDeleteTopic(term.id, topic.id);
+                                              }
+                                            }}
+                                            style={{ padding: '2px 6px', fontSize: 10, fontWeight: 600, border: '1px solid #F5C6CB', borderRadius: 3, background: '#FDF1F0', color: '#A83B38', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                          >
+                                            <X size={10} />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+
+                      {/* VIEW 2: STUDENT PROGRESS & COVERAGE */}
+                      {syllabusSubView === 'students' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                          {/* SUMMARY & FILTER BAR */}
+                          <div
+                            className="panel-block"
+                            style={{
+                              padding: '12px 18px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: 12,
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 12.5 }}>
+                              <span style={{ color: 'var(--text-secondary)' }}>
+                                Teacher pace: <strong style={{ color: 'var(--neutral-dark)' }}>{teacherDone} / {totalTopics} ({overallPct}%)</strong>
+                              </span>
+                              <span style={{ color: 'var(--border-color)' }}>•</span>
+                              <span style={{ color: 'var(--text-secondary)' }}>
+                                Class average: <strong style={{ color: '#2C6E6A' }}>{classSyllabusStudentAnalytics.avgCoveragePct}%</strong>
+                              </span>
+                              <span style={{ color: 'var(--border-color)' }}>•</span>
+                              <span style={{ color: '#166534', fontWeight: 600 }}>
+                                {classSyllabusStudentAnalytics.onTrackCount + classSyllabusStudentAnalytics.aheadCount} on track
+                              </span>
+                              {classSyllabusStudentAnalytics.behindCount > 0 && (
+                                <span style={{ color: '#B45309', fontWeight: 600 }}>
+                                  ({classSyllabusStudentAnalytics.behindCount} need revision)
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Search & Filter */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <div style={{ position: 'relative', width: 200 }}>
+                                <Search
+                                  size={13}
+                                  style={{
+                                    position: 'absolute',
+                                    left: 9,
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    color: 'var(--text-secondary)',
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  placeholder="Search students..."
+                                  value={syllabusStudentSearch}
+                                  onChange={(e) => setSyllabusStudentSearch(e.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '5px 8px 5px 28px',
+                                    fontSize: 12,
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: 6,
+                                    background: 'var(--surface)',
+                                    outline: 'none',
+                                    color: 'var(--neutral-dark)',
+                                  }}
+                                />
+                              </div>
+
+                              <select
+                                value={syllabusStudentFilter}
+                                onChange={(e) => setSyllabusStudentFilter(e.target.value as any)}
+                                style={{
+                                  padding: '5px 8px',
+                                  fontSize: 12,
+                                  border: '1px solid var(--border-color)',
+                                  borderRadius: 6,
+                                  background: 'var(--surface)',
+                                  color: 'var(--neutral-dark)',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                <option value="all">All students ({classSyllabusStudentAnalytics.studentsData.length})</option>
+                                <option value="behind">Needs revision ({classSyllabusStudentAnalytics.behindCount})</option>
+                                <option value="on_track">On track ({classSyllabusStudentAnalytics.onTrackCount})</option>
+                                <option value="ahead">Ahead ({classSyllabusStudentAnalytics.aheadCount})</option>
+                                <option value="custom">With self-study topics</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* STUDENT ROSTER TABLE */}
+                          <div className="panel-block" style={{ padding: 0, overflow: 'hidden' }}>
+                            {(() => {
+                              const q = syllabusStudentSearch.toLowerCase().trim();
+                              const filtered = classSyllabusStudentAnalytics.studentsData.filter((s) => {
+                                if (q) {
+                                  const name = (s.student.name || '').toLowerCase();
+                                  const adm = (s.student.admission_number || '').toLowerCase();
+                                  const email = (s.student.email || '').toLowerCase();
+                                  if (!name.includes(q) && !adm.includes(q) && !email.includes(q)) return false;
+                                }
+
+                                if (syllabusStudentFilter === 'behind') return s.status === 'behind';
+                                if (syllabusStudentFilter === 'on_track') return s.status === 'on_track';
+                                if (syllabusStudentFilter === 'ahead') return s.status === 'ahead';
+                                if (syllabusStudentFilter === 'custom') return s.customTopics.length > 0;
+                                return true;
+                              });
+
+                              if (filtered.length === 0) {
+                                return (
+                                  <div style={{ padding: '36px 20px', textAlign: 'center' }}>
+                                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
+                                      {syllabusStudentSearch || syllabusStudentFilter !== 'all'
+                                        ? 'No enrolled students match the search criteria.'
+                                        : 'No enrolled students in this classroom.'}
+                                    </p>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                  <thead>
+                                    <tr style={{ background: '#F8F9FA', borderBottom: '1px solid var(--border-color)' }}>
+                                      <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                        Student
+                                      </th>
+                                      <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                        Admission / Homeroom
+                                      </th>
+                                      <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                        Self-Coverage
+                                      </th>
+                                      <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                        Status
+                                      </th>
+                                      <th style={{ textAlign: 'right', padding: '10px 16px', fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                        Action
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {filtered.map((s, idx) => {
+                                      const isBehind = s.status === 'behind';
+                                      const isAhead = s.status === 'ahead';
+
+                                      return (
+                                        <tr key={s.student.id || idx} style={{ borderBottom: '1px solid #F0EFEA' }}>
+                                          <td style={{ padding: '10px 16px', fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                                            {s.student.name}
+                                          </td>
+                                          <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-secondary)' }}>
+                                            {s.student.admission_number || s.student.user_code || '—'}
+                                            {s.student.grade ? ` • Grade ${s.student.grade} ${s.student.class_letter || ''}` : ''}
+                                          </td>
+                                          <td style={{ padding: '10px 16px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                              <div style={{ width: 80, height: 6, background: '#EAE8E3', borderRadius: 3, overflow: 'hidden' }}>
+                                                <div
+                                                  style={{
+                                                    width: `${s.coveragePct}%`,
+                                                    height: '100%',
+                                                    background: isBehind ? '#D97706' : '#2C6E6A',
+                                                    borderRadius: 3,
+                                                  }}
+                                                />
+                                              </div>
+                                              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                                                {s.coveredCount} / {s.totalCount} ({s.coveragePct}%)
+                                              </span>
+                                            </div>
+                                          </td>
+                                          <td style={{ padding: '10px 16px' }}>
+                                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                              {isBehind ? (
+                                                <span
+                                                  style={{
+                                                    fontSize: 11,
+                                                    fontWeight: 600,
+                                                    padding: '2px 8px',
+                                                    borderRadius: 4,
+                                                    background: '#FEF3C7',
+                                                    color: '#92400E',
+                                                  }}
+                                                >
+                                                  Needs revision ({s.needsRevisionCount})
+                                                </span>
+                                              ) : isAhead ? (
+                                                <span
+                                                  style={{
+                                                    fontSize: 11,
+                                                    fontWeight: 600,
+                                                    padding: '2px 8px',
+                                                    borderRadius: 4,
+                                                    background: '#DBEAFE',
+                                                    color: '#1D4ED8',
+                                                  }}
+                                                >
+                                                  Ahead (+{s.aheadCount})
+                                                </span>
+                                              ) : (
+                                                <span
+                                                  style={{
+                                                    fontSize: 11,
+                                                    fontWeight: 600,
+                                                    padding: '2px 8px',
+                                                    borderRadius: 4,
+                                                    background: '#EAF3EF',
+                                                    color: '#2C6E6A',
+                                                  }}
+                                                >
+                                                  On track
+                                                </span>
+                                              )}
+                                              {s.customTopics.length > 0 && (
+                                                <span style={{ fontSize: 10.5, color: '#6D28D9', marginLeft: 4 }}>
+                                                  +{s.customTopics.length} extra
+                                                </span>
+                                              )}
+                                            </div>
+                                          </td>
+                                          <td style={{ textAlign: 'right', padding: '10px 16px' }}>
+                                            <button
+                                              type="button"
+                                              className="btn-secondary"
+                                              onClick={() => setInspectingStudentForSyllabus(s.student)}
+                                              style={{ padding: '4px 10px', fontSize: 11.5 }}
+                                            >
+                                              Compare
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              );
+                            })()}
+                          </div>
+                        </div>
                       )}
                     </div>
                   )}
@@ -3876,6 +4326,26 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </button>
                     <button
                       type="button"
+                      onClick={() => setIsExportAttendanceModalOpen(true)}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        background: '#FAF9F6',
+                        color: '#2D6E5D',
+                        border: '1px solid #C7E4D8',
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                      }}
+                      title="Export attendance by selected month or dates"
+                    >
+                      <Download size={13} /> Export Attendance
+                    </button>
+                    <button
+                      type="button"
                       onClick={handleSaveAttendanceClick}
                       style={{
                         padding: '6px 16px',
@@ -3911,6 +4381,27 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         boxSizing: 'border-box',
                       }}
                     />
+                    <button
+                      type="button"
+                      onClick={() => setIsExportAttendanceModalOpen(true)}
+                      style={{
+                        height: 32,
+                        padding: '0 12px',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        background: '#2C6E6A',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <Download size={13} /> Export Attendance
+                    </button>
                   </div>
                 )}
               </div>
@@ -4362,6 +4853,25 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                             value={matrixMonth}
                             onChange={(e) => setMatrixMonth(e.target.value)}
                           />
+                          <button
+                            type="button"
+                            onClick={() => setIsExportAttendanceModalOpen(true)}
+                            style={{
+                              padding: '5px 12px',
+                              fontSize: 12,
+                              fontWeight: 600,
+                              background: '#2C6E6A',
+                              color: '#FFFFFF',
+                              border: 'none',
+                              borderRadius: 6,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                            }}
+                          >
+                            <Download size={13} /> Export Matrix
+                          </button>
                         </div>
                       </div>
 
@@ -6513,14 +7023,41 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                             background: '#FAFAF9',
                           }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#2C6E6A' }}>
+                              <button
+                                type="button"
+                                onClick={() => setManagingEnrollmentActivity(act)}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  padding: 0,
+                                  cursor: 'pointer',
+                                  fontSize: 11.5,
+                                  fontWeight: 700,
+                                  color: '#2C6E6A',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  textDecoration: 'underline',
+                                  textUnderlineOffset: 2,
+                                }}
+                                title="View enrolled students & manage roster"
+                              >
+                                <Users size={12} />
                                 {enrolledCount} Enrolled
-                              </span>
+                              </button>
                               {maxCap && (
                                 <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>/ {maxCap} max</span>
                               )}
                             </div>
                             <div style={{ display: 'flex', gap: 6 }}>
+                              <button
+                                type="button"
+                                className="btn-row-action"
+                                style={{ color: '#2C6E6A', borderColor: '#2C6E6A40', background: '#2C6E6A0F', display: 'flex', alignItems: 'center', gap: 4 }}
+                                onClick={() => setManagingEnrollmentActivity(act)}
+                              >
+                                👥 Enrol
+                              </button>
                               <button
                                 type="button"
                                 className="btn-row-action btn-edit"
@@ -6584,9 +7121,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               style={{
                 background: '#FFFFFF',
                 border: '1px solid var(--border-color)',
-                borderTop: '3px solid #7C5CBF',
-                borderRadius: 10,
-                padding: '18px 20px',
+                borderRadius: 8,
+                padding: '16px 20px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
@@ -6596,48 +7132,26 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               }}
             >
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <span
-                    style={{
-                      fontSize: 9.5,
-                      fontWeight: 800,
-                      padding: '2px 7px',
-                      borderRadius: 4,
-                      background: '#F3EFFA',
-                      color: '#6D28D9',
-                      border: '1px solid #DDD6FE',
-                      letterSpacing: '0.04em',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    HEAD OF DEPARTMENT PORTAL
-                  </span>
-                  <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
-                    {userDepartmentDef?.name || 'Department Oversight'}
-                  </span>
-                </div>
-                <h2 style={{ fontSize: 18, fontWeight: 700, margin: '6px 0 2px', color: 'var(--neutral-dark)', fontFamily: 'var(--font-display)' }}>
-                  {userDepartmentDef?.name || 'Academic'} Department Leadership Hub
+                <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 3px', color: 'var(--neutral-dark)', fontFamily: 'var(--font-display)' }}>
+                  {userDepartmentDef?.name || 'Academic'} Department Oversight
                 </h2>
                 <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: 0 }}>
                   Curriculum consistency, grade register audits, and assessment standards across {departmentClassrooms.length} department classes.
                 </p>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span
-                  style={{
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                    padding: '6px 12px',
-                    borderRadius: 6,
-                    background: '#FAF9F6',
-                    border: '1px solid var(--border-color)',
-                    color: '#6D28D9',
-                  }}
-                >
-                  HOD: {currentUser.name}
-                </span>
+              <div
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 6,
+                  background: '#FFFFFF',
+                  border: '1px dashed #D5D3CC',
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  color: '#2C6E6A',
+                }}
+              >
+                Head of Department • {currentUser.name}
               </div>
             </div>
 
@@ -7317,6 +7831,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         allIncidents={behaviorIncidents}
       />
 
+      {/* EXPORT ATTENDANCE MODAL */}
+      <ExportAttendanceModal
+        isOpen={isExportAttendanceModalOpen}
+        onClose={() => setIsExportAttendanceModalOpen(false)}
+        attendance={attendance}
+        students={homeroomStudents}
+        classroomLabel={homeroomLabel}
+        teacherName={currentUser.name}
+        defaultMonth={matrixMonth}
+      />
+
       {/* STUDENT BEHAVIOR HISTORY MODAL */}
       {selectedStudentForHistoryModal && (
         <div className="modal-overlay active" onClick={() => setSelectedStudentForHistoryModal(null)}>
@@ -7516,6 +8041,33 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* STUDENT SYLLABUS COMPARISON MODAL */}
+      <StudentSyllabusComparisonModal
+        isOpen={!!inspectingStudentForSyllabus}
+        student={inspectingStudentForSyllabus}
+        className={activeClassObj?.name || 'Classroom'}
+        subjectName={activeClassObj?.subject || currentUser.subject || 'Curriculum'}
+        terms={activeClassSyllabus}
+        studentSyllabusProgress={studentSyllabusProgress}
+        studentCustomTopics={studentCustomTopics}
+        onClose={() => setInspectingStudentForSyllabus(null)}
+      />
+
+      {/* MANAGE HUB ENROLLMENT MODAL */}
+      <ManageHubEnrollmentModal
+        isOpen={Boolean(managingEnrollmentActivity)}
+        onClose={() => setManagingEnrollmentActivity(null)}
+        activity={managingEnrollmentActivity}
+        profiles={profiles}
+        teacherClass={currentUser.assigned_class || (homeroomGrade && homeroomSection ? `${homeroomGrade}-${homeroomSection}` : undefined)}
+        onSaveEnrollments={async (actId, studentIds) => {
+          if (onUpdateHubEnrollments) {
+            await onUpdateHubEnrollments(actId, studentIds);
+          }
+          setManagingEnrollmentActivity(null);
+        }}
+      />
 
     </div>
   );

@@ -23,6 +23,7 @@ import {
 import * as XLSX from 'xlsx';
 import { supabase, SubjectClass, UserProfile } from '@/lib/supabaseClient';
 import { getStoredGradeTerms, decodeAssessmentNotes, encodeMarkNote, decodeMarkNote } from '../Admin/AdminAssessmentTermsView';
+import { CustomSelect, CustomSelectOption } from '../UI/CustomSelect';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,16 @@ export type MarkData = {
 };
 
 export type GridData = Record<string, Record<string, MarkData>>;
+
+export type SheetColumn = {
+  key: string;
+  assessmentId: string;
+  subType: 'single' | 'written' | 'internal' | 'total';
+  headerLabel: string;
+  max: number;
+  isEditable: boolean;
+  assessmentTitle: string;
+};
 
 type ViewMode = 'letter' | 'percentage';
 type SortOption = 'name_asc' | 'name_desc' | 'adm_asc' | 'score_desc' | 'score_asc';
@@ -154,6 +165,7 @@ export function MarkEntryModal({
   inline?: boolean;
 }) {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [selectedAssessmentId, setSelectedAssessmentId] = useState<string>('');
   const [gridData, setGridData] = useState<GridData>({});
   const [initialSnapshot, setInitialSnapshot] = useState<string>('{}');
 
@@ -174,6 +186,15 @@ export function MarkEntryModal({
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const classGrade = useMemo(() => extractGradeFromClass(classRoom), [classRoom]);
+
+  // ── Selected Term / Filtered Assessments ─────────────────────────────────
+  const displayedAssessments = useMemo(() => {
+    if (!selectedAssessmentId || selectedAssessmentId === 'all') {
+      return assessments;
+    }
+    const found = assessments.find(a => a.id === selectedAssessmentId);
+    return found ? [found] : assessments;
+  }, [assessments, selectedAssessmentId]);
 
   // ── Enrolled Students ───────────────────────────────────────────────────
   const enrolledStudents = useMemo(() =>
@@ -258,15 +279,16 @@ export function MarkEntryModal({
     return list;
   }, [enrolledStudents, searchQuery, sortOption, studentStatsMap]);
 
-  // ── Overall KPIs ────────────────────────────────────────────────────────
+  // ── Overall KPIs (computed for displayed assessments) ───────────────────
   const overallKPIs = useMemo(() => {
-    if (!assessments.length || !enrolledStudents.length) {
+    const activeAss = displayedAssessments;
+    if (!activeAss.length || !enrolledStudents.length) {
       return {
         classAverage: 0,
         highestScore: null as { studentName: string; score: number; max: number; pct: number } | null,
         passRate: 0,
         gradedCells: 0,
-        totalCells: assessments.length * enrolledStudents.length,
+        totalCells: activeAss.length * enrolledStudents.length,
         completionPct: 0,
         attemptedCells: 0,
       };
@@ -280,7 +302,7 @@ export function MarkEntryModal({
     let highest: { studentName: string; score: number; max: number; pct: number } | null = null;
 
     enrolledStudents.forEach(s => {
-      assessments.forEach(a => {
+      activeAss.forEach(a => {
         const score = getCellScore(gridData[s.id]?.[a.id], a);
         if (!score) return;
 
@@ -297,7 +319,7 @@ export function MarkEntryModal({
       });
     });
 
-    const totalCells = assessments.length * enrolledStudents.length;
+    const totalCells = activeAss.length * enrolledStudents.length;
     const classAverage = allMaxMarks > 0 ? (allScoredMarks / allMaxMarks) * 100 : 0;
     const passRate = gradedCells > 0 ? (passingCells / gradedCells) * 100 : 0;
     const completionPct = totalCells > 0 ? Math.round((gradedCells / totalCells) * 100) : 0;
@@ -311,7 +333,7 @@ export function MarkEntryModal({
       completionPct,
       attemptedCells: gradedCells,
     };
-  }, [assessments, enrolledStudents, gridData]);
+  }, [displayedAssessments, enrolledStudents, gridData]);
 
   const isDirty = useMemo(() => {
     return JSON.stringify(gridData) !== initialSnapshot;
@@ -429,6 +451,9 @@ export function MarkEntryModal({
       });
 
       setAssessments(enrichedAssData);
+      if (enrichedAssData.length > 0) {
+        setSelectedAssessmentId(prev => (prev && (prev === 'all' || enrichedAssData.some(a => a.id === prev)) ? prev : enrichedAssData[0].id));
+      }
 
       if (!assData || assData.length === 0) {
         setGridData({});
@@ -495,15 +520,89 @@ export function MarkEntryModal({
 
   if (!isOpen || !classRoom) return null;
 
-  // ── Column Stats Helper (only attempted marks count) ─────────────────────
-  const getColStats = (assessmentId: string, max: number) => {
+  // ── Sheet Columns Definition (Excel layout for displayed assessments) ───
+  const sheetColumns = useMemo<SheetColumn[]>(() => {
+    const cols: SheetColumn[] = [];
+    displayedAssessments.forEach(a => {
+      const hasSplit = a.written_max_marks !== undefined && a.internal_max_marks !== undefined;
+      if (hasSplit) {
+        cols.push({
+          key: `${a.id}_w`,
+          assessmentId: a.id,
+          subType: 'written',
+          headerLabel: `Written (/${a.written_max_marks})`,
+          max: a.written_max_marks!,
+          isEditable: true,
+          assessmentTitle: a.title,
+        });
+        cols.push({
+          key: `${a.id}_i`,
+          assessmentId: a.id,
+          subType: 'internal',
+          headerLabel: `Internal (/${a.internal_max_marks})`,
+          max: a.internal_max_marks!,
+          isEditable: true,
+          assessmentTitle: a.title,
+        });
+        cols.push({
+          key: `${a.id}_t`,
+          assessmentId: a.id,
+          subType: 'total',
+          headerLabel: `Total (/${a.maximum_marks})`,
+          max: a.maximum_marks,
+          isEditable: false,
+          assessmentTitle: a.title,
+        });
+      } else {
+        cols.push({
+          key: a.id,
+          assessmentId: a.id,
+          subType: 'single',
+          headerLabel: `Score (/${a.maximum_marks})`,
+          max: a.maximum_marks,
+          isEditable: true,
+          assessmentTitle: a.title,
+        });
+      }
+    });
+    return cols;
+  }, [displayedAssessments]);
+
+  const editableCols = useMemo(() => sheetColumns.filter(c => c.isEditable), [sheetColumns]);
+
+  const [focusedCell, setFocusedCell] = useState<{
+    studentId: string;
+    studentName: string;
+    colKey: string;
+    title: string;
+    label: string;
+    max: number;
+  } | null>(null);
+
+  // ── Sub-Column Stats Helper ───────────────────────────────────────────────
+  const getSubColStats = (col: SheetColumn) => {
     const scores: number[] = [];
-    const assessment = assessments.find(a => a.id === assessmentId);
+    const assessment = assessments.find(a => a.id === col.assessmentId);
+    if (!assessment) {
+      return { avg: '—', high: '—', low: '—', pass: '—', graded: 0, total: enrolledStudents.length };
+    }
 
     Object.values(gridData).forEach(m => {
-      const score = assessment ? getCellScore(m[assessmentId], assessment) : null;
-      if (score) {
-        scores.push(score.scored);
+      const md = m[col.assessmentId];
+      if (!md) return;
+      if (col.subType === 'written') {
+        if (md.written_marks !== '' && md.written_marks !== undefined && !isNaN(Number(md.written_marks))) {
+          scores.push(Number(md.written_marks));
+        }
+      } else if (col.subType === 'internal') {
+        if (md.internal_marks !== '' && md.internal_marks !== undefined && !isNaN(Number(md.internal_marks))) {
+          scores.push(Number(md.internal_marks));
+        }
+      } else {
+        const score = getCellScore(md, assessment);
+        if (score) {
+          scores.push(score.scored);
+        }
       }
     });
 
@@ -519,7 +618,7 @@ export function MarkEntryModal({
     }
 
     const sum = scores.reduce((a, b) => a + b, 0);
-    const pass = scores.filter(s => s >= max * 0.5).length;
+    const pass = scores.filter(s => s >= col.max * 0.5).length;
     const avgNum = sum / scores.length;
 
     return {
@@ -574,44 +673,159 @@ export function MarkEntryModal({
     }));
   };
 
-
-  // ── Keyboard Navigation ──────────────────────────────────────────────────
-  const handleKeyDown = (
+  // ── Excel Keyboard Navigation ─────────────────────────────────────────────
+  const handleCellKeyDown = (
     e: React.KeyboardEvent<HTMLInputElement>,
     studentIdx: number,
-    assessmentIdx: number
+    editColIdx: number
   ) => {
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.key)) {
-      let targetStudentIdx = studentIdx;
-      let targetAssIdx = assessmentIdx;
-
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        targetStudentIdx = Math.max(0, studentIdx - 1);
-      } else if (e.key === 'ArrowDown' || e.key === 'Enter') {
-        e.preventDefault();
-        targetStudentIdx = Math.min(displayedStudents.length - 1, studentIdx + 1);
-      } else if (e.key === 'ArrowLeft' && e.currentTarget.selectionStart === 0) {
-        e.preventDefault();
-        targetAssIdx = Math.max(0, assessmentIdx - 1);
-      } else if (e.key === 'ArrowRight' && e.currentTarget.selectionEnd === e.currentTarget.value.length) {
-        e.preventDefault();
-        targetAssIdx = Math.min(assessments.length - 1, assessmentIdx + 1);
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      let nextCol = editColIdx + (e.shiftKey ? -1 : 1);
+      let nextRow = studentIdx;
+      if (nextCol >= editableCols.length) {
+        nextCol = 0;
+        nextRow = Math.min(displayedStudents.length - 1, studentIdx + 1);
+      } else if (nextCol < 0) {
+        nextCol = editableCols.length - 1;
+        nextRow = Math.max(0, studentIdx - 1);
       }
+      const targetStudent = displayedStudents[nextRow];
+      const targetCol = editableCols[nextCol];
+      if (targetStudent && targetCol) {
+        const key = `${targetStudent.id}_${targetCol.key}`;
+        inputRefs.current[key]?.focus();
+        inputRefs.current[key]?.select();
+      }
+      return;
+    }
 
-      if (targetStudentIdx !== studentIdx || targetAssIdx !== assessmentIdx) {
-        const targetStudent = displayedStudents[targetStudentIdx];
-        const targetAss = assessments[targetAssIdx];
-        if (targetStudent && targetAss) {
-          const key = `${targetStudent.id}_${targetAss.id}`;
-          const el = inputRefs.current[key];
-          if (el) {
-            el.focus();
-            el.select();
-          }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const nextRow = e.shiftKey ? Math.max(0, studentIdx - 1) : Math.min(displayedStudents.length - 1, studentIdx + 1);
+      const targetStudent = displayedStudents[nextRow];
+      const targetCol = editableCols[editColIdx];
+      if (targetStudent && targetCol) {
+        const key = `${targetStudent.id}_${targetCol.key}`;
+        inputRefs.current[key]?.focus();
+        inputRefs.current[key]?.select();
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nextRow = Math.min(displayedStudents.length - 1, studentIdx + 1);
+      const targetStudent = displayedStudents[nextRow];
+      const targetCol = editableCols[editColIdx];
+      if (targetStudent && targetCol) {
+        const key = `${targetStudent.id}_${targetCol.key}`;
+        inputRefs.current[key]?.focus();
+        inputRefs.current[key]?.select();
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const nextRow = Math.max(0, studentIdx - 1);
+      const targetStudent = displayedStudents[nextRow];
+      const targetCol = editableCols[editColIdx];
+      if (targetStudent && targetCol) {
+        const key = `${targetStudent.id}_${targetCol.key}`;
+        inputRefs.current[key]?.focus();
+        inputRefs.current[key]?.select();
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowLeft' && e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
+      if (editColIdx > 0) {
+        e.preventDefault();
+        const targetStudent = displayedStudents[studentIdx];
+        const targetCol = editableCols[editColIdx - 1];
+        if (targetStudent && targetCol) {
+          const key = `${targetStudent.id}_${targetCol.key}`;
+          inputRefs.current[key]?.focus();
+          inputRefs.current[key]?.select();
         }
       }
     }
+
+    if (
+      e.key === 'ArrowRight' &&
+      e.currentTarget.selectionStart === e.currentTarget.value.length &&
+      e.currentTarget.selectionEnd === e.currentTarget.value.length
+    ) {
+      if (editColIdx < editableCols.length - 1) {
+        e.preventDefault();
+        const targetStudent = displayedStudents[studentIdx];
+        const targetCol = editableCols[editColIdx + 1];
+        if (targetStudent && targetCol) {
+          const key = `${targetStudent.id}_${targetCol.key}`;
+          inputRefs.current[key]?.focus();
+          inputRefs.current[key]?.select();
+        }
+      }
+    }
+  };
+
+  // ── Excel Paste Support ───────────────────────────────────────────────────
+  const handleCellPaste = (
+    e: React.ClipboardEvent<HTMLInputElement>,
+    startStudentIdx: number,
+    startEditColIdx: number
+  ) => {
+    const text = e.clipboardData.getData('text');
+    if (!text || (!text.includes('\t') && !text.includes('\n'))) {
+      return; // Standard inline paste
+    }
+    e.preventDefault();
+    const rows = text.split(/\r\n|\n|\r/).filter((r, i, arr) => i < arr.length - 1 || r.trim() !== '');
+    if (rows.length === 0) return;
+
+    setGridData(prev => {
+      const next = { ...prev };
+      rows.forEach((rowStr, rOffset) => {
+        const sIdx = startStudentIdx + rOffset;
+        if (sIdx >= displayedStudents.length) return;
+        const student = displayedStudents[sIdx];
+        if (!next[student.id]) next[student.id] = {};
+
+        const cellVals = rowStr.split('\t');
+        cellVals.forEach((val, cOffset) => {
+          const cIdx = startEditColIdx + cOffset;
+          if (cIdx >= editableCols.length) return;
+          const col = editableCols[cIdx];
+          const raw = val.trim();
+          const num = Number(raw);
+
+          const cur = next[student.id][col.assessmentId] || {
+            marks: '',
+            written_marks: '',
+            internal_marks: '',
+            teacher_note: '',
+            is_visible_to_student: true,
+          };
+
+          let finalVal = raw;
+          if (raw !== '' && !isNaN(num)) {
+            finalVal = String(Math.min(col.max, Math.max(0, num)));
+          }
+
+          if (col.subType === 'written') {
+            next[student.id][col.assessmentId] = { ...cur, written_marks: finalVal };
+          } else if (col.subType === 'internal') {
+            next[student.id][col.assessmentId] = { ...cur, internal_marks: finalVal };
+          } else {
+            next[student.id][col.assessmentId] = { ...cur, marks: finalVal };
+          }
+        });
+      });
+      return next;
+    });
+
+    showToast(`Pasted ${rows.length} row(s) of spreadsheet data.`, 'success');
   };
 
   // ── Save Marks ───────────────────────────────────────────────────────────
@@ -687,19 +901,30 @@ export function MarkEntryModal({
         if (!next[s.id]) next[s.id] = {};
         assessments.forEach(a => {
           const current = next[s.id][a.id];
-          if (!current || current.marks === '') {
+          const hasSplit = a.written_max_marks !== undefined && a.internal_max_marks !== undefined;
+          if (hasSplit) {
             next[s.id][a.id] = {
               marks: '0',
+              written_marks: current?.written_marks !== '' && current?.written_marks !== undefined ? current.written_marks : '0',
+              internal_marks: current?.internal_marks !== '' && current?.internal_marks !== undefined ? current.internal_marks : '0',
               teacher_note: current?.teacher_note || '',
               is_visible_to_student: true,
             };
+          } else {
+            if (!current || current.marks === '') {
+              next[s.id][a.id] = {
+                marks: '0',
+                teacher_note: current?.teacher_note || '',
+                is_visible_to_student: true,
+              };
+            }
           }
         });
       });
       return next;
     });
     setShowBatchMenu(false);
-    showToast('Filled empty cells with 0 (now counted as attempted).', 'info');
+    showToast('Filled empty cells with 0 (counts as attempted).', 'info');
   };
 
   // Undo helper: mark every cell as NOT attempted (clears scores, keeps notes)
@@ -739,14 +964,15 @@ export function MarkEntryModal({
 
         assessments.forEach(a => {
           const md = gridData[s.id]?.[a.id];
-          const score = getCellScore(md, a)?.scored ?? '';
           const hasSplit = a.written_max_marks !== undefined && a.internal_max_marks !== undefined;
-          row[`${a.title} (Max ${a.maximum_marks})`] = score;
           if (hasSplit) {
-            row[`${a.title} [Written + Internal]`] =
-              md && (md.written_marks !== '' || md.internal_marks !== '')
-                ? `${md.written_marks ?? ''} / ${md.internal_marks ?? ''}`
-                : '';
+            row[`${a.title} - Written (/${a.written_max_marks})`] = md?.written_marks ?? '';
+            row[`${a.title} - Internal (/${a.internal_max_marks})`] = md?.internal_marks ?? '';
+            const score = getCellScore(md, a)?.scored ?? '';
+            row[`${a.title} - Total (/${a.maximum_marks})`] = score;
+          } else {
+            const score = getCellScore(md, a)?.scored ?? '';
+            row[`${a.title} (Max ${a.maximum_marks})`] = score;
           }
           if (md?.teacher_note) {
             row[`${a.title} [Note]`] = md.teacher_note;
@@ -781,11 +1007,12 @@ export function MarkEntryModal({
         Email: '',
       };
 
-      assessments.forEach(a => {
-        const stats = getColStats(a.id, a.maximum_marks);
-        avgRow[`${a.title} (Max ${a.maximum_marks})`] = stats.avg;
-        highRow[`${a.title} (Max ${a.maximum_marks})`] = stats.high;
-        passRow[`${a.title} (Max ${a.maximum_marks})`] = stats.pass;
+      sheetColumns.forEach(col => {
+        const stats = getSubColStats(col);
+        const headerName = `${col.assessmentTitle} - ${col.headerLabel}`;
+        avgRow[headerName] = stats.avg;
+        highRow[headerName] = stats.high;
+        passRow[headerName] = stats.pass;
       });
 
       rows.push(avgRow, highRow, passRow);
@@ -852,9 +1079,9 @@ export function MarkEntryModal({
                 minWidth: 0,
               }
             : {
-                width: 'min(1260px, 96vw)',
+                width: 'min(1380px, 98vw)',
                 maxWidth: '100%',
-                maxHeight: '92vh',
+                maxHeight: '94vh',
                 display: 'flex',
                 flexDirection: 'column',
                 minWidth: 0,
@@ -862,7 +1089,7 @@ export function MarkEntryModal({
                 borderRadius: 16,
                 border: '1px solid var(--border-color)',
                 boxShadow: '0 20px 60px rgba(0,0,0,0.18)',
-                padding: '24px 28px',
+                padding: '20px 24px',
                 overflowY: 'auto',
                 boxSizing: 'border-box',
               }
@@ -924,19 +1151,18 @@ export function MarkEntryModal({
           </div>
         )}
 
-        {/* ── 1. HEADER (WOODLEM LMS CLASSROOM HEADER PATTERN) ──────── */}
+        {/* ── 1. HEADER ─────────────────────────────────────────────── */}
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'flex-start',
-            marginBottom: 20,
+            marginBottom: 16,
             flexWrap: 'wrap',
-            gap: 16,
+            gap: 12,
           }}
         >
           <div>
-            {/* Subject Pill & Target */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <span
                 style={{
@@ -988,12 +1214,14 @@ export function MarkEntryModal({
               )}
             </div>
 
-            {/* Page Title */}
-            <h1 className="page-title" style={{ margin: 0, fontSize: 24, fontWeight: 600 }}>
+            <h1 className="page-title" style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>
               {classRoom.name} — Marks Register
             </h1>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-              {enrolledStudents.length} enrolled student{enrolledStudents.length !== 1 ? 's' : ''} · {assessments.length} assessment column{assessments.length !== 1 ? 's' : ''} for Grade {classGrade}
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+              {enrolledStudents.length} enrolled student{enrolledStudents.length !== 1 ? 's' : ''} ·{' '}
+              {displayedAssessments.length === 1
+                ? `Showing: ${displayedAssessments[0].title} (Max ${displayedAssessments[0].maximum_marks})`
+                : `${assessments.length} assessment terms (${sheetColumns.length} columns)`}
             </div>
           </div>
 
@@ -1007,7 +1235,7 @@ export function MarkEntryModal({
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
-                padding: '7px 12px',
+                padding: '6px 12px',
                 fontSize: 12,
                 borderRadius: 8,
                 cursor: enrolledStudents.length === 0 || assessments.length === 0 ? 'not-allowed' : 'pointer',
@@ -1027,7 +1255,7 @@ export function MarkEntryModal({
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
-                padding: '7px 16px',
+                padding: '6px 16px',
                 fontSize: 12,
                 borderRadius: 8,
                 cursor: saving || assessments.length === 0 ? 'not-allowed' : 'pointer',
@@ -1045,7 +1273,7 @@ export function MarkEntryModal({
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
-                padding: '7px 12px',
+                padding: '6px 12px',
                 fontSize: 12,
                 borderRadius: 8,
                 cursor: 'pointer',
@@ -1058,55 +1286,53 @@ export function MarkEntryModal({
           </div>
         </div>
 
-        {/* ── 2. ANALYTICS ROW (WOODLEM STAT-BOX STYLE) ─────────────── */}
+        {/* ── 2. ANALYTICS ROW ─────────────────────────────────────── */}
         {assessments.length > 0 && enrolledStudents.length > 0 && (
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: 14,
-              marginBottom: 16,
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 10,
+              marginBottom: 12,
             }}
           >
-            {/* Stat 1: Class Average */}
-            <div className="stat-box" style={{ padding: '14px 18px', borderRadius: 10 }}>
+            <div className="stat-box" style={{ padding: '10px 14px', borderRadius: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="stat-sub" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <span className="stat-sub" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Class Average
                 </span>
-                <TrendingUp size={15} color="#2C6E6A" />
+                <TrendingUp size={14} color="#2C6E6A" />
               </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
-                <span style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 700, color: 'var(--neutral-dark)' }}>
                   {overallKPIs.classAverage > 0 ? `${overallKPIs.classAverage.toFixed(1)}%` : '—'}
                 </span>
-              </div>
-              <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 3 }}>
-                Attempted exams only · {overallKPIs.attemptedCells} of {overallKPIs.totalCells} cells
+                <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+                  ({overallKPIs.attemptedCells}/{overallKPIs.totalCells} cells)
+                </span>
               </div>
             </div>
 
-            {/* Stat 2: Top Score */}
-            <div className="stat-box" style={{ padding: '14px 18px', borderRadius: 10 }}>
+            <div className="stat-box" style={{ padding: '10px 14px', borderRadius: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="stat-sub" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <span className="stat-sub" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Top Score
                 </span>
-                <Award size={15} color="#2C6E6A" />
+                <Award size={14} color="#2C6E6A" />
               </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
-                <span style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: '#265E5A' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 700, color: '#265E5A' }}>
                   {overallKPIs.highestScore ? `${overallKPIs.highestScore.pct.toFixed(0)}%` : '—'}
                 </span>
                 {overallKPIs.highestScore && (
                   <span
                     style={{
-                      fontSize: 11.5,
+                      fontSize: 10.5,
                       color: 'var(--text-secondary)',
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
-                      maxWidth: 120,
+                      maxWidth: 110,
                     }}
                     title={overallKPIs.highestScore.studentName}
                   >
@@ -1116,19 +1342,18 @@ export function MarkEntryModal({
               </div>
             </div>
 
-            {/* Stat 3: Pass Rate */}
-            <div className="stat-box" style={{ padding: '14px 18px', borderRadius: 10 }}>
+            <div className="stat-box" style={{ padding: '10px 14px', borderRadius: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="stat-sub" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <span className="stat-sub" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Pass Rate (≥ 50%)
                 </span>
-                <BarChart3 size={15} color="var(--text-secondary)" />
+                <BarChart3 size={14} color="var(--text-secondary)" />
               </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
-                <span style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 700, color: 'var(--neutral-dark)' }}>
                   {overallKPIs.gradedCells > 0 ? `${overallKPIs.passRate.toFixed(0)}%` : '—'}
                 </span>
-                <div style={{ flex: 1, height: 5, background: 'var(--surface-variant)', borderRadius: 3, overflow: 'hidden', maxWidth: 70 }}>
+                <div style={{ flex: 1, height: 4, background: 'var(--surface-variant)', borderRadius: 2, overflow: 'hidden', maxWidth: 60 }}>
                   <div
                     style={{
                       width: `${overallKPIs.passRate}%`,
@@ -1140,19 +1365,18 @@ export function MarkEntryModal({
               </div>
             </div>
 
-            {/* Stat 4: Graded Entries */}
-            <div className="stat-box" style={{ padding: '14px 18px', borderRadius: 10 }}>
+            <div className="stat-box" style={{ padding: '10px 14px', borderRadius: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="stat-sub" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <span className="stat-sub" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Attempted Progress
                 </span>
-                <CheckCircle2 size={15} color="#2C6E6A" />
+                <CheckCircle2 size={14} color="#2C6E6A" />
               </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
-                <span style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 700, color: 'var(--neutral-dark)' }}>
                   {overallKPIs.completionPct}%
                 </span>
-                <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                <span style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
                   ({overallKPIs.gradedCells} / {overallKPIs.totalCells})
                 </span>
               </div>
@@ -1160,26 +1384,25 @@ export function MarkEntryModal({
           </div>
         )}
 
-        {/* ── 3. TOOLBAR (SEARCH, SORT, VIEW MODES) ─────────────────── */}
+        {/* ── 3. TOOLBAR & FORMULA BAR ──────────────────────────────── */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             flexWrap: 'wrap',
-            gap: 12,
-            marginBottom: 16,
+            gap: 10,
+            marginBottom: 8,
             background: 'var(--surface)',
-            padding: '12px 16px',
-            borderRadius: 12,
+            padding: '8px 12px',
+            borderRadius: 8,
             border: '1px solid var(--border-color)',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
           }}
         >
           {/* Left: Search & Sort */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <Search size={14} style={{ position: 'absolute', left: 12, color: 'var(--text-secondary)', pointerEvents: 'none' }} />
+              <Search size={13} style={{ position: 'absolute', left: 10, color: 'var(--text-secondary)', pointerEvents: 'none' }} />
               <input
                 type="text"
                 placeholder="Search student or roll no..."
@@ -1187,53 +1410,120 @@ export function MarkEntryModal({
                 onChange={e => setSearchQuery(e.target.value)}
                 className="form-input"
                 style={{
-                  padding: '8px 12px 8px 34px',
-                  fontSize: 13,
-                  width: 240,
-                  height: 38,
-                  borderRadius: 8,
+                  padding: '6px 10px 6px 30px',
+                  fontSize: 12,
+                  width: 210,
+                  height: 32,
+                  borderRadius: 6,
                 }}
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  style={{ position: 'absolute', right: 10, border: 0, background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer' }}
+                  style={{ position: 'absolute', right: 8, border: 0, background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer' }}
                 >
-                  <X size={14} />
+                  <X size={12} />
                 </button>
               )}
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)' }}>Sort:</span>
-              <select
-                value={sortOption}
-                onChange={e => setSortOption(e.target.value as SortOption)}
+            {/* Term / Assessment Selector Dropdown */}
+            {assessments.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Term:</span>
+                <div style={{ minWidth: 220, maxWidth: 280 }}>
+                  <CustomSelect
+                    value={selectedAssessmentId}
+                    onChange={val => setSelectedAssessmentId(val)}
+                    options={[
+                      ...assessments.map(a => ({
+                        value: a.id,
+                        label: `${a.title} (Max ${a.maximum_marks})`,
+                        sublabel: a.assessment_date ? fmtDate(a.assessment_date) : undefined,
+                      })),
+                      ...(assessments.length > 1
+                        ? [
+                            {
+                              value: 'all',
+                              label: 'All Terms (Overview Grid)',
+                              sublabel: 'View all columns side by side',
+                            },
+                          ]
+                        : []),
+                    ]}
+                    compact
+                    buttonStyle={{
+                      height: 32,
+                      padding: '4px 10px',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      border: '1.5px solid #2C6E6A',
+                      background: '#F0FAF5',
+                      color: '#265E5A',
+                      borderRadius: 6,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Sort Selector Dropdown */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' }}>Sort:</span>
+              <div style={{ minWidth: 170, maxWidth: 210 }}>
+                <CustomSelect
+                  value={sortOption}
+                  onChange={val => setSortOption(val as SortOption)}
+                  options={[
+                    { value: 'name_asc', label: 'Name (A → Z)' },
+                    { value: 'name_desc', label: 'Name (Z → A)' },
+                    { value: 'adm_asc', label: 'Roll / Admission No.' },
+                    { value: 'score_desc', label: 'Score (High → Low)' },
+                    { value: 'score_asc', label: 'Score (Low → High)' },
+                  ]}
+                  compact
+                  buttonStyle={{
+                    height: 32,
+                    padding: '4px 10px',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--surface)',
+                    color: 'var(--neutral-dark)',
+                    borderRadius: 6,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Excel Formula / Active Cell Indicator */}
+            {focusedCell && (
+              <div
                 style={{
-                  padding: '8px 12px',
-                  fontSize: 13,
-                  borderRadius: 8,
-                  border: '1px solid var(--border-color)',
-                  background: 'var(--surface)',
-                  color: 'var(--neutral-dark)',
-                  fontFamily: 'inherit',
-                  height: 38,
-                  cursor: 'pointer',
-                  fontWeight: 500,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: '#F1F5F9',
+                  border: '1px solid #CBD5E1',
+                  borderRadius: 6,
+                  padding: '3px 8px',
+                  fontSize: 11.5,
+                  color: '#334155',
                 }}
               >
-                <option value="name_asc">Name (A → Z)</option>
-                <option value="name_desc">Name (Z → A)</option>
-                <option value="adm_asc">Roll / Admission No.</option>
-                <option value="score_desc">Overall Score (High → Low)</option>
-                <option value="score_asc">Overall Score (Low → High)</option>
-              </select>
-            </div>
+                <span style={{ fontWeight: 700, color: '#0F172A', fontFamily: 'monospace' }}>fx</span>
+                <span style={{ color: '#64748B' }}>|</span>
+                <span style={{ fontWeight: 600 }}>{focusedCell.studentName}</span>
+                <span style={{ color: '#94A3B8' }}>›</span>
+                <span>{focusedCell.title}</span>
+                <span style={{ color: '#94A3B8' }}>›</span>
+                <strong style={{ color: '#2C6E6A' }}>{focusedCell.label} (Max: {focusedCell.max})</strong>
+              </div>
+            )}
           </div>
 
           {/* Right: Batch Actions */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {/* Batch Menu */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ position: 'relative' }} ref={batchRef}>
               <button
                 onClick={() => setShowBatchMenu(!showBatchMenu)}
@@ -1241,17 +1531,17 @@ export function MarkEntryModal({
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: 6,
-                  padding: '0 14px',
-                  fontSize: 13,
+                  gap: 5,
+                  padding: '0 10px',
+                  fontSize: 12,
                   fontWeight: 600,
-                  height: 38,
-                  borderRadius: 8,
+                  height: 32,
+                  borderRadius: 6,
                   cursor: 'pointer',
                 }}
               >
-                <SlidersHorizontal size={14} />
-                <span>Batch Actions</span>
+                <SlidersHorizontal size={13} />
+                <span>Batch Tools</span>
               </button>
 
               {showBatchMenu && (
@@ -1260,14 +1550,14 @@ export function MarkEntryModal({
                     position: 'absolute',
                     top: '100%',
                     right: 0,
-                    marginTop: 6,
+                    marginTop: 4,
                     background: '#FFFFFF',
                     border: '1px solid var(--border-color)',
-                    borderRadius: 10,
+                    borderRadius: 8,
                     boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
                     zIndex: 100,
-                    minWidth: 200,
-                    padding: '6px 0',
+                    minWidth: 220,
+                    padding: '4px 0',
                   }}
                 >
                   <button
@@ -1277,17 +1567,17 @@ export function MarkEntryModal({
                       alignItems: 'center',
                       gap: 8,
                       width: '100%',
-                      padding: '10px 14px',
+                      padding: '8px 12px',
                       border: 0,
                       background: 'transparent',
-                      fontSize: 13,
+                      fontSize: 12,
                       fontWeight: 600,
                       color: 'var(--neutral-dark)',
                       cursor: 'pointer',
                       textAlign: 'left',
                     }}
                   >
-                    <RotateCcw size={14} /> Fill Empty Cells with 0 (counts as attempted)
+                    <RotateCcw size={13} /> Fill Empty Cells with 0
                   </button>
                   <button
                     onClick={() => {
@@ -1304,18 +1594,18 @@ export function MarkEntryModal({
                       alignItems: 'center',
                       gap: 8,
                       width: '100%',
-                      padding: '10px 14px',
+                      padding: '8px 12px',
                       border: 0,
                       borderTop: '1px solid var(--border-color)',
                       background: 'transparent',
-                      fontSize: 13,
+                      fontSize: 12,
                       fontWeight: 600,
                       color: '#B37D4A',
                       cursor: 'pointer',
                       textAlign: 'left',
                     }}
                   >
-                    <X size={14} /> Mark All as Not Attempted (Clear Scores)
+                    <X size={13} /> Mark All as Not Attempted (Clear)
                   </button>
                 </div>
               )}
@@ -1323,24 +1613,23 @@ export function MarkEntryModal({
           </div>
         </div>
 
-        {/* ── 4. SPREADSHEET CARD (WOODLEM PANEL-BLOCK STYLE) ───────── */}
+        {/* ── 4. SPREADSHEET TABLE CARD (EXCEL GRID DESIGN) ─────────── */}
         <div
           style={{
             background: '#FFFFFF',
-            border: '1px solid var(--border-color)',
-            borderRadius: 12,
+            border: '1px solid #CBD5E1',
+            borderRadius: 8,
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
             flex: 1,
-            minHeight: 380,
+            minHeight: 400,
             minWidth: 0,
             position: 'relative',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
           }}
         >
           {assessments.length === 0 ? (
-            /* No Assessments for this Grade State (Admin controls terms) */
             <div
               style={{
                 display: 'flex',
@@ -1372,13 +1661,12 @@ export function MarkEntryModal({
                   No Assessment Terms Configured for Grade {classGrade}
                 </h3>
                 <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 8, maxWidth: 460, lineHeight: 1.5 }}>
-                  Assessment terms (e.g. Periodic Tests, Half-Yearly, Final Exams) are configured centrally by the school administration for Grade {classGrade}.
-                  Once configured in the Admin Dashboard, they will automatically appear here for mark entry.
+                  Assessment terms are configured centrally by the school administration for Grade {classGrade}.
+                  Once configured, they will automatically appear here in columns.
                 </p>
               </div>
             </div>
           ) : enrolledStudents.length === 0 ? (
-            /* Empty Students State */
             <div
               style={{
                 display: 'flex',
@@ -1410,138 +1698,181 @@ export function MarkEntryModal({
                   No Enrolled Students
                 </h3>
                 <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 8, maxWidth: 400, lineHeight: 1.5 }}>
-                  Please enroll students in this classroom from the class settings before entering marks.
+                  Please enroll students in this classroom from class settings before entering marks.
                 </p>
               </div>
             </div>
           ) : (
-            /* Spreadsheet Table */
             <div className="scroll-visible" style={{ overflow: 'auto', flex: 1, width: '100%', minWidth: 0 }}>
-              <table style={{ width: '100%', minWidth: 'max-content', borderCollapse: 'collapse', fontSize: 12 }}>
-                {/* ── Table Header ── */}
+              <table
+                style={{
+                  width: '100%',
+                  minWidth: 'max-content',
+                  borderCollapse: 'separate',
+                  borderSpacing: 0,
+                  fontSize: 12,
+                  fontFamily: 'inherit',
+                }}
+              >
+                {/* ── Two-Tier Excel Table Header ── */}
                 <thead>
-                  <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)' }}>
-                    {/* Frozen Student Header */}
+                  {/* Tier 1: Group Headers */}
+                  <tr style={{ background: '#F1F5F9' }}>
+                    {/* Frozen # column */}
                     <th
+                      rowSpan={2}
                       style={{
                         position: 'sticky',
                         left: 0,
                         top: 0,
-                        zIndex: 25,
-                        background: '#F8F7F4',
-                        borderRight: '1px solid var(--border-color)',
-                        borderBottom: '1px solid var(--border-color)',
-                        padding: '12px 16px',
-                        textAlign: 'left',
-                        minWidth: 230,
-                        width: 230,
+                        zIndex: 35,
+                        background: '#F1F5F9',
+                        borderRight: '1px solid #CBD5E1',
+                        borderBottom: '1px solid #CBD5E1',
+                        padding: '6px 8px',
+                        textAlign: 'center',
+                        width: 40,
+                        minWidth: 40,
+                        color: '#475569',
+                        fontWeight: 700,
+                        fontSize: 11,
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                          STUDENT ({displayedStudents.length})
-                        </span>
-                        <span style={{ fontSize: 10, color: 'var(--text-secondary)', textAlign: 'right' }} title="Average of attempted exams only — unattempted exams are excluded">
-                          AVG %<br />attempted
-                        </span>
+                      #
+                    </th>
+
+                    {/* Frozen Student Profile Header */}
+                    <th
+                      rowSpan={2}
+                      style={{
+                        position: 'sticky',
+                        left: 40,
+                        top: 0,
+                        zIndex: 35,
+                        background: '#F1F5F9',
+                        borderRight: '1px solid #CBD5E1',
+                        borderBottom: '1px solid #CBD5E1',
+                        padding: '8px 12px',
+                        textAlign: 'left',
+                        minWidth: 200,
+                        width: 200,
+                      }}
+                    >
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Student ({displayedStudents.length})
+                      </span>
+                    </th>
+
+                    {/* Frozen Overall Summary Header */}
+                    <th
+                      rowSpan={2}
+                      style={{
+                        position: 'sticky',
+                        left: 240,
+                        top: 0,
+                        zIndex: 35,
+                        background: '#F1F5F9',
+                        borderRight: '2px solid #94A3B8',
+                        borderBottom: '1px solid #CBD5E1',
+                        padding: '8px 10px',
+                        textAlign: 'center',
+                        minWidth: 84,
+                        width: 84,
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#334155', textTransform: 'uppercase' }}>
+                        AVG %
+                      </div>
+                      <div style={{ fontSize: 9.5, color: '#64748B', fontWeight: 500 }}>
+                        Attempted
                       </div>
                     </th>
 
-                    {/* Assessment Headers */}
-                    {assessments.map(a => {
-                      const stats = getColStats(a.id, a.maximum_marks);
+                    {/* Group Column for each Assessment */}
+                    {displayedAssessments.map(a => {
                       const hasSplit = a.written_max_marks !== undefined && a.internal_max_marks !== undefined;
+                      const colSpan = hasSplit ? 3 : 1;
 
                       return (
                         <th
                           key={a.id}
+                          colSpan={colSpan}
                           style={{
                             position: 'sticky',
                             top: 0,
-                            zIndex: 20,
-                            background: '#F8F7F4',
-                            borderRight: '1px solid var(--border-color)',
-                            borderBottom: '1px solid var(--border-color)',
-                            minWidth: hasSplit ? 210 : 160,
-                            padding: '10px 14px',
+                            zIndex: 25,
+                            background: '#F1F5F9',
+                            borderRight: '2px solid #CBD5E1',
+                            borderBottom: '1px solid #CBD5E1',
+                            padding: '6px 10px',
                             textAlign: 'center',
-                            verticalAlign: 'top',
                             userSelect: 'none',
                           }}
                         >
-                          <div style={{ position: 'relative' }}>
-                            {/* Title */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2 }}>
-                              <span
-                                style={{
-                                  fontSize: 13,
-                                  fontWeight: 700,
-                                  color: 'var(--neutral-dark)',
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                }}
-                                title={a.title}
-                              >
-                                {a.title}
-                              </span>
-                            </div>
-
-                            {/* Date & Max Marks */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, marginBottom: hasSplit ? 4 : 6 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--text-secondary)' }}>
-                                <Calendar size={10} />
-                                <span>{fmtDate(a.assessment_date)}</span>
-                              </div>
-                              <span
-                                style={{
-                                  fontSize: 10,
-                                  fontWeight: 700,
-                                  padding: '1px 6px',
-                                  borderRadius: 4,
-                                  background: 'var(--surface-variant)',
-                                  color: 'var(--neutral-dark)',
-                                }}
-                              >
-                                Max {a.maximum_marks}
-                              </span>
-                            </div>
-
-                            {/* Written + Internal split breakdown pill */}
-                            {hasSplit && (
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginBottom: 4 }}>
-                                <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: '#E8F4FA', color: '#1B5E7A', border: '1px solid #B8DCF0' }}>
-                                  Written /{a.written_max_marks}
-                                </span>
-                                <span style={{ fontSize: 9.5, color: 'var(--text-secondary)' }}>+</span>
-                                <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: '#EAF3EF', color: '#265E5A', border: '1px solid #C7E4D8' }}>
-                                  Internal /{a.internal_max_marks}
-                                </span>
-                              </div>
-                            )}
-
-                            {/* Column Stats Chip */}
-                            <div
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                            <span
                               style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: 10.5,
-                                color: 'var(--text-secondary)',
-                                background: '#FFFFFF',
-                                border: '1px solid var(--border-color)',
-                                borderRadius: 4,
-                                padding: '2px 6px',
+                                fontSize: 12.5,
+                                fontWeight: 700,
+                                color: '#1E293B',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                maxWidth: 220,
+                              }}
+                              title={a.title}
+                            >
+                              {a.title}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 700,
+                                padding: '1px 5px',
+                                borderRadius: 3,
+                                background: '#E2E8F0',
+                                color: '#334155',
                               }}
                             >
-                              <span>
-                                Avg: <strong style={{ color: 'var(--neutral-dark)' }}>{stats.avg}</strong>
+                              Max {a.maximum_marks}
+                            </span>
+                            {a.assessment_date && (
+                              <span style={{ fontSize: 10, color: '#64748B' }}>
+                                ({fmtDate(a.assessment_date)})
                               </span>
-                              <span style={{ color: '#889078' }}>
-                                · {stats.graded}/{stats.total} attempted
-                              </span>
-                            </div>
+                            )}
                           </div>
+                        </th>
+                      );
+                    })}
+                  </tr>
+
+                  {/* Tier 2: Sub-column Headers */}
+                  <tr style={{ background: '#F8FAFC' }}>
+                    {sheetColumns.map(col => {
+                      const isTotal = col.subType === 'total';
+                      const isWritten = col.subType === 'written';
+                      const isInternal = col.subType === 'internal';
+
+                      return (
+                        <th
+                          key={col.key}
+                          style={{
+                            position: 'sticky',
+                            top: 33,
+                            zIndex: 24,
+                            background: isTotal ? '#F1F5F9' : isWritten ? '#F0F9FF' : isInternal ? '#F0FDF4' : '#F8FAFC',
+                            borderRight: isTotal || col.subType === 'single' ? '2px solid #CBD5E1' : '1px solid #E2E8F0',
+                            borderBottom: '2px solid #94A3B8',
+                            padding: '4px 6px',
+                            textAlign: 'center',
+                            minWidth: isTotal ? 76 : 84,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: isWritten ? '#0369A1' : isInternal ? '#15803D' : '#334155',
+                          }}
+                        >
+                          {col.headerLabel}
                         </th>
                       );
                     })}
@@ -1552,428 +1883,394 @@ export function MarkEntryModal({
                 <tbody>
                   {displayedStudents.map((s, rowIdx) => {
                     const st = studentStatsMap[s.id];
+                    const isEven = rowIdx % 2 === 0;
 
                     return (
                       <tr
                         key={s.id}
                         style={{
-                          background: rowIdx % 2 === 0 ? '#FFFFFF' : '#FAF9F6',
-                          borderBottom: '1px solid #ECEAE5',
+                          background: isEven ? '#FFFFFF' : '#F8FAFC',
+                          transition: 'background 0.1s',
                         }}
+                        className="spreadsheet-row"
                       >
-                        {/* Frozen Student Profile Cell */}
+                        {/* 1. Sl No (#) */}
                         <td
                           style={{
                             position: 'sticky',
                             left: 0,
-                            zIndex: 10,
-                            background: rowIdx % 2 === 0 ? '#FFFFFF' : '#FAF9F6',
-                            borderRight: '1px solid var(--border-color)',
-                            borderBottom: '1px solid #ECEAE5',
-                            padding: '8px 14px',
-                            minWidth: 230,
-                            width: 230,
+                            zIndex: 15,
+                            background: isEven ? '#FFFFFF' : '#F8FAFC',
+                            borderRight: '1px solid #E2E8F0',
+                            borderBottom: '1px solid #E2E8F0',
+                            padding: '0 4px',
+                            textAlign: 'center',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: '#94A3B8',
+                            height: 36,
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                              {/* Woodlem Avatar circle */}
+                          {rowIdx + 1}
+                        </td>
+
+                        {/* 2. Student Info */}
+                        <td
+                          style={{
+                            position: 'sticky',
+                            left: 40,
+                            zIndex: 15,
+                            background: isEven ? '#FFFFFF' : '#F8FAFC',
+                            borderRight: '1px solid #E2E8F0',
+                            borderBottom: '1px solid #E2E8F0',
+                            padding: '4px 10px',
+                            minWidth: 200,
+                            width: 200,
+                            height: 36,
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <div
+                              style={{
+                                width: 22,
+                                height: 22,
+                                borderRadius: 4,
+                                background: '#2C6E6A',
+                                color: '#FFFFFF',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {s.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div style={{ minWidth: 0, flex: 1 }}>
                               <div
                                 style={{
-                                  width: 28,
-                                  height: 28,
-                                  borderRadius: '50%',
-                                  background: '#2C6E6A',
-                                  color: '#FFFFFF',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  flexShrink: 0,
-                                }}
-                              >
-                                {s.name.charAt(0).toUpperCase()}
-                              </div>
-
-                              <div style={{ minWidth: 0 }}>
-                                <div
-                                  style={{
-                                    fontSize: 12.5,
-                                    fontWeight: 600,
-                                    color: 'var(--neutral-dark)',
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    maxWidth: 130,
-                                  }}
-                                  title={s.name}
-                                >
-                                  {s.name}
-                                </div>
-                                <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
-                                  {s.admission_number || s.email?.split('@')[0] || '—'}
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Overall Row Percentage (attempted exams only) */}
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
-                              <span
-                                style={{
-                                  fontSize: 11.5,
-                                  fontWeight: 700,
-                                  color:
-                                    st && st.totalMax > 0
-                                      ? st.percentage >= 70
-                                        ? '#2C6E6A'
-                                        : st.percentage >= 50
-                                        ? '#B37D4A'
-                                        : '#D9534F'
-                                      : 'var(--text-secondary)',
-                                }}
-                                title="Average of attempted exams only — unattempted exams are excluded"
-                              >
-                                {st && st.totalMax > 0 ? `${st.percentage.toFixed(0)}%` : '—'}
-                              </span>
-                              <span
-                                style={{
-                                  fontSize: 9.5,
-                                  color: 'var(--text-secondary)',
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  color: '#0F172A',
                                   whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
                                 }}
-                                title={`${st?.attemptedCount ?? 0} of ${st?.totalAssessments ?? assessments.length} exams attempted`}
+                                title={s.name}
                               >
-                                {st ? `${st.attemptedCount}/${st.totalAssessments}` : `0/${assessments.length}`} taken
-                              </span>
+                                {s.name}
+                              </div>
+                              <div style={{ fontSize: 10, color: '#64748B', fontFamily: 'monospace' }}>
+                                {s.admission_number || s.email?.split('@')[0] || '—'}
+                              </div>
                             </div>
                           </div>
                         </td>
 
-                        {/* Assessment Score Cells */}
-                        {assessments.map((a, aIdx) => {
-                          const md = gridData[s.id]?.[a.id] || {
+                        {/* 3. Overall Student Score Column */}
+                        <td
+                          style={{
+                            position: 'sticky',
+                            left: 240,
+                            zIndex: 15,
+                            background: isEven ? '#FFFFFF' : '#F8FAFC',
+                            borderRight: '2px solid #94A3B8',
+                            borderBottom: '1px solid #E2E8F0',
+                            padding: '4px 8px',
+                            textAlign: 'center',
+                            minWidth: 84,
+                            height: 36,
+                          }}
+                        >
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                            <span
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color:
+                                  st && st.totalMax > 0
+                                    ? st.percentage >= 70
+                                      ? '#2C6E6A'
+                                      : st.percentage >= 50
+                                      ? '#B37D4A'
+                                      : '#D9534F'
+                                    : '#94A3B8',
+                              }}
+                            >
+                              {st && st.totalMax > 0 ? `${st.percentage.toFixed(0)}%` : '—'}
+                            </span>
+                            <span style={{ fontSize: 9.5, color: '#94A3B8' }}>
+                              {st ? `${st.attemptedCount}/${st.totalAssessments}` : `0/${assessments.length}`}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* 4. Assessment Columns */}
+                        {sheetColumns.map(col => {
+                          const md = gridData[s.id]?.[col.assessmentId] || {
                             marks: '',
+                            written_marks: '',
+                            internal_marks: '',
                             teacher_note: '',
                             is_visible_to_student: true,
                           };
-                          const hasSplit = a.written_max_marks !== undefined && a.internal_max_marks !== undefined;
-                          const isInvalid = md.marks !== '' && Number(md.marks) > a.maximum_marks;
-                          const attempted = hasEnteredMark(md);
-                          const cellKey = `${s.id}_${a.id}`;
-                          const isCommentOpen = activeCommentKey === cellKey;
 
-                          // Computed total for split mode
-                          const splitW = md.written_marks !== '' && md.written_marks !== undefined ? Number(md.written_marks) : null;
-                          const splitI = md.internal_marks !== '' && md.internal_marks !== undefined ? Number(md.internal_marks) : null;
-                          const splitTotal = splitW !== null && !isNaN(splitW) && splitI !== null && !isNaN(splitI) ? splitW + splitI : null;
+                          const cellKey = `${s.id}_${col.key}`;
+                          const isCommentOpen = activeCommentKey === `${s.id}_${col.assessmentId}`;
+                          const hasNote = Boolean(md.teacher_note);
+
+                          // For editable columns
+                          if (col.isEditable) {
+                            const editColIdx = editableCols.findIndex(ec => ec.key === col.key);
+                            const val =
+                              col.subType === 'written'
+                                ? md.written_marks ?? ''
+                                : col.subType === 'internal'
+                                ? md.internal_marks ?? ''
+                                : md.marks ?? '';
+
+                            const isInvalid = val !== '' && Number(val) > col.max;
+
+                            return (
+                              <td
+                                key={col.key}
+                                style={{
+                                  borderRight: '1px solid #E2E8F0',
+                                  borderBottom: '1px solid #E2E8F0',
+                                  padding: 0,
+                                  height: 36,
+                                  position: 'relative',
+                                  background: isInvalid ? '#FEF2F2' : 'transparent',
+                                }}
+                              >
+                                <input
+                                  ref={el => {
+                                    inputRefs.current[cellKey] = el;
+                                  }}
+                                  type="number"
+                                  min={0}
+                                  max={col.max}
+                                  step="any"
+                                  value={val}
+                                  onFocus={() => {
+                                    setFocusedCell({
+                                      studentId: s.id,
+                                      studentName: s.name,
+                                      colKey: col.key,
+                                      title: col.assessmentTitle,
+                                      label: col.headerLabel,
+                                      max: col.max,
+                                    });
+                                  }}
+                                  onBlur={() => {
+                                    setFocusedCell(null);
+                                  }}
+                                  onChange={e => {
+                                    const raw = e.target.value;
+                                    const field =
+                                      col.subType === 'written'
+                                        ? 'written_marks'
+                                        : col.subType === 'internal'
+                                        ? 'internal_marks'
+                                        : 'marks';
+                                    setCell(s.id, col.assessmentId, field, raw);
+                                  }}
+                                  onKeyDown={e => {
+                                    if (e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E') {
+                                      e.preventDefault();
+                                    }
+                                    handleCellKeyDown(e, rowIdx, editColIdx);
+                                  }}
+                                  onPaste={e => {
+                                    handleCellPaste(e, rowIdx, editColIdx);
+                                  }}
+                                  placeholder="—"
+                                  style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    border: 'none',
+                                    background: 'transparent',
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    color: isInvalid
+                                      ? '#DC2626'
+                                      : val !== ''
+                                      ? '#0F172A'
+                                      : '#94A3B8',
+                                    textAlign: 'center',
+                                    outline: 'none',
+                                    fontFamily: 'inherit',
+                                    padding: '0 4px',
+                                    boxSizing: 'border-box',
+                                  }}
+                                  className="excel-cell-input"
+                                />
+
+                                {/* Excel-Style Note Triangle Marker */}
+                                {hasNote && (
+                                  <div
+                                    onClick={() => setActiveCommentKey(isCommentOpen ? null : `${s.id}_${col.assessmentId}`)}
+                                    style={{
+                                      position: 'absolute',
+                                      top: 0,
+                                      right: 0,
+                                      width: 0,
+                                      height: 0,
+                                      borderTop: '7px solid #D97706',
+                                      borderLeft: '7px solid transparent',
+                                      cursor: 'pointer',
+                                      zIndex: 5,
+                                    }}
+                                    title={`Note: "${md.teacher_note}" (Click to view/edit)`}
+                                  />
+                                )}
+
+                                {/* Comment Popover */}
+                                {isCommentOpen && (
+                                  <div
+                                    ref={commentRef}
+                                    style={{
+                                      position: 'absolute',
+                                      top: '100%',
+                                      left: 0,
+                                      marginTop: 4,
+                                      background: '#FFFFFF',
+                                      border: '1px solid var(--border-color)',
+                                      borderRadius: 8,
+                                      boxShadow: '0 8px 24px rgba(0,0,0,0.14)',
+                                      zIndex: 100,
+                                      width: 250,
+                                      padding: 10,
+                                      textAlign: 'left',
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                      <div>
+                                        <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>{s.name}</div>
+                                        <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>{col.assessmentTitle} Note</div>
+                                      </div>
+                                      <button onClick={() => setActiveCommentKey(null)} style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+
+                                    {/* Quick Chips */}
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 6 }}>
+                                      {QUICK_FEEDBACK_CHIPS.slice(0, 3).map((chip, cIdx) => (
+                                        <button
+                                          key={cIdx}
+                                          type="button"
+                                          onClick={() => {
+                                            const prev = md.teacher_note.trim();
+                                            setCell(s.id, col.assessmentId, 'teacher_note', prev ? `${prev} ${chip}` : chip);
+                                          }}
+                                          style={{
+                                            fontSize: 9.5,
+                                            padding: '2px 5px',
+                                            borderRadius: 4,
+                                            background: 'var(--surface-variant)',
+                                            color: 'var(--neutral-dark)',
+                                            border: '1px solid var(--border-color)',
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          {chip}
+                                        </button>
+                                      ))}
+                                    </div>
+
+                                    <textarea
+                                      value={md.teacher_note}
+                                      onChange={e => setCell(s.id, col.assessmentId, 'teacher_note', e.target.value)}
+                                      placeholder="Private note for this student..."
+                                      className="form-input"
+                                      style={{
+                                        width: '100%',
+                                        padding: 6,
+                                        fontSize: 11.5,
+                                        minHeight: 50,
+                                        boxSizing: 'border-box',
+                                      }}
+                                    />
+
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => setActiveCommentKey(null)}
+                                        className="btn-primary"
+                                        style={{ padding: '3px 10px', fontSize: 11, borderRadius: 4, cursor: 'pointer' }}
+                                      >
+                                        Done
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </td>
+                            );
+                          }
+
+                          // ── Total (Calculated / Read-only Column) ──
+                          const wNum = md.written_marks !== '' && md.written_marks !== undefined ? Number(md.written_marks) : null;
+                          const iNum = md.internal_marks !== '' && md.internal_marks !== undefined ? Number(md.internal_marks) : null;
+                          const calculatedTotal =
+                            wNum !== null && !isNaN(wNum) && iNum !== null && !isNaN(iNum)
+                              ? wNum + iNum
+                              : null;
 
                           return (
                             <td
-                              key={a.id}
-                              title={attempted ? '' : 'Not attempted — this exam is excluded from all averages'}
+                              key={col.key}
                               style={{
-                                borderRight: '1px solid var(--border-color)',
-                                borderBottom: '1px solid #ECEAE5',
+                                borderRight: '2px solid #CBD5E1',
+                                borderBottom: '1px solid #E2E8F0',
                                 padding: '4px 6px',
-                                background: isInvalid
-                                  ? '#FDF1F0'
-                                  : attempted
-                                  ? 'transparent'
-                                  : '#FBF9F5',
+                                height: 36,
+                                background: isEven ? '#F8FAFC' : '#F1F5F9',
+                                textAlign: 'center',
                                 position: 'relative',
                               }}
                             >
-                              {hasSplit ? (
-                                /* ── SPLIT MODE: Written + Internal sub-inputs ── */
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '2px 0' }}>
-                                  {/* Written Input */}
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <span style={{ fontSize: 9, fontWeight: 700, color: '#1B5E7A', minWidth: 32, letterSpacing: '0.01em' }}>W</span>
-                                    <input
-                                      ref={el => { inputRefs.current[`${cellKey}_w`] = el; }}
-                                      type="number"
-                                      min={0}
-                                      max={a.written_max_marks}
-                                      step="any"
-                                      value={md.written_marks ?? ''}
-                                      onChange={e => {
-                                        const raw = e.target.value;
-                                        setCell(s.id, a.id, 'written_marks', raw);
-                                      }}
-                                      onKeyDown={e => {
-                                        if (e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E') e.preventDefault();
-                                      }}
-                                      placeholder="—"
-                                      style={{
-                                        flex: 1,
-                                        border: '1px solid #B8DCF0',
-                                        borderRadius: 4,
-                                        background: '#F0F8FF',
-                                        fontSize: 12,
-                                        fontWeight: 700,
-                                        color: '#1B5E7A',
-                                        textAlign: 'center',
-                                        outline: 'none',
-                                        fontFamily: 'inherit',
-                                        padding: '2px 4px',
-                                        height: 22,
-                                      }}
-                                    />
-                                    <span style={{ fontSize: 9, color: 'var(--text-secondary)', minWidth: 24 }}>/{a.written_max_marks}</span>
-                                  </div>
-
-                                  {/* Internal Input */}
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <span style={{ fontSize: 9, fontWeight: 700, color: '#265E5A', minWidth: 32, letterSpacing: '0.01em' }}>Int</span>
-                                    <input
-                                      ref={el => { inputRefs.current[`${cellKey}_i`] = el; }}
-                                      type="number"
-                                      min={0}
-                                      max={a.internal_max_marks}
-                                      step="any"
-                                      value={md.internal_marks ?? ''}
-                                      onChange={e => {
-                                        const raw = e.target.value;
-                                        setCell(s.id, a.id, 'internal_marks', raw);
-                                      }}
-                                      onKeyDown={e => {
-                                        if (e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E') e.preventDefault();
-                                      }}
-                                      placeholder="—"
-                                      style={{
-                                        flex: 1,
-                                        border: '1px solid #C7E4D8',
-                                        borderRadius: 4,
-                                        background: '#F0FAF5',
-                                        fontSize: 12,
-                                        fontWeight: 700,
-                                        color: '#265E5A',
-                                        textAlign: 'center',
-                                        outline: 'none',
-                                        fontFamily: 'inherit',
-                                        padding: '2px 4px',
-                                        height: 22,
-                                      }}
-                                    />
-                                    <span style={{ fontSize: 9, color: 'var(--text-secondary)', minWidth: 24 }}>/{a.internal_max_marks}</span>
-                                  </div>
-
-                                  {/* Computed Total display */}
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, paddingTop: 1 }}>
-                                    <span style={{ fontSize: 9, color: 'var(--text-secondary)', minWidth: 32 }}>Total</span>
-                                    <span style={{
-                                      flex: 1,
-                                      textAlign: 'center',
-                                      fontSize: 11.5,
-                                      fontWeight: 700,
-                                      color: splitTotal !== null
-                                        ? splitTotal >= a.maximum_marks * 0.7 ? '#265E5A' : splitTotal >= a.maximum_marks * 0.5 ? '#B37D4A' : '#D9534F'
-                                        : 'var(--text-secondary)',
-                                    }}>
-                                      {splitTotal !== null ? `${splitTotal}/${a.maximum_marks}` : '—'}
-                                    </span>
-                                    {/* Note button */}
-                                    <button
-                                      type="button"
-                                      className="comment-trigger-btn"
-                                      onClick={() => setActiveCommentKey(isCommentOpen ? null : cellKey)}
-                                      style={{
-                                        width: 16, height: 16, borderRadius: 3,
-                                        border: `1px solid ${md.teacher_note ? '#F3D9A0' : 'transparent'}`,
-                                        background: md.teacher_note ? '#FEF7EC' : 'transparent',
-                                        color: md.teacher_note ? '#B37D4A' : 'var(--text-secondary)',
-                                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flexShrink: 0,
-                                      }}
-                                      title={md.teacher_note ? `Note: "${md.teacher_note}"` : 'Add note'}
-                                    >
-                                      <MessageSquare size={9} />
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                /* ── SINGLE MODE: original total input ── */
-                                <div
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                                <span
                                   style={{
+                                    fontSize: 12.5,
+                                    fontWeight: 700,
+                                    color:
+                                      calculatedTotal !== null
+                                        ? calculatedTotal >= col.max * 0.7
+                                          ? '#15803D'
+                                          : calculatedTotal >= col.max * 0.5
+                                          ? '#B45309'
+                                          : '#DC2626'
+                                        : '#94A3B8',
+                                  }}
+                                >
+                                  {calculatedTotal !== null ? calculatedTotal : '—'}
+                                </span>
+                                {/* Note button in total cell for quick access */}
+                                <button
+                                  type="button"
+                                  className="comment-trigger-btn"
+                                  onClick={() => setActiveCommentKey(isCommentOpen ? null : `${s.id}_${col.assessmentId}`)}
+                                  style={{
+                                    width: 15,
+                                    height: 15,
+                                    borderRadius: 3,
+                                    border: `1px solid ${md.teacher_note ? '#F3D9A0' : 'transparent'}`,
+                                    background: md.teacher_note ? '#FEF7EC' : 'transparent',
+                                    color: md.teacher_note ? '#B37D4A' : '#94A3B8',
+                                    cursor: 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    gap: 4,
-                                    height: 40,
-                                    padding: '0 4px',
+                                    justifyContent: 'center',
+                                    padding: 0,
                                   }}
+                                  title={md.teacher_note ? `Note: "${md.teacher_note}"` : 'Add note'}
                                 >
-                                  {/* Score Input */}
-                                  <input
-                                    ref={el => {
-                                      inputRefs.current[cellKey] = el;
-                                    }}
-                                    type="number"
-                                    min={0}
-                                    max={a.maximum_marks}
-                                    step="any"
-                                    value={md.marks}
-                                    onChange={e => {
-                                      const raw = e.target.value;
-                                      if (raw === '') {
-                                        setCell(s.id, a.id, 'marks', '');
-                                        return;
-                                      }
-                                      const num = Number(raw);
-                                      if (isNaN(num)) return;
-                                      if (num > a.maximum_marks) {
-                                        setCell(s.id, a.id, 'marks', String(a.maximum_marks));
-                                        return;
-                                      }
-                                      if (num < 0) {
-                                        setCell(s.id, a.id, 'marks', '0');
-                                        return;
-                                      }
-                                      setCell(s.id, a.id, 'marks', raw);
-                                    }}
-                                    onKeyDown={e => {
-                                      if (e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E') {
-                                        e.preventDefault();
-                                      }
-                                      handleKeyDown(e, rowIdx, aIdx);
-                                    }}
-                                    placeholder="—"
-                                    style={{
-                                      flex: 1,
-                                      width: '100%',
-                                      border: 'none',
-                                      background: 'transparent',
-                                      fontSize: 13.5,
-                                      fontWeight: 700,
-                                      color: isInvalid ? '#D9534F' : 'var(--neutral-dark)',
-                                      textAlign: 'center',
-                                      outline: 'none',
-                                      fontFamily: 'inherit',
-                                      padding: 0,
-                                    }}
-                                  />
-
-                                  {/* Teacher Note Button */}
-                                  <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                                    <button
-                                      type="button"
-                                      className="comment-trigger-btn"
-                                      onClick={() => setActiveCommentKey(isCommentOpen ? null : cellKey)}
-                                      style={{
-                                        width: 18,
-                                        height: 18,
-                                        borderRadius: 4,
-                                        border: `1px solid ${md.teacher_note ? '#F3D9A0' : 'transparent'}`,
-                                        background: md.teacher_note ? '#FEF7EC' : 'transparent',
-                                        color: md.teacher_note ? '#B37D4A' : 'var(--text-secondary)',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        padding: 0,
-                                        position: 'relative',
-                                      }}
-                                      title={md.teacher_note ? `Note: "${md.teacher_note}"` : 'Add note'}
-                                    >
-                                      <MessageSquare size={11} />
-                                      {md.teacher_note && (
-                                        <span
-                                          style={{
-                                            position: 'absolute',
-                                            top: -1,
-                                            right: -1,
-                                            width: 4,
-                                            height: 4,
-                                            borderRadius: '50%',
-                                            background: '#D4A373',
-                                          }}
-                                        />
-                                      )}
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Comment Popover (shared for both modes) */}
-                              {isCommentOpen && (
-                                <div
-                                  ref={commentRef}
-                                  style={{
-                                    position: 'absolute',
-                                    top: '100%',
-                                    left: 0,
-                                    marginTop: 4,
-                                    background: '#FFFFFF',
-                                    border: '1px solid var(--border-color)',
-                                    borderRadius: 8,
-                                    boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-                                    zIndex: 80,
-                                    width: 260,
-                                    padding: 12,
-                                    textAlign: 'left',
-                                  }}
-                                >
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                                    <div>
-                                      <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>{s.name}</div>
-                                      <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>{a.title} Feedback</div>
-                                    </div>
-                                    <button onClick={() => setActiveCommentKey(null)} style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)' }}>
-                                      <X size={12} />
-                                    </button>
-                                  </div>
-
-                                  {/* Quick Chips */}
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 6 }}>
-                                    {QUICK_FEEDBACK_CHIPS.slice(0, 3).map((chip, cIdx) => (
-                                      <button
-                                        key={cIdx}
-                                        type="button"
-                                        onClick={() => {
-                                          const prev = md.teacher_note.trim();
-                                          setCell(s.id, a.id, 'teacher_note', prev ? `${prev} ${chip}` : chip);
-                                        }}
-                                        style={{
-                                          fontSize: 9.5,
-                                          padding: '2px 5px',
-                                          borderRadius: 4,
-                                          background: 'var(--surface-variant)',
-                                          color: 'var(--neutral-dark)',
-                                          border: '1px solid var(--border-color)',
-                                          cursor: 'pointer',
-                                        }}
-                                      >
-                                        {chip}
-                                      </button>
-                                    ))}
-                                  </div>
-
-                                  <textarea
-                                    value={md.teacher_note}
-                                    onChange={e => setCell(s.id, a.id, 'teacher_note', e.target.value)}
-                                    placeholder="Private note for this student..."
-                                    className="form-input"
-                                    style={{
-                                      width: '100%',
-                                      padding: 6,
-                                      fontSize: 11.5,
-                                      minHeight: 52,
-                                      boxSizing: 'border-box',
-                                    }}
-                                  />
-
-                                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => setActiveCommentKey(null)}
-                                      className="btn-primary"
-                                      style={{ padding: '4px 12px', fontSize: 11, borderRadius: 4, cursor: 'pointer' }}
-                                    >
-                                      Done
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
+                                  <MessageSquare size={9} />
+                                </button>
+                              </div>
                             </td>
                           );
                         })}
@@ -1985,43 +2282,78 @@ export function MarkEntryModal({
                 {/* ── Summary Footer Rows ── */}
                 <tfoot>
                   {[
-                    { key: 'avg', label: 'Class Average', color: 'var(--neutral-dark)', bg: '#F8F7F4', borderTop: '2px solid var(--border-color)' },
-                    { key: 'high', label: 'Highest Score', color: '#265E5A', bg: '#EDF5F2', borderTop: '1px solid #ECEAE5' },
-                    { key: 'low', label: 'Lowest Score', color: '#D9534F', bg: '#FDF1F0', borderTop: '1px solid #ECEAE5' },
-                    { key: 'pass', label: 'Pass Rate (≥ 50%)', color: 'var(--text-secondary)', bg: '#F8F7F4', borderTop: '1px solid #ECEAE5' },
+                    { key: 'avg', label: 'Class Average', color: '#0F172A', bg: '#F1F5F9', borderTop: '2px solid #94A3B8' },
+                    { key: 'high', label: 'Highest Score', color: '#15803D', bg: '#F0FDF4', borderTop: '1px solid #E2E8F0' },
+                    { key: 'low', label: 'Lowest Score', color: '#DC2626', bg: '#FEF2F2', borderTop: '1px solid #E2E8F0' },
+                    { key: 'pass', label: 'Pass Rate (≥ 50%)', color: '#334155', bg: '#F8FAFC', borderTop: '1px solid #E2E8F0' },
                   ].map(row => (
                     <tr key={row.key} style={{ background: row.bg }}>
                       <td
                         style={{
                           position: 'sticky',
                           left: 0,
-                          zIndex: 10,
+                          zIndex: 20,
                           background: row.bg,
-                          borderRight: '1px solid var(--border-color)',
+                          borderRight: '1px solid #CBD5E1',
                           borderTop: row.borderTop,
-                          padding: '8px 14px',
+                          padding: '6px 4px',
+                          textAlign: 'center',
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: '#64748B',
+                        }}
+                      >
+                        —
+                      </td>
+                      <td
+                        style={{
+                          position: 'sticky',
+                          left: 40,
+                          zIndex: 20,
+                          background: row.bg,
+                          borderRight: '1px solid #CBD5E1',
+                          borderTop: row.borderTop,
+                          padding: '6px 12px',
                           fontSize: 11,
                           fontWeight: 700,
-                          color: 'var(--text-secondary)',
+                          color: '#334155',
                           textTransform: 'uppercase',
                         }}
                       >
                         {row.label}
                       </td>
+                      <td
+                        style={{
+                          position: 'sticky',
+                          left: 240,
+                          zIndex: 20,
+                          background: row.bg,
+                          borderRight: '2px solid #94A3B8',
+                          borderTop: row.borderTop,
+                          padding: '6px 8px',
+                          textAlign: 'center',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: row.color,
+                        }}
+                      >
+                        {row.key === 'avg' && overallKPIs.classAverage > 0 ? `${overallKPIs.classAverage.toFixed(1)}%` : row.key === 'pass' && overallKPIs.gradedCells > 0 ? `${overallKPIs.passRate.toFixed(0)}%` : '—'}
+                      </td>
 
-                      {assessments.map(a => {
-                        const stats = getColStats(a.id, a.maximum_marks);
+                      {sheetColumns.map(col => {
+                        const stats = getSubColStats(col);
                         const val = (stats as Record<string, string | number | boolean>)[row.key];
+                        const isTotal = col.subType === 'total';
 
                         return (
                           <td
-                            key={a.id}
+                            key={col.key}
                             style={{
                               textAlign: 'center',
-                              borderRight: '1px solid var(--border-color)',
+                              borderRight: isTotal || col.subType === 'single' ? '2px solid #CBD5E1' : '1px solid #E2E8F0',
                               borderTop: row.borderTop,
-                              padding: '8px 10px',
-                              fontSize: 12.5,
+                              padding: '6px 8px',
+                              fontSize: 11.5,
                               fontWeight: 700,
                               color: row.color,
                             }}
@@ -2038,26 +2370,36 @@ export function MarkEntryModal({
           )}
         </div>
 
-        {/* ── 5. BOTTOM HELPER LEGEND ───────────────────────────────── */}
+        {/* ── 5. EXCEL KEYBOARD & SHORTCUTS FOOTER ──────────────────── */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            paddingTop: 12,
-            fontSize: 11.5,
+            paddingTop: 8,
+            fontSize: 11,
             color: 'var(--text-secondary)',
             flexWrap: 'wrap',
             gap: 8,
           }}
         >
-          <div>
-            Scroll right <span style={{ whiteSpace: 'nowrap' }}>→</span> to see all {assessments.length} assessment column{assessments.length !== 1 ? 's' : ''}.
-            Use arrow keys or Enter for spreadsheet cell navigation.
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span>
+              <strong>Keyboard:</strong> <kbd style={{ background: '#E2E8F0', padding: '1px 4px', borderRadius: 3, fontSize: 10 }}>Enter</kbd> / <kbd style={{ background: '#E2E8F0', padding: '1px 4px', borderRadius: 3, fontSize: 10 }}>↓</kbd> next student, <kbd style={{ background: '#E2E8F0', padding: '1px 4px', borderRadius: 3, fontSize: 10 }}>Tab</kbd> / <kbd style={{ background: '#E2E8F0', padding: '1px 4px', borderRadius: 3, fontSize: 10 }}>→</kbd> next column.
+            </span>
+            <span>
+              <strong>Excel Paste:</strong> Copy columns from Excel and press <kbd style={{ background: '#E2E8F0', padding: '1px 4px', borderRadius: 3, fontSize: 10 }}>Ctrl+V</kbd> / <kbd style={{ background: '#E2E8F0', padding: '1px 4px', borderRadius: 3, fontSize: 10 }}>Cmd+V</kbd>.
+            </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} title="Shaded cells are exams the student has not attempted — they are excluded from all averages">
-            <span style={{ display: 'inline-block', width: 14, height: 14, background: '#FBF9F5', border: '1px solid var(--border-color)', borderRadius: 3 }} />
-            Not attempted (excluded from averages)
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ display: 'inline-block', width: 0, height: 0, borderTop: '6px solid #D97706', borderLeft: '6px solid transparent' }} />
+              <span>Cell with teacher note</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ display: 'inline-block', width: 10, height: 10, background: '#F1F5F9', border: '1px solid #CBD5E1', borderRadius: 2 }} />
+              <span>Calculated Total</span>
+            </div>
           </div>
         </div>
       </div>

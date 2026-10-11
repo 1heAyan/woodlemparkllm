@@ -2,10 +2,10 @@
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Award, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock, Download, Building } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
-import { supabase, UserProfile, ParentDocument, HubActivity, SubjectClass, TestItem, SyllabusTerm, LateEntryRecord, OfflineAssessment, OfflineAssessmentMark, isAuthenticHubActivity } from '@/lib/supabaseClient';
+import { supabase, UserProfile, ParentDocument, HubActivity, SubjectClass, TestItem, SyllabusTerm, LateEntryRecord, OfflineAssessment, OfflineAssessmentMark, SpecialRoleAssignment } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { SettingsView } from '@/components/Shared/SettingsView';
@@ -17,7 +17,7 @@ import { LateEntryView } from '@/components/Shared/LateEntryView';
 import { formatShortFileName, openFileInNewTab, downloadFile } from '@/lib/fileHelper';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
-import { isPrincipalUser, isSltUser } from '@/lib/specialRolesHelper';
+import { isPrincipalUser, isSltUser, loadSpecialRoleAssignments } from '@/lib/specialRolesHelper';
 import { sanitizeUserCode, normalizeAdmissionNumber, normalizeStudentName, isMatchingStudent } from '@/lib/userCodeHelper';
 import { computeExecutiveAnalytics, isSubjectClassInGrade } from '@/lib/analyticsHelper';
 import {
@@ -29,6 +29,7 @@ import {
 import { MarkEntryModal } from '../Modals/MarkEntryModal';
 import { TestResultRecord } from '../Modals/ReviewTestResultsModal';
 import { MergeDuplicatesModal, DuplicateGroup } from '../Modals/MergeDuplicatesModal';
+import { ExportAttendanceModal } from '../Modals/ExportAttendanceModal';
 
 interface AdminDashboardProps {
   currentUser: UserProfile;
@@ -55,7 +56,7 @@ interface AdminDashboardProps {
   onRefreshData?: () => void;
 }
 
-type AdminTab = 'overview' | 'delegation' | 'directory' | 'classes' | 'assessments' | 'late_entry' | 'hub' | 'settings' | 'support';
+type AdminTab = 'overview' | 'delegation' | 'directory' | 'classes' | 'assessments' | 'late_entry' | 'settings' | 'support';
 
 const VALID_GRADES = ['9', '10', '11', '12'] as const;
 const BASE_SECTIONS = ['A', 'B', 'C', 'D'] as const;
@@ -135,6 +136,101 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onSignOut,
   onRefreshData,
 }) => {
+  const isPrincipal = isPrincipalUser(currentUser);
+  const isSlt = !isPrincipal && isSltUser(currentUser);
+  const isAdmin = !isPrincipal && !isSlt && (currentUser.role === 'admin' || (currentUser.email || '').toLowerCase().startsWith('admin@'));
+  const canManageSpecialRoles = isPrincipal || isAdmin;
+
+  const [sltAssignment, setSltAssignment] = useState<SpecialRoleAssignment | null>(null);
+  const [sltPermissions, setSltPermissions] = useState<{
+    canViewAnalytics?: boolean;
+    canExportStatements?: boolean;
+    canManageHub?: boolean;
+    canManageSettings?: boolean;
+    canResetPasswords?: boolean;
+    canAuditMarks?: boolean;
+    canReleaseMarks?: boolean;
+    canEditMarksRegisters?: boolean;
+    canManageExamTerms?: boolean;
+    canVerifySyllabus?: boolean;
+    canManageLateEntries?: boolean;
+    canManageAttendance?: boolean;
+    canApproveLeaveRequests?: boolean;
+    canLogBehaviorIncidents?: boolean;
+    canViewDisciplineRecords?: boolean;
+    canViewDirectory?: boolean;
+    canEditStudentProfiles?: boolean;
+    canManageClasses?: boolean;
+    canAssignTeachers?: boolean;
+    canBroadcastAnnouncements?: boolean;
+  }>({
+    canViewAnalytics: true,
+    canExportStatements: true,
+    canManageHub: true,
+    canManageSettings: false,
+    canResetPasswords: true,
+    canAuditMarks: true,
+    canReleaseMarks: true,
+    canEditMarksRegisters: true,
+    canManageExamTerms: true,
+    canVerifySyllabus: true,
+    canManageLateEntries: true,
+    canManageAttendance: true,
+    canApproveLeaveRequests: true,
+    canLogBehaviorIncidents: true,
+    canViewDisciplineRecords: true,
+    canViewDirectory: true,
+    canEditStudentProfiles: true,
+    canManageClasses: true,
+    canAssignTeachers: true,
+    canBroadcastAnnouncements: true,
+  });
+
+  const [sltScope, setSltScope] = useState<{
+    scopeType: 'all' | 'custom';
+    managedGrades: string[];
+    managedSections: string[];
+  }>({
+    scopeType: 'all',
+    managedGrades: ['9', '10', '11', '12'],
+    managedSections: [],
+  });
+
+  useEffect(() => {
+    if (isSlt) {
+      loadSpecialRoleAssignments(profiles).then((list) => {
+        const myAssignment = list.find(
+          (a) => a.roleType === 'slt' && (a.userId === currentUser.id || a.userEmail?.toLowerCase() === (currentUser.email || '').toLowerCase())
+        );
+        if (myAssignment) {
+          setSltAssignment(myAssignment);
+          if (myAssignment.permissions) {
+            setSltPermissions({
+              ...myAssignment.permissions,
+            });
+          }
+          const scopeType =
+            myAssignment.scopeType ||
+            (myAssignment.managedGrades &&
+            myAssignment.managedGrades.length > 0 &&
+            myAssignment.managedGrades.length < 4
+              ? 'custom'
+              : 'all');
+          const managedGrades =
+            myAssignment.managedGrades && myAssignment.managedGrades.length > 0
+              ? myAssignment.managedGrades
+              : ['9', '10', '11', '12'];
+          const managedSections = myAssignment.managedSections || [];
+          setSltScope({
+            scopeType,
+            managedGrades,
+            managedSections,
+          });
+        }
+      });
+    }
+  }, [isSlt, currentUser, profiles]);
+
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [roleFilter, setRoleFilter] = useState<'all' | 'student' | 'teacher' | 'parent' | 'admin' | 'principal' | 'deactivated'>('all');
   const [classFilter, setClassFilter] = useState<string>('all');
@@ -161,6 +257,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newSectionLetter, setNewSectionLetter] = useState('A');
   const [newSectionTeacherId, setNewSectionTeacherId] = useState('');
   const [dirScroll, setDirScroll] = useState<{ left: boolean; right: boolean }>({ left: false, right: false });
+  const [isExportAttendanceModalOpen, setIsExportAttendanceModalOpen] = useState(false);
   const dirScrollRef = useRef<HTMLDivElement | null>(null);
 
   // Reset pagination and selection whenever filters or search change
@@ -318,9 +415,50 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // Grouped profiles
-  const students = useMemo(() => profiles.filter((p) => p.role === 'student'), [profiles]);
-  const teachers = useMemo(() => profiles.filter((p) => p.role === 'teacher'), [profiles]);
+  // Grouped profiles with jurisdictional scoping for SLT
+  const students = useMemo(() => {
+    let list = profiles.filter((p) => p.role === 'student');
+    if (isSlt && sltScope.scopeType === 'custom') {
+      list = list.filter((st) => {
+        const g = (st.grade || '').replace(/[^0-9]/g, '');
+        if (!sltScope.managedGrades.includes(g)) return false;
+        if (sltScope.managedSections.length > 0) {
+          const s = (st.class_letter || '').toUpperCase().trim();
+          return sltScope.managedSections.includes(`${g}-${s}`);
+        }
+        return true;
+      });
+    }
+    return list;
+  }, [profiles, isSlt, sltScope]);
+
+  const teachers = useMemo(() => {
+    let list = profiles.filter((p) => p.role === 'teacher');
+    if (isSlt && sltScope.scopeType === 'custom') {
+      list = list.filter((t) => {
+        const info = extractClassTeacherInfo(t, subjectClasses);
+        if (info.isClassTeacher && info.classKey) {
+          const [tg] = info.classKey.split('-');
+          if (sltScope.managedGrades.includes(tg)) {
+            if (sltScope.managedSections.length === 0 || sltScope.managedSections.includes(info.classKey)) return true;
+          }
+        }
+        const teachesInScope = (subjectClasses || []).some((sc) => {
+          if (sc.teacher_id === t.id) {
+            const g = (sc.class_name || sc.name || '').replace(/[^0-9]/g, '');
+            if (sltScope.managedGrades.includes(g)) {
+              if (sltScope.managedSections.length === 0) return true;
+              if (sc.section && sltScope.managedSections.includes(`${g}-${sc.section.trim().toUpperCase()}`)) return true;
+            }
+          }
+          return false;
+        });
+        return teachesInScope;
+      });
+    }
+    return list;
+  }, [profiles, isSlt, sltScope, subjectClasses]);
+
   const parents = useMemo(() => profiles.filter((p) => p.role === 'parent'), [profiles]);
   const admins = useMemo(() => profiles.filter((p) => p.role === 'admin'), [profiles]);
 
@@ -359,13 +497,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     // Add explicitly created sections
     createdSections.forEach((s) => classSet.add(s));
 
-    return Array.from(classSet).sort((a, b) => {
+    const sorted = Array.from(classSet).sort((a, b) => {
       const [ga, sa] = a.split('-');
       const [gb, sb] = b.split('-');
       if (parseInt(ga) !== parseInt(gb)) return parseInt(ga) - parseInt(gb);
       return sa.localeCompare(sb);
     });
-  }, [students, teachers, subjectClasses]);
+
+    if (isSlt && sltScope.scopeType === 'custom') {
+      return sorted.filter((cls) => {
+        const [g] = cls.split('-');
+        if (!sltScope.managedGrades.includes(g)) return false;
+        if (sltScope.managedSections.length > 0) {
+          return sltScope.managedSections.includes(cls);
+        }
+        return true;
+      });
+    }
+
+    return sorted;
+  }, [students, teachers, subjectClasses, createdSections, isSlt, sltScope]);
 
   // ─── GLOBAL GRADE FILTER DATA FOR OVERVIEW DASHBOARD ───────────────────
   const overviewStudents = useMemo(() => {
@@ -381,9 +532,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   }, [activeClassList, overviewGradeFilter]);
 
   const overviewSubjectClasses = useMemo(() => {
-    if (overviewGradeFilter === 'all') return subjectClasses;
-    return subjectClasses.filter((sc) => isSubjectClassInGrade(sc, overviewGradeFilter, profiles));
-  }, [subjectClasses, overviewGradeFilter, profiles]);
+    let base = subjectClasses;
+    if (isSlt && sltScope.scopeType === 'custom') {
+      base = base.filter((sc) => {
+        const g = (sc.class_name || sc.name || '').replace(/[^0-9]/g, '');
+        if (g && !sltScope.managedGrades.includes(g)) return false;
+        if (sltScope.managedSections.length > 0 && sc.section) {
+          return sltScope.managedSections.includes(`${g}-${sc.section.trim().toUpperCase()}`);
+        }
+        return true;
+      });
+    }
+    if (overviewGradeFilter === 'all') return base;
+    return base.filter((sc) => isSubjectClassInGrade(sc, overviewGradeFilter, profiles));
+  }, [subjectClasses, overviewGradeFilter, profiles, isSlt, sltScope]);
 
   const overviewTeachers = useMemo(() => {
     if (overviewGradeFilter === 'all') return teachers;
@@ -425,6 +587,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return [...overviewStudents, ...overviewTeachers, ...overviewParents].filter((p) => !p.is_deactivated);
   }, [overviewGradeFilter, profiles, overviewStudents, overviewTeachers, overviewParents]);
 
+  // Live listener for marks update
+  useEffect(() => {
+    const handleUpdate = () => {
+      onRefreshData?.();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('woodlem-marks-updated', handleUpdate);
+      return () => window.removeEventListener('woodlem-marks-updated', handleUpdate);
+    }
+  }, [onRefreshData]);
+
   const overviewAnalytics = useMemo(() => {
     return computeExecutiveAnalytics({
       profiles: overviewProfiles,
@@ -433,13 +606,98 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       syllabus: syllabus || [],
       attendance: attendance || {},
       testResults: testResults || {},
+      offlineAssessments: offlineAssessments || [],
+      offlineMarks: offlineMarks || [],
       selectedGradeFilter: overviewGradeFilter,
     });
-  }, [overviewProfiles, overviewSubjectClasses, tests, syllabus, attendance, testResults, overviewGradeFilter]);
+  }, [overviewProfiles, overviewSubjectClasses, tests, syllabus, attendance, testResults, offlineAssessments, offlineMarks, overviewGradeFilter]);
 
-  const displayHubActivities = useMemo(() => {
-    return (hubActivities || []).filter(isAuthenticHubActivity);
-  }, [hubActivities]);
+  // Compute score distribution DIRECTLY from raw marks and test results
+  const directScoreDistribution = useMemo(() => {
+    const assessmentMap = new Map<string, number>();
+    (offlineAssessments || []).forEach((a) => {
+      const max = Number(a.maximum_marks);
+      if (Number.isFinite(max) && max > 0) {
+        assessmentMap.set(a.id, max);
+      }
+    });
+
+    const counts = { ap: 0, a: 0, b: 0, c: 0, d: 0, f: 0 };
+    let total = 0;
+    let scoreSum = 0;
+
+    // 1. Process offline assessment marks
+    (offlineMarks || []).forEach((m) => {
+      if (!m || m.marks === null || m.marks === undefined || (m.marks as any) === '') return;
+      const numMarks = Number(m.marks);
+      if (!Number.isFinite(numMarks)) return;
+
+      if (overviewGradeFilter !== 'all') {
+        const student = profiles.find((p) => p.id === m.student_id);
+        if (student) {
+          const cleanG = (student.grade || '').replace(/[^0-9]/g, '');
+          if (cleanG && cleanG !== overviewGradeFilter) return;
+        }
+      }
+
+      let maxMarks = assessmentMap.get(m.assessment_id);
+      if (!maxMarks || maxMarks <= 0) {
+        maxMarks = numMarks <= 40 ? 40 : 100;
+      }
+
+      const pct = Math.min(100, Math.max(0, Math.round((numMarks / maxMarks) * 100)));
+      scoreSum += pct;
+      total++;
+      if (pct >= 90) counts.ap++;
+      else if (pct >= 80) counts.a++;
+      else if (pct >= 70) counts.b++;
+      else if (pct >= 60) counts.c++;
+      else if (pct >= 50) counts.d++;
+      else counts.f++;
+    });
+
+    // 2. Also incorporate online testResults if any
+    if (testResults && Object.keys(testResults).length > 0) {
+      Object.values(testResults).forEach((tr: any) => {
+        if (!tr || tr.score === null || tr.score === undefined || (tr.score as any) === '') return;
+        const s = typeof tr.score === 'number' ? tr.score : Number(tr.score);
+        if (!Number.isFinite(s)) return;
+
+        if (overviewGradeFilter !== 'all') {
+          const student = profiles.find((p) => p.id === tr.student_id);
+          if (student) {
+            const cleanG = (student.grade || '').replace(/[^0-9]/g, '');
+            if (cleanG && cleanG !== overviewGradeFilter) return;
+          }
+        }
+
+        const pct = Math.min(100, Math.max(0, Math.round(s)));
+        scoreSum += pct;
+        total++;
+        if (pct >= 90) counts.ap++;
+        else if (pct >= 80) counts.a++;
+        else if (pct >= 70) counts.b++;
+        else if (pct >= 60) counts.c++;
+        else if (pct >= 50) counts.d++;
+        else counts.f++;
+      });
+    }
+
+    const overallAvg = total > 0 ? Math.round((scoreSum / total) * 10) / 10 : 0;
+
+    return {
+      overallAvg,
+      total,
+      brackets: [
+        { gradeLetter: 'A+', label: 'Outstanding', range: '90–100%', count: counts.ap, percentage: total > 0 ? Math.round((counts.ap / total) * 100) : 0, color: '#265E5A', bg: '#EAF3EF', border: '#C7E4D8' },
+        { gradeLetter: 'A',  label: 'Excellent',   range: '80–89%',  count: counts.a,  percentage: total > 0 ? Math.round((counts.a  / total) * 100) : 0, color: '#2C6E6A', bg: '#EDF5F2', border: '#C7E4D8' },
+        { gradeLetter: 'B',  label: 'Very Good',   range: '70–79%',  count: counts.b,  percentage: total > 0 ? Math.round((counts.b  / total) * 100) : 0, color: '#2B5B75', bg: '#EBF3F7', border: '#C8DCE5' },
+        { gradeLetter: 'C',  label: 'Good',        range: '60–69%',  count: counts.c,  percentage: total > 0 ? Math.round((counts.c  / total) * 100) : 0, color: '#9E6835', bg: '#FEF7EC', border: '#F3D9A0' },
+        { gradeLetter: 'D',  label: 'Pass',        range: '50–59%',  count: counts.d,  percentage: total > 0 ? Math.round((counts.d  / total) * 100) : 0, color: '#B37D4A', bg: '#FBF6F0', border: '#ECD8C3' },
+        { gradeLetter: 'F',  label: 'Needs Support', range: '<50%',  count: counts.f,  percentage: total > 0 ? Math.round((counts.f  / total) * 100) : 0, color: '#D9534F', bg: '#FDF1F0', border: '#F5C6CB' },
+      ],
+    };
+  }, [offlineMarks, offlineAssessments, testResults, overviewGradeFilter, profiles]);
 
   // Portal Navigation & AI Copilot Integration
   const { isAiPanelOpen, toggleAiPanel, subscribeToNavigation } = usePortalNavigation();
@@ -455,8 +713,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setActiveTab('classes');
       } else if (target.view === 'assessments' || target.view === 'exams' || target.view === 'terms' || target.view === 'marks') {
         setActiveTab('assessments');
-      } else if (target.view === 'hub' || target.view === 'activities') {
-        setActiveTab('hub');
       } else if (target.view === 'settings' || target.view === 'password') {
         setActiveTab('settings');
       } else if (target.view === 'support' || target.view === 'helpdesk') {
@@ -476,6 +732,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Filtered profiles for User Directory
   const filteredProfiles = useMemo(() => {
     return profiles.filter((p) => {
+      // Strict Jurisdictional Scoping for SLT
+      if (isSlt && sltScope.scopeType === 'custom') {
+        if (p.role === 'student') {
+          const cleanG = (p.grade || '').replace(/[^0-9]/g, '');
+          if (!sltScope.managedGrades.includes(cleanG)) return false;
+          if (sltScope.managedSections.length > 0) {
+            const cleanS = (p.class_letter || '').toUpperCase().trim();
+            if (!sltScope.managedSections.includes(`${cleanG}-${cleanS}`)) return false;
+          }
+        }
+      }
+
       // Deactivated category filtering
       if (roleFilter === 'deactivated') {
         if (!p.is_deactivated) return false;
@@ -522,7 +790,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
       return true;
     });
-  }, [profiles, roleFilter, classFilter, searchQuery, subjectClasses]);
+  }, [profiles, roleFilter, classFilter, searchQuery, subjectClasses, isSlt, sltScope]);
 
   // Pagination calculation (50 records per page)
   const totalPages = Math.ceil(filteredProfiles.length / pageSize) || 1;
@@ -597,7 +865,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (p.role === 'student') {
       const cleanG = (p.grade || '').replace(/[^0-9]/g, '') || '10';
       const cleanS = (p.class_letter || 'A').toUpperCase().trim();
-      return `Grade ${cleanG}-${cleanS}`;
+      const subList = p.enrolled_subjects || (p.subject ? p.subject.split(',').map((s) => s.trim()).filter(Boolean) : []);
+      const subHint = subList.length > 0 ? ` • ${subList.length} Subject${subList.length > 1 ? 's' : ''}` : '';
+      return `Grade ${cleanG}-${cleanS}${subHint}`;
     }
     if (p.role === 'teacher') {
       const info = extractClassTeacherInfo(p, subjectClasses);
@@ -793,8 +1063,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div style={{ minWidth: 0, flexShrink: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <h1 style={{ margin: 0, fontSize: 14, lineHeight: 1.35, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--neutral-dark)', fontFamily: 'var(--font-display)' }}>
-              Executive Control Console
+              {isPrincipal ? 'Woodlem Park Institutional Governance' : isSlt ? 'Woodlem Park Senior Leadership' : 'Executive Control Console'}
             </h1>
+            {isPrincipal && (
+              <span style={{ fontSize: 9.5, fontWeight: 800, padding: '2px 6px', borderRadius: 4, background: '#FEF3C7', color: '#92400E' }}>
+                SUPER ADMIN
+              </span>
+            )}
+            {isSlt && (
+              <span style={{ fontSize: 9.5, fontWeight: 800, padding: '2px 6px', borderRadius: 4, background: '#EFF6FF', color: '#1D4ED8' }}>
+                SLT EXECUTIVE
+              </span>
+            )}
           </div>
         </div>
 
@@ -859,6 +1139,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           >
             Export Accounts
           </button>
+          <button
+            onClick={() => setIsExportAttendanceModalOpen(true)}
+            style={{
+              padding: '6px 12px',
+              fontSize: 11.5,
+              fontWeight: 600,
+              color: '#FFFFFF',
+              background: '#2C6E6A',
+              border: '1px solid #2C6E6A',
+              borderRadius: 6,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+            }}
+          >
+            <Download size={13} /> Export Attendance
+          </button>
         </div>
       </div>
 
@@ -876,7 +1174,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {
             label: 'STUDENTS',
             val: overviewStudents.length,
-            sub: `Active cohort (${overviewAnalytics.overallAverageScore}% mean)`,
+            sub: `Active cohort (${directScoreDistribution.overallAvg || overviewAnalytics.overallAverageScore}% mean)`,
             tab: 'directory' as const,
             role: 'student' as const,
             isAlert: false,
@@ -935,32 +1233,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         ))}
       </div>
 
-      {/* ── RICH ANALYTICS CHARTS SECTION ─────────────────────────────────── */}
-      <div style={{ marginBottom: 12 }}>
-        <ScoreDistributionChart
-          data={overviewAnalytics.scoreDistribution}
-          overallAverage={overviewAnalytics.overallAverageScore}
-          totalStudents={overviewAnalytics.totalEnrollment}
-        />
-      </div>
+      {/* ── RICH ANALYTICS CHARTS SECTION (Gated by canViewAnalytics) ────── */}
+      {(!isSlt || sltPermissions.canViewAnalytics !== false) && (
+        <>
+          <div style={{ marginBottom: 12 }}>
+            <ScoreDistributionChart
+              data={directScoreDistribution.brackets}
+              overallAverage={directScoreDistribution.overallAvg}
+              totalStudents={overviewAnalytics.totalEnrollment}
+            />
+          </div>
 
-      <RecentRegistersTable
-        subjectClasses={overviewSubjectClasses}
-        profiles={overviewProfiles}
-        offlineAssessments={offlineAssessments}
-        offlineMarks={offlineMarks}
-        onOpenClassMarks={(className: string) => {
-          const matched = overviewSubjectClasses.find(
-            (sc) => (sc.name || sc.class_name || '') === className || sc.class_name === className || sc.id === className
-          );
-          if (matched) setActiveMarkEntryClass(matched);
-        }}
-      />
+          <RecentRegistersTable
+            subjectClasses={overviewSubjectClasses}
+            profiles={overviewProfiles}
+            offlineAssessments={offlineAssessments}
+            offlineMarks={offlineMarks}
+            onOpenClassMarks={(className: string) => {
+              if (isSlt && sltPermissions.canAuditMarks === false) {
+                alert('Marks register access is restricted for your account.');
+                return;
+              }
+              const matched = overviewSubjectClasses.find(
+                (sc) => (sc.name || sc.class_name || '') === className || sc.class_name === className || sc.id === className
+              );
+              if (matched) setActiveMarkEntryClass(matched);
+            }}
+          />
+        </>
+      )}
 
       {/* Recent User Registrations (Dense Table) */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
         <div style={{ padding: '9px 14px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--neutral-dark)' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.02em', textTransform: 'none', color: 'var(--neutral-dark)' }}>
             Recent Accounts {overviewGradeFilter !== 'all' ? `(Grade ${overviewGradeFilter})` : ''}
           </span>
           <button
@@ -2123,7 +2429,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           >
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#FAF9F6' }}>
               <div>
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Centralized Section Setup</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'none', letterSpacing: '0.02em' }}>Centralized Section Setup</span>
                 <h3 style={{ margin: '2px 0 0', fontSize: 15, fontWeight: 700, color: 'var(--neutral-dark)' }}>Create Class Section</h3>
               </div>
               <button
@@ -2233,90 +2539,52 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
 
 
-  // ─── TAB 5: HOLISTIC HUB ────────────────────────────────────────────────────
-  const renderHub = () => (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-      <div
-        style={{
-          padding: '10px 14px',
-          borderBottom: '1px solid var(--border-color)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: '#FAF9F6',
-        }}
-      >
-        <div>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>Holistic Development Programs</span>
-          <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 8 }}>
-            {displayHubActivities.length} published activities
-          </span>
-        </div>
-      </div>
+  // Dynamic tab protection safeguard
+  useEffect(() => {
+    if (isSlt) {
+      if (activeTab === 'delegation') setActiveTab('overview');
+      if (activeTab === 'directory' && sltPermissions.canViewDirectory === false) setActiveTab('overview');
+      if (activeTab === 'classes' && sltPermissions.canManageClasses === false) setActiveTab('overview');
+      if (activeTab === 'assessments' && sltPermissions.canAuditMarks === false) setActiveTab('overview');
+      if (activeTab === 'late_entry' && sltPermissions.canManageLateEntries === false) setActiveTab('overview');
+      if (activeTab === 'settings' && sltPermissions.canManageSettings !== true) setActiveTab('overview');
+    }
+  }, [isSlt, activeTab, sltPermissions]);
 
-      <div style={{ overflowX: 'auto' }}>
-        {displayHubActivities.length === 0 ? (
-          <div style={{ padding: '36px 20px', textAlign: 'center' }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--neutral-dark)' }}>No activities published</div>
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>Extracurricular programs created by teachers will be listed here.</div>
-          </div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ ...thStyle, width: 32 }}>#</th>
-                <th style={thStyle}>Activity Title</th>
-                <th style={thStyle}>Category</th>
-                <th style={thStyle}>Event Date</th>
-                <th style={thStyle}>Target Grades</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Enrollment</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayHubActivities.map((act, idx) => (
-                <tr key={act.id} style={{ background: idx % 2 === 0 ? '#FFFFFF' : '#FAF9F7' }}>
-                  <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
-                  <td style={{ ...tdStyle, fontWeight: 600 }}>{act.title}</td>
-                  <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11.5 }}>{act.type}</td>
-                  <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11.5 }}>{act.date}</td>
-                  <td style={{ ...tdStyle, fontSize: 11.5 }}>{(act.target_grades || []).join(', ') || 'All Grades'}</td>
-                  <td style={{ ...tdStyle, textAlign: 'right' }}>
-                    <span
-                      style={{
-                        padding: '2px 6px',
-                        fontSize: 10.5,
-                        fontWeight: 700,
-                        borderRadius: 4,
-                        background: '#EBF3F2',
-                        color: '#2C6E6A',
-                        border: '1px solid #CBE2DF',
-                      }}
-                    >
-                      {(act.enrolled_student_ids || []).length} / {students.length}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  );
-
-
-
-  const tabs: { id: AdminTab; label: string; count?: number; isAlert?: boolean }[] = [
-    { id: 'overview', label: 'OVERVIEW' },
-    { id: 'delegation', label: 'SPECIAL ACCESS & ROLES' },
-    { id: 'directory', label: 'USER DIRECTORY', count: profiles.length },
-    { id: 'classes', label: 'CLASSES & SECTIONS', count: activeClassList.length },
-    { id: 'assessments', label: 'EXAM TERMS & MARKS' },
-    { id: 'late_entry', label: 'LATE ENTRY DESK & AUDIT', count: lateEntries.length },
-    { id: 'hub', label: 'HOLISTIC HUB', count: displayHubActivities.length },
-    { id: 'settings', label: 'SETTINGS & PASSWORDS' },
-    { id: 'support', label: 'HELP & SUPPORT' },
-  ];
+  const tabs: { id: AdminTab; label: string; count?: number; isAlert?: boolean }[] = useMemo(() => {
+    if (!canManageSpecialRoles) {
+      const sltTabs: { id: AdminTab; label: string; count?: number; isAlert?: boolean }[] = [
+        { id: 'overview', label: 'Overview' },
+      ];
+      if (sltPermissions.canViewDirectory !== false) {
+        sltTabs.push({ id: 'directory', label: 'User Directory', count: profiles.length });
+      }
+      if (sltPermissions.canManageClasses !== false) {
+        sltTabs.push({ id: 'classes', label: 'Classes & Sections', count: activeClassList.length });
+      }
+      if (sltPermissions.canAuditMarks !== false) {
+        sltTabs.push({ id: 'assessments', label: 'Exam Terms & Marks' });
+      }
+      if (sltPermissions.canManageLateEntries !== false) {
+        sltTabs.push({ id: 'late_entry', label: 'Late Entry Desk & Audit', count: lateEntries.length });
+      }
+      if (sltPermissions.canManageSettings === true) {
+        sltTabs.push({ id: 'settings', label: 'Settings & Passwords' });
+      }
+      sltTabs.push({ id: 'support', label: 'Help & Support' });
+      return sltTabs;
+    }
+    return [
+      { id: 'overview', label: 'Overview' },
+      { id: 'delegation', label: 'Special Access & Roles' },
+      { id: 'directory', label: 'User Directory', count: profiles.length },
+      { id: 'classes', label: 'Classes & Sections', count: activeClassList.length },
+      { id: 'assessments', label: 'Exam Terms & Marks' },
+      { id: 'late_entry', label: 'Late Entry Desk & Audit', count: lateEntries.length },
+      { id: 'settings', label: 'Settings & Passwords' },
+      { id: 'support', label: 'Help & Support' },
+    ];
+  }, [canManageSpecialRoles, sltPermissions, profiles.length, activeClassList.length, lateEntries.length]);
 
   return (
     <div className="app-viewport admin-viewport">
@@ -2348,13 +2616,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             padding: '10px 16px 12px',
             fontSize: 10.5,
             fontWeight: 700,
-            letterSpacing: '0.08em',
+            letterSpacing: '0.04em',
             color: '#8C8A84',
-            textTransform: 'uppercase',
+            textTransform: 'none',
             borderBottom: '1px solid #E8E5DF',
             flexShrink: 0,
           }}>
-            Admin Management Console
+            {isPrincipal ? 'Principal Super Admin Console' : isSlt ? 'Senior Leadership Suite' : 'Admin Management Console'}
           </div>
         )}
 
@@ -2362,7 +2630,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {sidebar.isCollapsed ? (
           <div style={{ padding: '12px 0 6px', display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
             <div
-              title={`Administrator • ${currentUser.name || 'Admin'}`}
+              title={`${isPrincipal ? 'Principal & Super Admin' : isSlt ? (currentUser.designation || 'Senior Leadership') : 'Administrator'} • ${currentUser.name || 'Admin'}`}
               style={{
                 width: 36,
                 height: 36,
@@ -2376,7 +2644,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 fontWeight: 800,
               }}
             >
-              {(currentUser.name || 'A').charAt(0).toUpperCase()}
+              {isPrincipal ? <Crown size={18} style={{ color: '#F59E0B' }} /> : isSlt ? <ShieldCheck size={18} /> : (currentUser.name || 'A').charAt(0).toUpperCase()}
             </div>
           </div>
         ) : (
@@ -2388,26 +2656,83 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             background: '#FAF9F6',
             flexShrink: 0,
           }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A', marginBottom: 2 }}>
-              {currentUser.name || 'Admin'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+              {isPrincipal ? (
+                <Crown size={14} style={{ color: '#D97706' }} />
+              ) : isSlt ? (
+                <ShieldCheck size={14} style={{ color: '#2C6E6A' }} />
+              ) : null}
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>
+                {currentUser.name || (isPrincipal ? 'Principal' : 'Admin')}
+              </div>
             </div>
             <div style={{ fontSize: 11, color: '#6B6963', marginBottom: 8 }}>
-              {currentUser.email || 'admin@woodlempark.ae'}
+              {currentUser.email || (isPrincipal ? 'principal@woodlempark.ae' : 'admin@woodlempark.ae')}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div
+              style={{
+                padding: '5px 8px',
+                background: '#FFFFFF',
+                border: '1px dashed #D5D3CC',
+                borderRadius: 6,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 6,
+              }}
+            >
               <span style={{
-                fontSize: 10,
+                fontSize: 9.5,
                 fontWeight: 700,
-                letterSpacing: '0.06em',
-                background: '#1A1A1A',
-                color: '#FFFFFF',
-                padding: '3px 8px',
-                borderRadius: 4,
-                textTransform: 'uppercase',
+                color: isPrincipal ? '#92400E' : isSlt ? '#2C6E6A' : '#1A1A1A',
+                letterSpacing: '0.02em',
+                textTransform: 'none',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
               }}>
-                Administrator
+                {isPrincipal ? 'Principal & Super Admin' : isSlt ? (currentUser.designation || 'Senior Leadership') : 'Administrator'}
               </span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#2D8C5E', flexShrink: 0 }}>Active</span>
             </div>
+
+            {isSlt && (
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: '4px 7px',
+                  borderRadius: 4,
+                  background: sltScope.scopeType === 'all' ? '#EFF6FF' : '#EAF3EF',
+                  border: sltScope.scopeType === 'all' ? '1px solid #BFDBFE' : '1px solid #C7E4D8',
+                  fontSize: 9.5,
+                  color: sltScope.scopeType === 'all' ? '#1D4ED8' : '#2C6E6A',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+                title={
+                  sltScope.scopeType === 'all'
+                    ? 'Jurisdiction: Whole Institution (All Grades 9-12)'
+                    : `Jurisdiction: Grades ${sltScope.managedGrades.join(', ')}${
+                        sltScope.managedSections.length > 0
+                          ? ` • Sections: ${sltScope.managedSections.join(', ')}`
+                          : ' • All Sections'
+                      }`
+                }
+              >
+                <Building size={10} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {sltScope.scopeType === 'all'
+                    ? 'Whole School (Grades 9-12)'
+                    : `Grades ${sltScope.managedGrades.join(', ')}${
+                        sltScope.managedSections.length > 0
+                          ? ` • Sec: ${sltScope.managedSections.join(', ')}`
+                          : ' • All Sections'
+                      }`}
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -2417,10 +2742,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div style={{
               fontSize: 10,
               fontWeight: 700,
-              letterSpacing: '0.08em',
+              letterSpacing: '0.04em',
               color: '#9E9A94',
               padding: '0 16px 6px',
-              textTransform: 'uppercase',
+              textTransform: 'none',
             }}>
               Navigation
             </div>
@@ -2447,7 +2772,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 case 'classes': return <BookOpen size={16} />;
                 case 'assessments': return <FileSpreadsheet size={16} />;
                 case 'late_entry': return <Clock size={16} />;
-                case 'hub': return <Award size={16} />;
                 case 'settings': return <Settings size={16} />;
                 case 'support': return <LifeBuoy size={16} />;
 
@@ -2503,9 +2827,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <span style={{
                           fontSize: 11.5,
                           fontWeight: isActive ? 700 : 600,
-                          letterSpacing: '0.04em',
+                          letterSpacing: '0.02em',
                           color: isActive ? '#FFFFFF' : '#3A3834',
-                          textTransform: 'uppercase',
+                          textTransform: 'none',
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
@@ -2617,9 +2941,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.4, color: 'var(--neutral-dark)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, textTransform: 'none', letterSpacing: '0.02em', lineHeight: 1.4, color: 'var(--neutral-dark)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {tabs.find((t) => t.id === activeTab)?.label}
-              {selectedUserForEdit ? ` / EDIT USER: ${selectedUserForEdit.name}` : ''}
+              {selectedUserForEdit ? ` / Edit User: ${selectedUserForEdit.name}` : ''}
             </span>
           </div>
 
@@ -2670,11 +2994,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               />
             </div>
           ) : selectedUserForEdit ? (() => {
-            const activeUser = profiles.find(
+            const foundProfile = profiles.find(
               (p) =>
                 (selectedUserForEdit.id && p.id === selectedUserForEdit.id) ||
                 (p.email && selectedUserForEdit.email && p.email.toLowerCase().trim() === selectedUserForEdit.email.toLowerCase().trim())
-            ) || selectedUserForEdit;
+            );
+            const activeUser = {
+              ...(foundProfile || {}),
+              ...selectedUserForEdit,
+            };
 
             return (
               <UserDetailView
@@ -2684,6 +3012,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 subjectClasses={subjectClasses}
                 onBack={() => setSelectedUserForEdit(null)}
                 onSave={async (updated) => {
+                  setSelectedUserForEdit(updated);
                   if (onUpdateUser) {
                     await onUpdateUser(updated);
                   } else {
@@ -2727,7 +3056,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   onRefreshData={onRefreshData}
                 />
               )}
-              {activeTab === 'hub' && renderHub()}
               {activeTab === 'settings' && (
                 <SettingsView currentUser={currentUser} profiles={profiles} onRefreshData={onRefreshData} />
               )}
@@ -2747,6 +3075,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         onMergeGroup={handleMergeGroup}
         onMergeAll={handleMergeAllDuplicates}
         isMerging={isMerging}
+      />
+
+      <ExportAttendanceModal
+        isOpen={isExportAttendanceModalOpen}
+        onClose={() => setIsExportAttendanceModalOpen(false)}
+        attendance={attendance || {}}
+        students={profiles.filter((p) => p.role === 'student' && (!overviewGradeFilter || overviewGradeFilter === 'all' || p.grade === overviewGradeFilter || (p.grade && p.grade.includes(overviewGradeFilter))))}
+        classroomLabel={overviewGradeFilter === 'all' ? 'Woodlem Park School (All Grades)' : `Grade ${overviewGradeFilter} Attendance Register`}
+        teacherName={currentUser.name}
       />
     </div>
   );

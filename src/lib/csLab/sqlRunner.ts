@@ -15,6 +15,26 @@ export interface SqlStatementResult {
   rows?: any[][];
 }
 
+export interface SqlColumnInfo {
+  name: string;
+  type: string;
+  isPk: boolean;
+  notNull: boolean;
+  defaultValue: any;
+}
+
+export interface SqlTableInfo {
+  name: string;
+  columns: SqlColumnInfo[];
+  rowCount: number;
+  sampleRows: any[][];
+}
+
+export interface SqlSchemaIntrospection {
+  tables: SqlTableInfo[];
+  error?: string;
+}
+
 export interface SqlRunOutcome {
   statements: SqlStatementResult[];
   combinedOutput: string;
@@ -167,6 +187,64 @@ export class SqlLabSession {
       return btoa(binary);
     } catch {
       return '';
+    }
+  }
+
+  /** Introspect all user tables, their columns, data types, primary keys, and sample rows */
+  introspectSchema(): SqlSchemaIntrospection {
+    if (!this.db) return { tables: [] };
+    try {
+      const res = this.db.exec(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name ASC;"
+      );
+      if (!res || res.length === 0 || !res[0].values) {
+        return { tables: [] };
+      }
+      const tableNames: string[] = res[0].values.map((row: any[]) => String(row[0]));
+      const tables: SqlTableInfo[] = [];
+
+      for (const tName of tableNames) {
+        let columns: SqlColumnInfo[] = [];
+        try {
+          const colRes = this.db.exec(`PRAGMA table_info("${tName.replace(/"/g, '""')}");`);
+          if (colRes && colRes.length > 0 && colRes[0].values) {
+            columns = colRes[0].values.map((c: any[]) => ({
+              name: String(c[1]),
+              type: String(c[2] || 'TEXT').toUpperCase(),
+              notNull: Number(c[3]) === 1,
+              defaultValue: c[4],
+              isPk: Number(c[5]) > 0,
+            }));
+          }
+        } catch {}
+
+        let rowCount = 0;
+        try {
+          const countRes = this.db.exec(`SELECT COUNT(*) FROM "${tName.replace(/"/g, '""')}";`);
+          if (countRes && countRes[0]?.values?.[0]?.[0] !== undefined) {
+            rowCount = Number(countRes[0].values[0][0]);
+          }
+        } catch {}
+
+        let sampleRows: any[][] = [];
+        try {
+          const sampleRes = this.db.exec(`SELECT * FROM "${tName.replace(/"/g, '""')}" LIMIT 10;`);
+          if (sampleRes && sampleRes.length > 0 && sampleRes[0].values) {
+            sampleRows = sampleRes[0].values;
+          }
+        } catch {}
+
+        tables.push({
+          name: tName,
+          columns,
+          rowCount,
+          sampleRows,
+        });
+      }
+
+      return { tables };
+    } catch (e: any) {
+      return { tables: [], error: e?.message || String(e) };
     }
   }
 

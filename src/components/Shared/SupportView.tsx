@@ -94,7 +94,7 @@ export const SupportView: React.FC<SupportViewProps> = () => {
         }}
       >
         <div>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#2C6E6A', textTransform: 'none', letterSpacing: '0.02em' }}>
             Woodlem Park School · Al Jurf, Ajman
           </span>
           <h2 style={{ margin: '2px 0 0', fontSize: 17, fontWeight: 800, color: 'var(--neutral-dark)' }}>
@@ -139,7 +139,7 @@ export const SupportView: React.FC<SupportViewProps> = () => {
             }}
           >
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#00F5D4', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#00F5D4', textTransform: 'none', letterSpacing: '0.02em' }}>
                 Official Campus Headquarters
               </div>
               <h3 style={{ margin: '4px 0 2px', fontSize: 18, fontWeight: 800, letterSpacing: '0.01em' }}>
@@ -327,7 +327,7 @@ export const SupportView: React.FC<SupportViewProps> = () => {
                     { value: 'Technical Support', label: 'Technical' },
                   ]}
                   height={32}
-                  textTransform="uppercase"
+                  textTransform="none"
                 />
               </div>
 
@@ -415,8 +415,8 @@ export const SupportView: React.FC<SupportViewProps> = () => {
                             fontSize: 10,
                             fontWeight: 700,
                             color: '#2C6E6A',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.04em',
+                            textTransform: 'none',
+                            letterSpacing: '0.02em',
                             marginRight: 8,
                           }}
                         >
