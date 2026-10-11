@@ -2786,7 +2786,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   }}
                 >
                   <Plus size={13} />
-                  <span>+ Add Subject Class</span>
+                  <span>Add Subject Class</span>
                 </button>
               )}
             </div>
