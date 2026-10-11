@@ -103,7 +103,9 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({
   // Target grades students
   const targetGradesStudents = useMemo(() => {
     if (!targetGrades || targetGrades.length === 0) return [];
-    const targets = targetGrades.map((t) => t.toLowerCase().replace(/\s+/g, '').replace(/^grade/, ''));
+    const targets = targetGrades.map((t) =>
+      String(t || '').toLowerCase().replace(/\s+/g, '').replace(/^grade/, '')
+    );
     return allStudents.filter((s) => {
       const sGrade = (s.grade || '').replace(/[^0-9]/g, '');
       const sLetter = (s.class_letter || '').toUpperCase().trim();
@@ -111,6 +113,19 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({
       return targets.some((t) => t === sGrade || t === sClassKey);
     });
   }, [allStudents, targetGrades]);
+
+  // Compute final enrolled IDs to submit (must be before any early return)
+  const computedEnrolledIds = useMemo(() => {
+    let ids = [...uploadedStudentIds];
+    if (autoEnrollClass) {
+      if (targetClassStudents.length > 0) {
+        ids = [...ids, ...targetClassStudents.map((s) => s.id)];
+      } else if (targetGradesStudents.length > 0) {
+        ids = [...ids, ...targetGradesStudents.map((s) => s.id)];
+      }
+    }
+    return Array.from(new Set(ids));
+  }, [uploadedStudentIds, autoEnrollClass, targetClassStudents, targetGradesStudents]);
 
   useEffect(() => {
     if (editActivity) {
@@ -121,8 +136,8 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({
       setVideoUrl(editActivity.video_url || '');
       setLocation((editActivity as any).location || '');
       setMaxCapacity(String((editActivity as any).max_capacity || ''));
-      setTargetGrades(editActivity.target_grades || []);
-      setUploadedStudentIds(editActivity.enrolled_student_ids || []);
+      setTargetGrades(Array.isArray(editActivity.target_grades) ? editActivity.target_grades : []);
+      setUploadedStudentIds(Array.isArray(editActivity.enrolled_student_ids) ? editActivity.enrolled_student_ids : []);
       setAutoEnrollClass(false);
     } else {
       setTitle('');
@@ -215,18 +230,6 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({
     reader.readAsBinaryString(file);
   };
 
-  // Compute final enrolled IDs to submit
-  const computedEnrolledIds = useMemo(() => {
-    let ids = [...uploadedStudentIds];
-    if (autoEnrollClass) {
-      if (targetClassStudents.length > 0) {
-        ids = [...ids, ...targetClassStudents.map((s) => s.id)];
-      } else if (targetGradesStudents.length > 0) {
-        ids = [...ids, ...targetGradesStudents.map((s) => s.id)];
-      }
-    }
-    return Array.from(new Set(ids));
-  }, [uploadedStudentIds, autoEnrollClass, targetClassStudents, targetGradesStudents]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
