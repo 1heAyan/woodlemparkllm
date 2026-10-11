@@ -2,7 +2,7 @@
 
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import {
-  Plus, ChevronLeft, FlaskConical, Database, Code2,
+  Plus, ChevronLeft, ChevronDown, FlaskConical, Database, Code2,
   ClipboardCheck, CheckCircle2, XCircle, AlertTriangle, Eye, Trash2, Pencil, Send,
   Table, Key, Sparkles, Play, Check, Layers, FileCode, RotateCcw, HelpCircle, Info,
   Calendar, Users, CheckSquare, Square, Copy, Search, ArrowRight, X, Terminal
@@ -286,6 +286,51 @@ export const TeacherCSLabView: React.FC<TeacherCSLabViewProps> = ({
   onOverrideSubmission,
 }) => {
   const myClasses = useMemo(() => getTeacherCsClasses(currentUser, subjectClasses), [currentUser, subjectClasses]);
+  const csSummary = useMemo(() => {
+    if (myClasses.length === 0) return { label: 'No CS classes assigned', details: '' };
+    const subjects = Array.from(
+      new Set(myClasses.map((c) => c.subject || c.name.split('-')[0].trim()).filter(Boolean))
+    );
+    const subjectLabel = subjects.join(' & ') || 'Computer Science';
+    const grades = Array.from(
+      new Set(
+        myClasses
+          .map((c) => (c.class_name || '').replace(/[^0-9]/g, ''))
+          .filter(Boolean)
+      )
+    ).sort((a, b) => Number(a) - Number(b));
+    const gradeStr = grades.length > 0 ? `Grades ${grades.join(', ')}` : '';
+
+    if (myClasses.length === 1) {
+      return {
+        label: `${myClasses[0].name}`,
+        details: `${(myClasses[0].enrolled_student_ids || []).length} students`,
+      };
+    }
+
+    return {
+      label: `${subjectLabel} • ${myClasses.length} Classes`,
+      details: gradeStr,
+    };
+  }, [myClasses]);
+
+  const [showClassDropdown, setShowClassDropdown] = useState(false);
+  const classDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (classDropdownRef.current && !classDropdownRef.current.contains(e.target as Node)) {
+        setShowClassDropdown(false);
+      }
+    };
+    if (showClassDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showClassDropdown]);
+
   const myQuestions = useMemo(
     () =>
       (questions || [])
@@ -1484,8 +1529,92 @@ export const TeacherCSLabView: React.FC<TeacherCSLabViewProps> = ({
       <header className="content-header">
         <div className="header-top">
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#7C5CBF', letterSpacing: '0.06em' }}>
-              CS LAB · {myClasses.map((c) => c.name).join(', ') || 'No CS classes assigned'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: '#7C5CBF', letterSpacing: '0.06em' }}>
+                CS LAB
+              </span>
+              <span style={{ color: '#D8D1E8' }}>·</span>
+              {myClasses.length <= 1 ? (
+                <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#7C5CBF', letterSpacing: '0.04em' }}>
+                  {csSummary.label}
+                </span>
+              ) : (
+                <div ref={classDropdownRef} style={{ position: 'relative', display: 'inline-block' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowClassDropdown((prev) => !prev)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      background: showClassDropdown ? '#7C5CBF' : '#F3EFFA',
+                      color: showClassDropdown ? '#FFFFFF' : '#6D28D9',
+                      border: '1px solid #DACDF2',
+                      borderRadius: 14,
+                      padding: '2px 10px',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                    title="Click to view all assigned classrooms"
+                  >
+                    <Users size={12} />
+                    <span>{csSummary.label} {csSummary.details ? `(${csSummary.details})` : ''}</span>
+                    <ChevronDown size={12} style={{ transform: showClassDropdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+                  </button>
+
+                  {showClassDropdown && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 'calc(100% + 6px)',
+                        left: 0,
+                        background: '#FFFFFF',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 10,
+                        boxShadow: '0 12px 30px rgba(0,0,0,0.12)',
+                        padding: 12,
+                        zIndex: 100,
+                        minWidth: 280,
+                        maxWidth: 360,
+                        maxHeight: 280,
+                        overflowY: 'auto',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 6, borderBottom: '1px solid var(--border-color)' }}>
+                        <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: '#7C5CBF', letterSpacing: '0.04em' }}>
+                          Assigned Classes ({myClasses.length})
+                        </span>
+                        <span style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
+                          {myClasses.reduce((sum, c) => sum + (c.enrolled_student_ids || []).length, 0)} total students
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {myClasses.map((c) => (
+                          <div
+                            key={c.id}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              padding: '5px 8px',
+                              borderRadius: 6,
+                              background: '#F9F8F6',
+                              fontSize: 11.5,
+                            }}
+                          >
+                            <span style={{ fontWeight: 600, color: 'var(--neutral-dark)' }}>{c.name}</span>
+                            <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-secondary)', background: '#EAE8E3', padding: '1px 6px', borderRadius: 10 }}>
+                              {(c.enrolled_student_ids || []).length}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <h1 className="page-title" style={{ margin: '2px 0 0' }}>Computer Science Lab</h1>
             <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '4px 0 0' }}>

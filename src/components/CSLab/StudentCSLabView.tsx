@@ -335,7 +335,7 @@ export const StudentCSLabView: React.FC<StudentCSLabViewProps> = ({
           <div className="header-top">
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#7C5CBF', letterSpacing: '0.06em' }}>
-                CS LAB · {myCsClasses.map((c) => c.name).join(', ') || 'No CS class'}
+                CS LAB · {myCsClasses.length <= 1 ? (myCsClasses[0]?.name || 'No CS class') : `${myCsClasses[0]?.subject || 'Computer Science'} (${myCsClasses.length} Classes)`}
               </div>
               <h1 className="page-title" style={{ margin: '2px 0 0' }}>Coding Questions</h1>
               <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
