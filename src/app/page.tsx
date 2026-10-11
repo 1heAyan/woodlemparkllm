@@ -3233,14 +3233,67 @@ export default function WoodlemApp() {
   };
 
   const handleDeleteSubjectClass = async (id: string) => {
+    const targetClass = subjectClasses.find((c) => c.id === id);
+    const className = targetClass?.name || 'Classroom';
+
+    // 1. Optimistic updates in React state
     setSubjectClasses((prev) => prev.filter((c) => c.id !== id));
 
+    const linkedAssessments = offlineAssessments.filter((a) => a.class_id === id);
+    const linkedAssessmentIds = linkedAssessments.map((a) => a.id);
+
+    setOfflineAssessments((prev) => prev.filter((a) => a.class_id !== id));
+    if (linkedAssessmentIds.length > 0) {
+      setOfflineMarks((prev) => prev.filter((m) => !linkedAssessmentIds.includes(m.assessment_id)));
+    }
+    setClassResources((prev) => prev.filter((r) => r.class_id !== id));
+    setClassBroadcasts((prev) => prev.filter((b) => b.class_id !== id));
+
     try {
-      await supabase.from('subject_classes').delete().eq('id', id);
+      // 2. Cascade delete in Supabase
+      // A. Delete marks for offline assessments of this class
+      if (linkedAssessmentIds.length > 0) {
+        await supabase.from('offline_marks').delete().in('assessment_id', linkedAssessmentIds);
+      }
+
+      // B. Delete offline assessments
+      await supabase.from('offline_assessments').delete().eq('class_id', id);
+
+      // C. Delete class resources
+      await supabase.from('class_resources').delete().eq('class_id', id);
+
+      // D. Delete class broadcasts
+      await supabase.from('class_broadcasts').delete().eq('class_id', id);
+
+      // E. Delete syllabus terms & topics linked to this class
+      try {
+        const { data: terms } = await supabase.from('syllabus_terms').select('id').eq('class_id', id);
+        if (terms && terms.length > 0) {
+          const termIds = terms.map((t: any) => t.id);
+          await supabase.from('syllabus_topics').delete().in('term_id', termIds);
+          await supabase.from('syllabus_terms').delete().eq('class_id', id);
+        }
+      } catch (err) {
+        console.warn('Note: syllabus cleanup skipped or not applicable:', err);
+      }
+
+      // F. Delete the subject class row itself
+      const { error: deleteError } = await supabase.from('subject_classes').delete().eq('id', id);
+      if (deleteError) {
+        console.error('Error deleting class from Supabase:', deleteError);
+      }
+
+      recordAuditLog(
+        'DELETE_ACHIEVEMENT' as any,
+        className,
+        `Subject class "${className}" (${id}) and all associated records purged by ${currentUser.name}`
+      );
     } catch (e) {
       console.error('Error deleting class from Supabase:', e);
     }
-    alert('Classroom removed successfully.');
+
+    // Refresh all states across the platform
+    await loadAllData();
   };
 
   const handleUpdateSubjectClass = async (
@@ -4430,6 +4483,7 @@ export default function WoodlemApp() {
           onDeleteUser={handleDeleteUser}
           onBatchDeactivateUsers={handleBatchDeactivateUsers}
           onBatchDeleteUsers={handleBatchDeleteUsers}
+          onDeleteSubjectClass={handleDeleteSubjectClass}
           onSignOut={handleSignOut}
           onRefreshData={loadAllData}
         />

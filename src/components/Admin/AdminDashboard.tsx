@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock, Download, Building } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock, Download, Building, Trash2, Plus, Search, AlertTriangle } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
 import { supabase, UserProfile, ParentDocument, HubActivity, SubjectClass, TestItem, SyllabusTerm, LateEntryRecord, OfflineAssessment, OfflineAssessmentMark, SpecialRoleAssignment } from '@/lib/supabaseClient';
@@ -52,6 +52,7 @@ interface AdminDashboardProps {
   onDeleteUser: (userId: string) => void;
   onBatchDeactivateUsers?: (userIds: string[], deactivate: boolean) => Promise<void> | void;
   onBatchDeleteUsers?: (userIds: string[]) => Promise<void> | void;
+  onDeleteSubjectClass?: (classId: string) => Promise<void> | void;
   onSignOut: () => void;
   onRefreshData?: () => void;
 }
@@ -133,6 +134,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onDeleteUser,
   onBatchDeactivateUsers,
   onBatchDeleteUsers,
+  onDeleteSubjectClass,
   onSignOut,
   onRefreshData,
 }) => {
@@ -240,6 +242,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const pageSize = 50;
 
   const [selectedClassInspect, setSelectedClassInspect] = useState<string | null>(null);
+  const [classInspectStudentSearch, setClassInspectStudentSearch] = useState('');
+  const [classInspectSubjectSearch, setClassInspectSubjectSearch] = useState('');
+  const [deletingSubjectClass, setDeletingSubjectClass] = useState<SubjectClass | null>(null);
+  const [isDeletingClassLoading, setIsDeletingClassLoading] = useState(false);
+  const [classTeacherUpdateStatus, setClassTeacherUpdateStatus] = useState<string | null>(null);
+
+  const handleConfirmDeleteSubjectClass = async () => {
+    if (!deletingSubjectClass) return;
+    setIsDeletingClassLoading(true);
+    try {
+      if (onDeleteSubjectClass) {
+        await onDeleteSubjectClass(deletingSubjectClass.id);
+      } else {
+        await supabase.from('offline_assessments').delete().eq('class_id', deletingSubjectClass.id);
+        await supabase.from('class_resources').delete().eq('class_id', deletingSubjectClass.id);
+        await supabase.from('class_broadcasts').delete().eq('class_id', deletingSubjectClass.id);
+        await supabase.from('subject_classes').delete().eq('id', deletingSubjectClass.id);
+        if (onRefreshData) onRefreshData();
+      }
+      setDeletingSubjectClass(null);
+    } catch (err) {
+      console.error('Failed to delete subject class:', err);
+      alert('Failed to delete subject class. Please check your connection or try again.');
+    } finally {
+      setIsDeletingClassLoading(false);
+    }
+  };
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserProfile | null>(null);
   const [activeMarkEntryClass, setActiveMarkEntryClass] = useState<SubjectClass | null>(null);
@@ -2088,20 +2118,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 const info = extractClassTeacherInfo(t, subjectClasses);
                 return info.isClassTeacher && info.classKey === cls;
               });
-              const isSelected = selectedClassInspect === cls;
-
               return (
                 <div
                   key={cls}
-                  onClick={() => setSelectedClassInspect(isSelected ? null : cls)}
+                  onClick={() => {
+                    setClassInspectStudentSearch('');
+                    setClassInspectSubjectSearch('');
+                    setSelectedClassInspect(cls);
+                  }}
                   style={{
-                    border: isSelected ? '1.5px solid #2D2C2A' : '1px solid var(--border-color)',
+                    border: '1px solid var(--border-color)',
                     borderRadius: 6,
                     padding: '10px 12px',
-                    background: isSelected ? '#FAF9F6' : '#FFFFFF',
-                    boxShadow: isSelected ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
+                    background: '#FFFFFF',
+                    boxShadow: 'none',
                     cursor: 'pointer',
-                    transition: 'all 0.1s',
+                    transition: 'all 0.12s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = '#2D2C2A';
+                    e.currentTarget.style.boxShadow = '0 3px 10px rgba(0,0,0,0.06)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--border-color)';
+                    e.currentTarget.style.boxShadow = 'none';
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2132,274 +2172,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
       </div>
-
-      {/* Selected Class Roster & Subject Classes Modal Popup */}
-      {selectedClassInspect && (() => {
-        const [g, s] = selectedClassInspect.split('-');
-        const roster = students.filter((st) => {
-          const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
-          const cleanS = (st.class_letter || '').toUpperCase().trim();
-          return cleanG === g && cleanS === s;
-        });
-        const sectionSubjectClasses = subjectClasses.filter(
-          sc => (sc.class_name || '').toUpperCase().trim() === selectedClassInspect.toUpperCase().trim()
-        );
-        const ct = teachers.find((t) => {
-          const info = extractClassTeacherInfo(t, subjectClasses);
-          return info.isClassTeacher && info.classKey === selectedClassInspect;
-        });
-
-        return (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              background: 'rgba(0,0,0,0.45)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 1000,
-              padding: 20,
-            }}
-            onClick={() => setSelectedClassInspect(null)}
-          >
-            <div
-              style={{
-                background: '#FFFFFF',
-                borderRadius: 12,
-                width: '100%',
-                maxWidth: 960,
-                maxHeight: '90vh',
-                display: 'flex',
-                flexDirection: 'column',
-                boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Modal Header */}
-              <div
-                style={{
-                  padding: '16px 20px',
-                  borderBottom: '1px solid var(--border-color)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  background: '#FAF9F6',
-                  borderTopLeftRadius: 12,
-                  borderTopRightRadius: 12,
-                }}
-              >
-                <div>
-                  <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0, color: 'var(--neutral-dark)' }}>
-                    Class Profile &amp; Roster — Grade {g} - Section {s}
-                  </h3>
-                  <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
-                    Student enrollment list and subject classroom assessment channels for this cohort.
-                  </p>
-                </div>
-                <button
-                  onClick={() => setSelectedClassInspect(null)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    fontSize: 24,
-                    fontWeight: 300,
-                    color: 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    lineHeight: 1,
-                  }}
-                >
-                  &times;
-                </button>
-              </div>
-
-              {/* Class Teacher Quick Assignment Bar */}
-              <div style={{ padding: '10px 20px', background: '#F5F5F3', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <UserCheck size={16} color="#2C6E6A" />
-                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                    Class Teacher: <strong style={{ color: ct ? '#2C6E6A' : '#9E9B95' }}>{ct ? `${ct.name} (${ct.subject || 'Faculty'})` : 'Unassigned'}</strong>
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Assign / Change:</span>
-                  <div style={{ width: 230 }}>
-                    <CustomSelect
-                      value={ct?.id || ''}
-                      placeholder="Select Class Teacher..."
-                      onChange={async (newTeacherId) => {
-                        if (ct && onUpdateUser) {
-                          await onUpdateUser({
-                            ...ct,
-                            assigned_class: null,
-                          });
-                        }
-                        if (newTeacherId) {
-                          const selectedT = teachers.find(t => t.id === newTeacherId);
-                          if (selectedT && onUpdateUser) {
-                            await onUpdateUser({
-                              ...selectedT,
-                              assigned_class: `Grade ${selectedClassInspect}`,
-                            });
-                          }
-                        }
-                      }}
-                      options={[
-                        { value: '', label: 'None (Unassigned)' },
-                        ...teachers.map(t => ({ value: t.id, label: `${t.name} (${t.subject || 'Faculty'})` }))
-                      ]}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Modal Body */}
-              <div style={{ padding: 20, overflowY: 'auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-                {/* Student Roster */}
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                  <div
-                    style={{
-                      padding: '9px 14px',
-                      borderBottom: '1px solid var(--border-color)',
-                      background: '#FAF9F6',
-                    }}
-                  >
-                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                      Enrolled Students ({roster.length})
-                    </span>
-                  </div>
-
-                  <div style={{ maxHeight: 400, overflowY: 'auto', flex: 1 }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr>
-                          <th style={{ ...thStyle, width: 32 }}>#</th>
-                          <th style={thStyle}>Student Name</th>
-                          <th style={thStyle}>Admission #</th>
-                          <th style={{ ...thStyle, textAlign: 'right' }}>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {roster.length === 0 ? (
-                          <tr>
-                            <td colSpan={4} style={{ ...tdStyle, textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
-                              No students currently enrolled in section {selectedClassInspect}.
-                            </td>
-                          </tr>
-                        ) : (
-                          roster.map((st, idx) => (
-                            <tr key={st.id} style={{ background: '#FFFFFF' }}>
-                              <td style={{ ...tdStyle, color: '#9E9B95', fontSize: 10.5 }}>{idx + 1}</td>
-                              <td style={{ ...tdStyle, fontWeight: 600 }}>{st.name}</td>
-                              <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>{sanitizeUserCode(st.admission_number || st.user_code, st.email) || '—'}</td>
-                              <td style={{ ...tdStyle, textAlign: 'right' }}>
-                                <button
-                                  type="button"
-                                  className="btn-row-action btn-edit"
-                                  onClick={() => {
-                                    setSelectedClassInspect(null);
-                                    handleInitiateEditUser(st);
-                                  }}
-                                >
-                                  Edit
-                                </button>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Subject Classes / Terms */}
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                  <div
-                    style={{
-                      padding: '9px 14px',
-                      borderBottom: '1px solid var(--border-color)',
-                      background: '#FAF9F6',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                      Subject Classes ({sectionSubjectClasses.length})
-                    </span>
-                    {onOpenCreateSubjectClassModal && (
-                      <button
-                        onClick={() => {
-                          const [g, s] = (selectedClassInspect || '').split('-');
-                          onOpenCreateSubjectClassModal({
-                            grade: g,
-                            section: s,
-                            lockSection: true,
-                          });
-                        }}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: '#2C6E6A',
-                          fontSize: 11,
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        + Add Subject Class
-                      </button>
-                    )}
-                  </div>
-
-                  <div style={{ padding: 14, overflowY: 'auto', flex: 1, maxHeight: 400, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {sectionSubjectClasses.length === 0 ? (
-                      <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 12 }}>
-                        No subject classes registered for {selectedClassInspect}.
-                      </div>
-                    ) : (
-                      sectionSubjectClasses.map(sc => {
-                        const classTeacher = profiles.find(p => p.id === sc.teacher_id);
-                        return (
-                          <div key={sc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: 6, background: '#FAF9F6' }}>
-                            <div style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
-                              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sc.name || `${sc.subject} (${sc.class_name})`}</div>
-                              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                                Teacher: <span style={{ fontWeight: 600, color: '#2C6E6A' }}>{classTeacher?.name || sc.teacher_name || 'Unassigned'}</span>
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => {
-                                setSelectedClassInspect(null);
-                                setActiveMarkEntryClass(sc);
-                              }}
-                              className="btn-primary"
-                              style={{
-                                padding: '6px 12px',
-                                fontSize: 11.5,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                background: '#2D2C2A',
-                                border: 'none',
-                                borderRadius: 4,
-                                color: '#fff',
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              Manage Terms
-                            </button>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* CREATE NEW CLASS SECTION MODAL */}
       {isCreateSectionOpen && (
@@ -2536,10 +2308,650 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     </div>
   );
 
+  // ─── CLASS SECTION FULL-PAGE COHORT PROFILE & ROSTER ─────────────────────────
+  const renderClassProfileFullPage = () => {
+    if (!selectedClassInspect) return null;
+    const [g, s] = selectedClassInspect.split('-');
+    const roster = students.filter((st) => {
+      const cleanG = (st.grade || '').replace(/[^0-9]/g, '');
+      const cleanS = (st.class_letter || '').toUpperCase().trim();
+      return cleanG === g && cleanS === s;
+    });
+    const sectionSubjectClasses = subjectClasses.filter(
+      (sc) => (sc.class_name || '').toUpperCase().trim() === selectedClassInspect.toUpperCase().trim()
+    );
+    const ct = teachers.find((t) => {
+      const info = extractClassTeacherInfo(t, subjectClasses);
+      return info.isClassTeacher && info.classKey === selectedClassInspect;
+    });
 
+    const filteredRoster = roster.filter((st) => {
+      if (!classInspectStudentSearch.trim()) return true;
+      const q = classInspectStudentSearch.toLowerCase().trim();
+      const nameMatch = (st.name || '').toLowerCase().includes(q);
+      const admMatch = (st.admission_number || st.user_code || '').toLowerCase().includes(q);
+      const emailMatch = (st.email || '').toLowerCase().includes(q);
+      return nameMatch || admMatch || emailMatch;
+    });
 
+    const filteredSubjectClasses = sectionSubjectClasses.filter((sc) => {
+      if (!classInspectSubjectSearch.trim()) return true;
+      const q = classInspectSubjectSearch.toLowerCase().trim();
+      const nameMatch = (sc.name || '').toLowerCase().includes(q);
+      const subjMatch = (sc.subject || '').toLowerCase().includes(q);
+      const teacherMatch = (sc.teacher_name || '').toLowerCase().includes(q);
+      return nameMatch || subjMatch || teacherMatch;
+    });
 
-  // Dynamic tab protection safeguard
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '4px 2px 32px' }}>
+        {/* Navigation & Cohort Header Bar */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+          <button
+            type="button"
+            onClick={() => setSelectedClassInspect(null)}
+            className="btn-secondary"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '7px 13px',
+              fontSize: 12,
+              fontWeight: 700,
+              borderRadius: 7,
+              background: '#FFFFFF',
+              border: '1px solid #D5D3CE',
+              color: 'var(--neutral-dark)',
+              cursor: 'pointer',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+            }}
+          >
+            <ChevronLeft size={14} />
+            <span>Back to Class Sections &amp; Batches</span>
+          </button>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span
+              style={{
+                padding: '4px 11px',
+                borderRadius: 20,
+                background: '#FAF9F6',
+                border: '1px solid #E5E3DF',
+                fontSize: 11.5,
+                fontWeight: 700,
+                color: '#2D2C2A',
+              }}
+            >
+              Grade {g} • Section {s}
+            </span>
+            <span
+              style={{
+                padding: '4px 11px',
+                borderRadius: 20,
+                background: '#EBF3F2',
+                border: '1px solid #C4DEDC',
+                fontSize: 11.5,
+                fontWeight: 700,
+                color: '#2C6E6A',
+              }}
+            >
+              {roster.length} Enrolled Students
+            </span>
+            <span
+              style={{
+                padding: '4px 11px',
+                borderRadius: 20,
+                background: '#F3F4F6',
+                border: '1px solid #E5E7EB',
+                fontSize: 11.5,
+                fontWeight: 700,
+                color: '#374151',
+              }}
+            >
+              {sectionSubjectClasses.length} Subject Classes
+            </span>
+          </div>
+        </div>
+
+        {/* Executive Cohort Header Card */}
+        <div
+          style={{
+            background: '#FFFFFF',
+            border: '1px solid var(--border-color)',
+            borderRadius: 10,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              padding: '16px 20px',
+              background: '#FAF9F6',
+              borderBottom: '1px solid var(--border-color)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 12,
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <h2 style={{ fontSize: 17, fontWeight: 800, margin: 0, color: 'var(--neutral-dark)' }}>
+                  Class Profile &amp; Roster — Grade {g} - Section {s}
+                </h2>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: 4,
+                    background: '#2C6E6A',
+                    color: '#FFFFFF',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                  }}
+                >
+                  Active Cohort
+                </span>
+              </div>
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+                Student enrollment directory, assigned homeroom faculty, and subject classroom assessment channels.
+              </p>
+            </div>
+          </div>
+
+          {/* Class Teacher Quick Assignment Bar */}
+          <div
+            style={{
+              padding: '12px 20px',
+              background: '#FFFFFF',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 14,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: '50%',
+                  background: ct ? '#EBF3F2' : '#F3F4F6',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: ct ? '#2C6E6A' : '#9CA3AF',
+                  flexShrink: 0,
+                }}
+              >
+                <UserCheck size={18} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Class Teacher / Homeroom Advisor
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                  <strong style={{ fontSize: 13.5, color: ct ? '#2C6E6A' : '#9CA3AF' }}>
+                    {ct ? `${ct.name} (${ct.subject || 'Faculty'})` : 'No Class Teacher Assigned'}
+                  </strong>
+                  {ct ? (
+                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: '#DCFCE7', color: '#166534' }}>
+                      Assigned
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: '#FEF3C7', color: '#92400E' }}>
+                      Unassigned
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {classTeacherUpdateStatus && (
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: '#166534', background: '#DCFCE7', padding: '4px 8px', borderRadius: 4 }}>
+                  ✓ {classTeacherUpdateStatus}
+                </span>
+              )}
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Assign / Change Teacher:</span>
+              <div style={{ width: 260 }}>
+                <CustomSelect
+                  value={ct?.id || ''}
+                  placeholder="Select Class Teacher..."
+                  onChange={async (newTeacherId) => {
+                    try {
+                      if (ct && onUpdateUser) {
+                        await onUpdateUser({
+                          ...ct,
+                          assigned_class: null,
+                        });
+                      }
+                      if (newTeacherId) {
+                        const selectedT = teachers.find((t) => t.id === newTeacherId);
+                        if (selectedT && onUpdateUser) {
+                          await onUpdateUser({
+                            ...selectedT,
+                            assigned_class: `Grade ${selectedClassInspect}`,
+                          });
+                        }
+                      }
+                      setClassTeacherUpdateStatus('Class teacher updated');
+                      setTimeout(() => setClassTeacherUpdateStatus(null), 3000);
+                      if (onRefreshData) onRefreshData();
+                    } catch (err) {
+                      console.error('Failed to assign class teacher:', err);
+                    }
+                  }}
+                  options={[
+                    { value: '', label: 'None (Unassigned)' },
+                    ...teachers.map((t) => ({ value: t.id, label: `${t.name} (${t.subject || 'Faculty'})` })),
+                  ]}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Two-Column Responsive Workspace */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(400px, 1.15fr) minmax(360px, 1fr)', gap: 16, alignItems: 'start' }}>
+          {/* LEFT COLUMN: ENROLLED STUDENTS ROSTER */}
+          <div
+            style={{
+              background: '#FFFFFF',
+              border: '1px solid var(--border-color)',
+              borderRadius: 8,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+            }}
+          >
+            <div
+              style={{
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--border-color)',
+                background: '#FAF9F6',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 10,
+              }}
+            >
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                  Enrolled Students ({roster.length})
+                </span>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                  Official student roster for {selectedClassInspect}
+                </div>
+              </div>
+
+              {/* Search Bar */}
+              <div style={{ position: 'relative', width: 230 }}>
+                <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF' }} />
+                <input
+                  type="text"
+                  placeholder="Filter roster..."
+                  value={classInspectStudentSearch}
+                  onChange={(e) => setClassInspectStudentSearch(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '5px 10px 5px 28px',
+                    fontSize: 11.5,
+                    border: '1px solid #D1D5DB',
+                    borderRadius: 6,
+                    outline: 'none',
+                    background: '#FFFFFF',
+                  }}
+                />
+                {classInspectStudentSearch && (
+                  <button
+                    onClick={() => setClassInspectStudentSearch('')}
+                    style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', fontSize: 13, padding: 0 }}
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div style={{ maxHeight: 600, overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#FAF9F6', borderBottom: '1px solid var(--border-color)' }}>
+                    <th style={{ ...thStyle, width: 36, textAlign: 'center' }}>#</th>
+                    <th style={thStyle}>Student Name &amp; Email</th>
+                    <th style={thStyle}>Admission #</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRoster.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} style={{ ...tdStyle, textAlign: 'center', padding: '36px 20px', color: 'var(--text-secondary)' }}>
+                        {roster.length === 0
+                          ? `No students currently enrolled in section ${selectedClassInspect}.`
+                          : `No students matching "${classInspectStudentSearch}".`}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredRoster.map((st, idx) => {
+                      const initials = (st.name || 'ST')
+                        .split(' ')
+                        .map((w) => w[0])
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .join('')
+                        .toUpperCase();
+
+                      return (
+                        <tr key={st.id} style={{ background: '#FFFFFF', borderBottom: '1px solid #F3F4F6' }}>
+                          <td style={{ ...tdStyle, color: '#9CA3AF', fontSize: 11, textAlign: 'center' }}>
+                            {idx + 1}
+                          </td>
+                          <td style={tdStyle}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div
+                                style={{
+                                  width: 28,
+                                  height: 28,
+                                  borderRadius: '50%',
+                                  background: '#EBF3F2',
+                                  color: '#2C6E6A',
+                                  fontSize: 10.5,
+                                  fontWeight: 700,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {initials}
+                              </div>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 700, fontSize: 12, color: '#111827' }}>
+                                  {st.name}
+                                </div>
+                                <div style={{ fontSize: 11, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {st.email || '—'}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={tdStyle}>
+                            <span
+                              style={{
+                                fontFamily: 'monospace',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                background: '#F3F4F6',
+                                padding: '2px 7px',
+                                borderRadius: 4,
+                                color: '#374151',
+                              }}
+                            >
+                              {sanitizeUserCode(st.admission_number || st.user_code, st.email) || '—'}
+                            </span>
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>
+                            <button
+                              type="button"
+                              className="btn-row-action btn-edit"
+                              onClick={() => {
+                                handleInitiateEditUser(st);
+                              }}
+                              style={{
+                                padding: '4px 10px',
+                                fontSize: 11.5,
+                                fontWeight: 600,
+                                background: '#FFFFFF',
+                                border: '1px solid #D1D5DB',
+                                borderRadius: 5,
+                                cursor: 'pointer',
+                                color: '#374151',
+                              }}
+                            >
+                              Edit
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* RIGHT COLUMN: SUBJECT CLASSES & CURRICULUM CHANNELS */}
+          <div
+            style={{
+              background: '#FFFFFF',
+              border: '1px solid var(--border-color)',
+              borderRadius: 8,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+            }}
+          >
+            <div
+              style={{
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--border-color)',
+                background: '#FAF9F6',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 10,
+              }}
+            >
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                  Subject Classes ({sectionSubjectClasses.length})
+                </span>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                  Active subject channels for {selectedClassInspect}
+                </div>
+              </div>
+
+              {onOpenCreateSubjectClassModal && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenCreateSubjectClassModal({
+                      grade: g,
+                      section: s,
+                      lockSection: true,
+                    });
+                  }}
+                  style={{
+                    background: '#2C6E6A',
+                    border: 'none',
+                    color: '#FFFFFF',
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    padding: '6px 12px',
+                    borderRadius: 6,
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
+                  }}
+                >
+                  <Plus size={13} />
+                  <span>+ Add Subject Class</span>
+                </button>
+              )}
+            </div>
+
+            {/* Subject Search Bar */}
+            <div style={{ padding: '8px 16px', borderBottom: '1px solid #F3F4F6', background: '#FFFFFF' }}>
+              <div style={{ position: 'relative', width: '100%' }}>
+                <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF' }} />
+                <input
+                  type="text"
+                  placeholder="Filter subject classes by title or teacher..."
+                  value={classInspectSubjectSearch}
+                  onChange={(e) => setClassInspectSubjectSearch(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '5px 10px 5px 28px',
+                    fontSize: 11.5,
+                    border: '1px solid #D1D5DB',
+                    borderRadius: 6,
+                    outline: 'none',
+                    background: '#FFFFFF',
+                  }}
+                />
+                {classInspectSubjectSearch && (
+                  <button
+                    onClick={() => setClassInspectSubjectSearch('')}
+                    style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', fontSize: 13, padding: 0 }}
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Subject Classes Cards List */}
+            <div style={{ padding: 14, overflowY: 'auto', maxHeight: 600, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {filteredSubjectClasses.length === 0 ? (
+                <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 12 }}>
+                  {sectionSubjectClasses.length === 0
+                    ? `No subject classes registered for ${selectedClassInspect}. Click "+ Add Subject Class" above to create one.`
+                    : `No subject classes matching "${classInspectSubjectSearch}".`}
+                </div>
+              ) : (
+                filteredSubjectClasses.map((sc) => {
+                  const classTeacher = profiles.find((p) => p.id === sc.teacher_id);
+                  const enrolledCount = sc.enrolled_student_ids?.length || roster.length;
+
+                  return (
+                    <div
+                      key={sc.id}
+                      style={{
+                        padding: '12px 14px',
+                        border: '1px solid #E5E7EB',
+                        borderRadius: 8,
+                        background: '#FAF9F6',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {sc.name || `${sc.subject} (${sc.class_name})`}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                              Teacher: <strong style={{ color: '#2C6E6A' }}>{classTeacher?.name || sc.teacher_name || 'Unassigned'}</strong>
+                            </span>
+                            <span style={{ color: '#D1D5DB' }}>•</span>
+                            <span style={{ fontSize: 11, color: '#6B7280' }}>
+                              {enrolledCount} Students Enrolled
+                            </span>
+                            {sc.room && (
+                              <>
+                                <span style={{ color: '#D1D5DB' }}>•</span>
+                                <span style={{ fontSize: 11, color: '#6B7280' }}>Room: {sc.room}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        <span
+                          style={{
+                            fontSize: 10.5,
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            borderRadius: 4,
+                            background: '#E5E7EB',
+                            color: '#374151',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {sc.subject}
+                        </span>
+                      </div>
+
+                      {/* Card Action Buttons */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, paddingTop: 6, borderTop: '1px solid #ECEAE5' }}>
+                        <button
+                          type="button"
+                          onClick={() => setDeletingSubjectClass(sc)}
+                          title="Delete this subject class permanently from everywhere"
+                          style={{
+                            padding: '5px 10px',
+                            fontSize: 11.5,
+                            fontWeight: 600,
+                            background: '#FEF2F2',
+                            border: '1px solid #FECACA',
+                            borderRadius: 5,
+                            color: '#DC2626',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            transition: 'all 0.12s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = '#FEE2E2';
+                            e.currentTarget.style.borderColor = '#FCA5A5';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = '#FEF2F2';
+                            e.currentTarget.style.borderColor = '#FECACA';
+                          }}
+                        >
+                          <Trash2 size={13} />
+                          <span>Delete</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveMarkEntryClass(sc);
+                          }}
+                          className="btn-primary"
+                          style={{
+                            padding: '5px 12px',
+                            fontSize: 11.5,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            background: '#2D2C2A',
+                            border: 'none',
+                            borderRadius: 5,
+                            color: '#FFFFFF',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <span>Manage Terms</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   useEffect(() => {
     if (isSlt) {
       if (activeTab === 'delegation') setActiveTab('overview');
@@ -2781,7 +3193,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             return (
               <div key={tab.id} style={{ position: 'relative' }}>
                 <button
-                  onClick={() => { setActiveTab(tab.id); setSelectedUserForEdit(null); setActiveMarkEntryClass(null); sidebar.handleNavClick(); }}
+                  onClick={() => { setActiveTab(tab.id); setSelectedUserForEdit(null); setActiveMarkEntryClass(null); setSelectedClassInspect(null); sidebar.handleNavClick(); }}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -2944,10 +3356,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <span style={{ fontSize: 12, fontWeight: 600, textTransform: 'none', letterSpacing: '0.02em', lineHeight: 1.4, color: 'var(--neutral-dark)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {tabs.find((t) => t.id === activeTab)?.label}
               {selectedUserForEdit ? ` / Edit User: ${selectedUserForEdit.name}` : ''}
+              {selectedClassInspect && !selectedUserForEdit && !activeMarkEntryClass ? ` / Grade ${selectedClassInspect.split('-')[0]} - Section ${selectedClassInspect.split('-')[1]} Cohort Profile` : ''}
+              {activeMarkEntryClass ? ` / Mark Entry: ${activeMarkEntryClass.name}` : ''}
             </span>
           </div>
 
-          {activeMarkEntryClass && (
+          {activeMarkEntryClass ? (
             <button
               onClick={() => setActiveMarkEntryClass(null)}
               className="btn-secondary"
@@ -2964,9 +3378,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               }}
             >
               <ChevronLeft size={13} />
-              <span>Back to {tabs.find((t) => t.id === activeTab)?.label || 'Dashboard'}</span>
+              <span>Back to {selectedClassInspect ? `Grade ${selectedClassInspect} Profile` : (tabs.find((t) => t.id === activeTab)?.label || 'Dashboard')}</span>
             </button>
-          )}
+          ) : selectedClassInspect && !selectedUserForEdit ? (
+            <button
+              onClick={() => setSelectedClassInspect(null)}
+              className="btn-secondary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '5px 11px',
+                fontSize: 11,
+                fontWeight: 700,
+                borderRadius: 6,
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              <ChevronLeft size={13} />
+              <span>Back to Class Sections &amp; Batches</span>
+            </button>
+          ) : null}
 
 
         </header>
@@ -3026,7 +3459,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 }}
               />
             );
-          })() : (
+          })() : selectedClassInspect ? (
+            renderClassProfileFullPage()
+          ) : (
             <>
               {activeTab === 'overview' && renderOverview()}
               {activeTab === 'delegation' && (
@@ -3085,6 +3520,116 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         classroomLabel={overviewGradeFilter === 'all' ? 'Woodlem Park School (All Grades)' : `Grade ${overviewGradeFilter} Attendance Register`}
         teacherName={currentUser.name}
       />
+
+      {/* DELETE SUBJECT CLASS CONFIRMATION MODAL */}
+      {deletingSubjectClass && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+            padding: 16,
+          }}
+          onClick={() => !isDeletingClassLoading && setDeletingSubjectClass(null)}
+        >
+          <div
+            style={{
+              background: '#FFFFFF',
+              borderRadius: 12,
+              width: '100%',
+              maxWidth: 480,
+              boxShadow: '0 20px 45px rgba(0,0,0,0.25)',
+              overflow: 'hidden',
+              border: '1px solid #FCA5A5',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ padding: '20px 24px', background: '#FEF2F2', borderBottom: '1px solid #FEE2E2', display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ width: 42, height: 42, borderRadius: '50%', background: '#FEE2E2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <AlertTriangle size={22} color="#DC2626" />
+              </div>
+              <div>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: '#991B1B' }}>
+                  Delete Subject Class?
+                </h3>
+                <p style={{ fontSize: 12, color: '#B91C1C', margin: '3px 0 0 0' }}>
+                  This will permanently erase this classroom across the entire school.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ padding: '20px 24px', fontSize: 13, color: '#374151', lineHeight: 1.55 }}>
+              <p style={{ margin: '0 0 12px 0' }}>
+                Are you sure you want to delete <strong style={{ color: '#111827' }}>{deletingSubjectClass.name || deletingSubjectClass.subject}</strong>?
+              </p>
+              <div style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, padding: '12px 14px', fontSize: 12, color: '#4B5563', marginBottom: 16 }}>
+                <div style={{ fontWeight: 600, color: '#1F2937', marginBottom: 6 }}>This action will automatically purge:</div>
+                <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <li>Classroom enrollment from all student dashboards</li>
+                  <li>Teacher schedule, timetable, and attendance bindings</li>
+                  <li>All offline assessment terms &amp; marks registers</li>
+                  <li>All recorded student marks &amp; term scores</li>
+                  <li>All circulars, broadcast announcements, and shared class files</li>
+                </ul>
+              </div>
+              <div style={{ fontSize: 12, color: '#DC2626', fontWeight: 600 }}>
+                ⚠️ This action is irreversible. All associated grades and records will be deleted immediately.
+              </div>
+            </div>
+
+            <div style={{ padding: '14px 24px', background: '#F9FAFB', borderTop: '1px solid #E5E7EB', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                type="button"
+                disabled={isDeletingClassLoading}
+                onClick={() => setDeletingSubjectClass(null)}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  background: '#FFFFFF',
+                  border: '1px solid #D1D5DB',
+                  borderRadius: 6,
+                  color: '#374151',
+                  cursor: isDeletingClassLoading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingClassLoading}
+                onClick={handleConfirmDeleteSubjectClass}
+                style={{
+                  padding: '8px 18px',
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  background: '#DC2626',
+                  border: '1px solid #B91C1C',
+                  borderRadius: 6,
+                  color: '#FFFFFF',
+                  cursor: isDeletingClassLoading ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                {isDeletingClassLoading ? (
+                  <span>Deleting Everywhere...</span>
+                ) : (
+                  <>
+                    <Trash2 size={14} />
+                    <span>Permanently Delete</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
