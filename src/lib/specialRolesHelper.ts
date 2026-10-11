@@ -369,6 +369,192 @@ export const SLT_ROLE_PRESETS: SltRolePreset[] = [
   },
 ];
 
+export interface HodPermissions {
+  // Domain 1: Curriculum & Syllabus Governance (5 powers)
+  canVerifySyllabus: boolean;
+  canAuditLessonPlans: boolean;
+  canManageCurriculumResources: boolean;
+  canApproveAssessmentsBank: boolean;
+  canOverseeLabPracticals: boolean;
+
+  // Domain 2: Marks Registers & Assessment Moderation (5 powers)
+  canAuditMarks: boolean;
+  canModerateAssessmentMarks: boolean;
+  canVerifyPassFailThresholds: boolean;
+  canReviewSubmissions: boolean;
+  canApproveGradeChanges: boolean;
+
+  // Domain 3: Department Communication & Academic Directives (5 powers)
+  canBroadcastDepartment: boolean;
+  canIssueFacultyDirectives: boolean;
+  canPinStudyNotices: boolean;
+  canApproveClearances: boolean;
+  canCoordinateSubjectEvents: boolean;
+
+  // Domain 4: Departmental Intelligence & Quality Audits (5 powers)
+  canViewAnalytics: boolean;
+  canAuditTeacherMarkingPace: boolean;
+  canGenerateSubjectReports: boolean;
+  canAuthorizeExemptions: boolean;
+  canConductTeacherObservations: boolean;
+}
+
+export const DEFAULT_HOD_PERMISSIONS: HodPermissions = {
+  canVerifySyllabus: true,
+  canAuditLessonPlans: true,
+  canManageCurriculumResources: true,
+  canApproveAssessmentsBank: true,
+  canOverseeLabPracticals: true,
+  canAuditMarks: true,
+  canModerateAssessmentMarks: true,
+  canVerifyPassFailThresholds: true,
+  canReviewSubmissions: true,
+  canApproveGradeChanges: true,
+  canBroadcastDepartment: true,
+  canIssueFacultyDirectives: true,
+  canPinStudyNotices: true,
+  canApproveClearances: true,
+  canCoordinateSubjectEvents: true,
+  canViewAnalytics: true,
+  canAuditTeacherMarkingPace: true,
+  canGenerateSubjectReports: true,
+  canAuthorizeExemptions: true,
+  canConductTeacherObservations: true,
+};
+
+export interface HodRolePreset {
+  title: string;
+  code: string;
+  description: string;
+  defaultScopeType: 'all' | 'custom';
+  defaultGrades?: string[];
+  defaultPermissions: HodPermissions;
+}
+
+export const HOD_ROLE_PRESETS: HodRolePreset[] = [
+  {
+    title: 'Full Departmental Authority',
+    code: 'FULL',
+    description: 'Complete academic authority over curriculum pacing, weekly lesson plans, question paper blueprints, examination registers, mark moderation, and subject clearances.',
+    defaultScopeType: 'all',
+    defaultGrades: ['9', '10', '11', '12'],
+    defaultPermissions: {
+      canVerifySyllabus: true,
+      canAuditLessonPlans: true,
+      canManageCurriculumResources: true,
+      canApproveAssessmentsBank: true,
+      canOverseeLabPracticals: true,
+      canAuditMarks: true,
+      canModerateAssessmentMarks: true,
+      canVerifyPassFailThresholds: true,
+      canReviewSubmissions: true,
+      canApproveGradeChanges: true,
+      canBroadcastDepartment: true,
+      canIssueFacultyDirectives: true,
+      canPinStudyNotices: true,
+      canApproveClearances: true,
+      canCoordinateSubjectEvents: true,
+      canViewAnalytics: true,
+      canAuditTeacherMarkingPace: true,
+      canGenerateSubjectReports: true,
+      canAuthorizeExemptions: true,
+      canConductTeacherObservations: true,
+    },
+  },
+  {
+    title: 'Curriculum & Syllabus Lead',
+    code: 'CURR',
+    description: 'Focused academic leader directing subject learning resources, weekly syllabus pacing, instructional lesson plan reviews, and classroom teaching walkthroughs.',
+    defaultScopeType: 'all',
+    defaultGrades: ['9', '10', '11', '12'],
+    defaultPermissions: {
+      canVerifySyllabus: true,
+      canAuditLessonPlans: true,
+      canManageCurriculumResources: true,
+      canApproveAssessmentsBank: true,
+      canOverseeLabPracticals: true,
+      canAuditMarks: true,
+      canModerateAssessmentMarks: false,
+      canVerifyPassFailThresholds: true,
+      canReviewSubmissions: true,
+      canApproveGradeChanges: false,
+      canBroadcastDepartment: true,
+      canIssueFacultyDirectives: true,
+      canPinStudyNotices: true,
+      canApproveClearances: false,
+      canCoordinateSubjectEvents: true,
+      canViewAnalytics: true,
+      canAuditTeacherMarkingPace: false,
+      canGenerateSubjectReports: true,
+      canAuthorizeExemptions: false,
+      canConductTeacherObservations: true,
+    },
+  },
+  {
+    title: 'Assessment & Moderation Specialist',
+    code: 'EXAM',
+    description: 'Departmental examination controller scrutinizing test blueprints, moderating internal marks, auditing gradebook velocity, and tracking remedial student cohorts.',
+    defaultScopeType: 'all',
+    defaultGrades: ['9', '10', '11', '12'],
+    defaultPermissions: {
+      canVerifySyllabus: false,
+      canAuditLessonPlans: false,
+      canManageCurriculumResources: false,
+      canApproveAssessmentsBank: true,
+      canOverseeLabPracticals: true,
+      canAuditMarks: true,
+      canModerateAssessmentMarks: true,
+      canVerifyPassFailThresholds: true,
+      canReviewSubmissions: true,
+      canApproveGradeChanges: true,
+      canBroadcastDepartment: false,
+      canIssueFacultyDirectives: false,
+      canPinStudyNotices: true,
+      canApproveClearances: true,
+      canCoordinateSubjectEvents: false,
+      canViewAnalytics: true,
+      canAuditTeacherMarkingPace: true,
+      canGenerateSubjectReports: true,
+      canAuthorizeExemptions: true,
+      canConductTeacherObservations: false,
+    },
+  },
+  {
+    title: 'Standard Academic Department Head',
+    code: 'STD',
+    description: 'Balanced department head managing syllabus verification, lesson reviews, marks register audits, department broadcasts, and subject clearances.',
+    defaultScopeType: 'all',
+    defaultGrades: ['9', '10', '11', '12'],
+    defaultPermissions: {
+      canVerifySyllabus: true,
+      canAuditLessonPlans: true,
+      canManageCurriculumResources: true,
+      canApproveAssessmentsBank: true,
+      canOverseeLabPracticals: false,
+      canAuditMarks: true,
+      canModerateAssessmentMarks: true,
+      canVerifyPassFailThresholds: false,
+      canReviewSubmissions: true,
+      canApproveGradeChanges: false,
+      canBroadcastDepartment: true,
+      canIssueFacultyDirectives: true,
+      canPinStudyNotices: true,
+      canApproveClearances: true,
+      canCoordinateSubjectEvents: true,
+      canViewAnalytics: true,
+      canAuditTeacherMarkingPace: false,
+      canGenerateSubjectReports: true,
+      canAuthorizeExemptions: false,
+      canConductTeacherObservations: false,
+    },
+  },
+];
+
+export function countHodActivePowers(permissions?: Partial<HodPermissions> | null): number {
+  if (!permissions) return 0;
+  return Object.values(permissions).filter(Boolean).length;
+}
+
 const LOCAL_STORAGE_SPECIAL_ROLES_KEY = 'woodlem_special_role_assignments_v1';
 
 // Check if user is the Principal (Strictly exclusive to Principal / Super Admin)
@@ -692,13 +878,10 @@ export async function loadSpecialRoleAssignments(profiles?: UserProfile[]): Prom
             roleType: 'hod',
             department: p.department,
             title: p.designation || `Head of ${p.department}`,
+            scopeType: 'all',
+            managedGrades: p.managed_grades || ['9', '10', '11', '12'],
             permissions: {
-              canAuditMarks: true,
-              canVerifySyllabus: true,
-              canBroadcastDepartment: true,
-              canManageResources: true,
-              canViewAnalytics: true,
-              canApproveClearances: true,
+              ...DEFAULT_HOD_PERMISSIONS,
             },
             assignedAt: new Date().toISOString(),
             assignedBy: 'System Admin',
@@ -776,6 +959,16 @@ export async function loadSpecialRoleAssignments(profiles?: UserProfile[]): Prom
         email.includes('.discipline'))
     ) {
       a.roleType = 'slt';
+    }
+
+    if (a.roleType === 'hod') {
+      if (!a.scopeType) a.scopeType = 'all';
+      if (!a.managedGrades || a.managedGrades.length === 0) a.managedGrades = ['9', '10', '11', '12'];
+      a.permissions = {
+        ...DEFAULT_HOD_PERMISSIONS,
+        ...a.permissions,
+        canManageCurriculumResources: a.permissions?.canManageCurriculumResources ?? a.permissions?.canManageResources ?? true,
+      };
     }
   });
 

@@ -94,6 +94,9 @@ export interface SpecialRoleAssignment {
     canBroadcastDepartment?: boolean;
     canManageResources?: boolean;
     canApproveClearances?: boolean;
+
+    // Flexible permission keys for HOD & special roles
+    [key: string]: boolean | undefined;
   };
   assignedBy: string;
   assignedAt: string;
