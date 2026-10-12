@@ -550,9 +550,32 @@ export const HOD_ROLE_PRESETS: HodRolePreset[] = [
   },
 ];
 
+export const HOD_PERMISSION_KEYS: (keyof HodPermissions)[] = [
+  'canVerifySyllabus',
+  'canAuditLessonPlans',
+  'canManageCurriculumResources',
+  'canApproveAssessmentsBank',
+  'canOverseeLabPracticals',
+  'canAuditMarks',
+  'canModerateAssessmentMarks',
+  'canVerifyPassFailThresholds',
+  'canReviewSubmissions',
+  'canApproveGradeChanges',
+  'canBroadcastDepartment',
+  'canIssueFacultyDirectives',
+  'canPinStudyNotices',
+  'canApproveClearances',
+  'canCoordinateSubjectEvents',
+  'canViewAnalytics',
+  'canAuditTeacherMarkingPace',
+  'canGenerateSubjectReports',
+  'canAuthorizeExemptions',
+  'canConductTeacherObservations',
+];
+
 export function countHodActivePowers(permissions?: Partial<HodPermissions> | null): number {
   if (!permissions) return 0;
-  return Object.values(permissions).filter(Boolean).length;
+  return HOD_PERMISSION_KEYS.filter((k) => !!permissions[k]).length;
 }
 
 const LOCAL_STORAGE_SPECIAL_ROLES_KEY = 'woodlem_special_role_assignments_v1';

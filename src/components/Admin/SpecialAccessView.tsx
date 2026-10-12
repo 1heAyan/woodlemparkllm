@@ -3920,7 +3920,7 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
         )}
       </div>
 
-      {/* ── 3. DEPARTMENT HEADS (HODs) ── */}
+      {/* ── 4. DEPARTMENT HEADS (HODs) ── */}
       <div
         style={{
           background: '#FFFFFF',
@@ -3937,9 +3937,28 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
           <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--neutral-dark)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             DEPARTMENT HEADS (HODS)
           </span>
+
+          <button
+            onClick={() => handleOpenHodModal()}
+            style={{
+              padding: '6px 12px',
+              borderRadius: 6,
+              background: '#1A1A1A',
+              color: '#FFFFFF',
+              border: 'none',
+              fontSize: 11.5,
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+            }}
+          >
+            <Plus size={13} /> Appoint HOD
+          </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
           {ACADEMIC_DEPARTMENTS.map((dept) => {
             const assignment = hodAssignments.find((a) => a.department === dept.name);
             const isAssigned = !!assignment;
@@ -3953,313 +3972,365 @@ export const SpecialAccessView: React.FC<SpecialAccessViewProps> = ({
               <div
                 key={dept.id}
                 style={{
-                  border: isAssigned ? `1.5px solid ${dept.border}` : '1px dashed #D6D4CC',
-                  borderRadius: 10,
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 8,
                   padding: '14px 16px',
-                  background: isAssigned ? '#FFFFFF' : '#FAF9F6',
+                  background: '#FAF9F6',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: 10,
-                  justifyContent: 'space-between',
-                  boxShadow: isAssigned ? '0 1px 4px rgba(0,0,0,0.03)' : 'none',
-                  transition: 'all 0.15s ease',
+                  gap: 8,
+                  transition: 'background 0.12s, border-color 0.12s',
                 }}
               >
-                <div>
-                  {/* Department Header Row */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                      {isAssigned ? assignment.userName : dept.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: isAssigned ? '#2C6E6A' : '#A8A29E',
+                        fontWeight: 600,
+                        marginTop: 1,
+                      }}
+                    >
+                      {isAssigned ? (assignment.title || `Head of ${dept.name}`) : 'Vacant Department Leadership'}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {isAssigned ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenHodModal(dept.name, assignment.id)}
+                          title="Configure Jurisdiction & Delegated Powers"
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#78716C',
+                            padding: '4px',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.color = '#1A1A1A';
+                            e.currentTarget.style.background = '#EBEAE5';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.color = '#78716C';
+                            e.currentTarget.style.background = 'transparent';
+                          }}
+                        >
+                          <Edit2 size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAssignment(assignment.id, 'hod')}
+                          title="Revoke Role"
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#A8A29E',
+                            padding: '4px',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.color = '#DC2626';
+                            e.currentTarget.style.background = '#FEE2E2';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.color = '#A8A29E';
+                            e.currentTarget.style.background = 'transparent';
+                          }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenHodModal(dept.name)}
+                        title={`Appoint Head of ${dept.name}`}
                         style={{
-                          width: 28,
-                          height: 28,
+                          padding: '4px 9px',
                           borderRadius: 6,
-                          background: dept.bg,
-                          color: dept.color,
-                          border: `1px solid ${dept.border}`,
+                          background: '#1A1A1A',
+                          color: '#FFFFFF',
+                          border: 'none',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
+                          gap: 4,
                         }}
                       >
-                        {getDepartmentIcon(dept.iconName, 14)}
-                      </div>
-                      <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--neutral-dark)' }}>
-                        {dept.name}
-                      </div>
-                    </div>
+                        <Plus size={11} /> Appoint
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div
+                  style={{
+                    padding: '8px 10px',
+                    background: '#FFFFFF',
+                    border: isAssigned ? '1px solid #E7E5E4' : '1px dashed #E7E5E4',
+                    borderRadius: 6,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div
+                      style={{
+                        fontSize: 10.5,
+                        color: isAssigned ? 'var(--text-secondary)' : '#A8A29E',
+                        fontStyle: isAssigned ? 'normal' : 'italic',
+                      }}
+                    >
+                      {isAssigned ? assignment.userEmail : 'No faculty leadership appointed yet'}
+                    </div>
+                    {!isAssigned && (
                       <span
                         style={{
                           fontSize: 10,
                           fontWeight: 700,
-                          background: dept.bg,
-                          color: dept.color,
-                          border: `1px solid ${dept.border}`,
-                          padding: '2px 6px',
+                          background: '#F5F4F0',
+                          color: '#78716C',
+                          border: '1px solid #E7E5E4',
+                          padding: '1px 6px',
                           borderRadius: 4,
                           letterSpacing: '0.04em',
                         }}
                       >
                         {dept.code}
                       </span>
-
-                      {isAssigned ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenHodModal(dept.name, assignment.id)}
-                            title="Edit HOD Jurisdiction & Powers"
-                            style={{
-                              background: 'transparent',
-                              border: 'none',
-                              color: '#78716C',
-                              padding: '4px',
-                              borderRadius: 4,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.color = '#1A1A1A';
-                              e.currentTarget.style.background = '#EBEAE5';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.color = '#78716C';
-                              e.currentTarget.style.background = 'transparent';
-                            }}
-                          >
-                            <Edit2 size={13} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveAssignment(assignment.id, 'hod')}
-                            title="Revoke HOD Appointment"
-                            style={{
-                              background: 'transparent',
-                              border: 'none',
-                              color: '#A8A29E',
-                              padding: '4px',
-                              borderRadius: 4,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.color = '#DC2626';
-                              e.currentTarget.style.background = '#FEE2E2';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.color = '#A8A29E';
-                              e.currentTarget.style.background = 'transparent';
-                            }}
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
+                    )}
                   </div>
 
-                  {isAssigned ? (
+                  {/* Scope Badge */}
+                  {isAssigned && (
                     <div
                       style={{
-                        padding: '10px 12px',
-                        background: '#FAF9F6',
-                        border: '1px solid #ECEAE5',
-                        borderRadius: 8,
                         display: 'flex',
-                        flexDirection: 'column',
-                        gap: 8,
-                      }}
-                    >
-                      {/* Faculty Info */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div
-                          style={{
-                            width: 32,
-                            height: 32,
-                            borderRadius: '50%',
-                            background: dept.color,
-                            color: '#FFFFFF',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontWeight: 700,
-                            fontSize: 12,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {(assignment.userName || 'H').slice(0, 2).toUpperCase()}
-                        </div>
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--neutral-dark)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {assignment.userName}
-                          </div>
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {assignment.userEmail}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Title Badge */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span
-                          style={{
-                            fontSize: 10.5,
-                            fontWeight: 700,
-                            padding: '2px 8px',
-                            borderRadius: 4,
-                            background: dept.bg,
-                            color: dept.color,
-                            border: `1px solid ${dept.border}`,
-                            maxWidth: '100%',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {assignment.title || `Head of ${dept.name}`}
-                        </span>
-                      </div>
-
-                      {/* Scope Badge (Same as SLT) */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 5,
-                          fontSize: 10.5,
-                          color: isWholeDept ? '#1D4ED8' : '#2C6E6A',
-                          background: isWholeDept ? '#EFF6FF' : '#EAF3EF',
-                          padding: '4px 7px',
-                          borderRadius: 4,
-                          fontWeight: 600,
-                          lineHeight: 1.3,
-                        }}
-                      >
-                        <Building size={11} style={{ flexShrink: 0 }} />
-                        <span>
-                          {isWholeDept
-                            ? 'Whole Department (Grades 9-12 • All Sections)'
-                            : `Grades ${assignment.managedGrades?.join(', ') || 'None'}${
-                                assignment.managedSections && assignment.managedSections.length > 0
-                                  ? ` • Sections: ${assignment.managedSections.join(', ')}`
-                                  : ' • All Sections'
-                              }`}
-                        </span>
-                      </div>
-
-                      {/* Active Powers Badge (Same as SLT) */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          fontSize: 10,
-                          color: 'var(--text-secondary)',
-                          borderTop: '1px dashed #E7E5E4',
-                          paddingTop: 6,
-                        }}
-                      >
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <ShieldCheck size={11} style={{ color: '#2C6E6A' }} />
-                          <strong style={{ color: 'var(--neutral-dark)' }}>{activePowersCount} / 20</strong> Powers Active
-                        </span>
-                        <span style={{ fontSize: 9.5, color: '#78716C', fontStyle: 'italic' }}>
-                          Governed by Principal &amp; SLT
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    /* Unassigned State with Prominent Appoint Button */
-                    <div
-                      style={{
-                        padding: '12px 14px',
-                        background: '#FAF9F6',
-                        border: '1px dashed #D5D3CC',
-                        borderRadius: 8,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 10,
                         alignItems: 'center',
-                        justifyContent: 'center',
-                        textAlign: 'center',
+                        gap: 5,
+                        fontSize: 10.5,
+                        color: isWholeDept ? '#1D4ED8' : '#2C6E6A',
+                        background: isWholeDept ? '#EFF6FF' : '#EAF3EF',
+                        padding: '4px 7px',
+                        borderRadius: 4,
+                        fontWeight: 600,
+                        lineHeight: 1.3,
                       }}
                     >
-                      <div>
-                        <div style={{ fontSize: 11.5, color: '#A8A29E', fontWeight: 600 }}>
-                          Vacant Department Leadership
-                        </div>
-                        <div style={{ fontSize: 10.5, color: '#A8A29E', marginTop: 2 }}>
-                          {dept.defaultDescription}
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleOpenHodModal(dept.name)}
-                        style={{
-                          padding: '7px 14px',
-                          borderRadius: 6,
-                          border: `1.5px solid ${dept.border}`,
-                          background: dept.bg,
-                          color: dept.color,
-                          fontSize: 11.5,
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 5,
-                          transition: 'all 0.12s ease',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                        }}
-                      >
-                        <Plus size={13} />
-                        <span>Appoint Head of {dept.name.replace('Department of ', '')}</span>
-                      </button>
+                      <Building size={11} style={{ flexShrink: 0 }} />
+                      <span>
+                        {isWholeDept
+                          ? 'Whole Department (Grades 9-12 • All Sections)'
+                          : `Grades ${assignment.managedGrades?.join(', ') || 'None'}${
+                              assignment.managedSections && assignment.managedSections.length > 0
+                                ? ` • Sections: ${assignment.managedSections.join(', ')}`
+                                : ' • All Sections'
+                            }`}
+                      </span>
                     </div>
                   )}
-                </div>
 
-                {/* Department Subjects Tags strip at bottom */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, paddingTop: 4 }}>
-                  {dept.subjects.slice(0, 3).map((s) => (
-                    <span
-                      key={s}
-                      style={{
-                        fontSize: 9.5,
-                        color: 'var(--text-secondary)',
-                        background: '#F5F4F0',
-                        padding: '1px 6px',
-                        borderRadius: 3,
-                      }}
-                    >
-                      {s}
+                  {/* Active Powers Badge */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: 10,
+                      color: 'var(--text-secondary)',
+                      borderTop: '1px dashed #E7E5E4',
+                      paddingTop: 5,
+                    }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <ShieldCheck size={11} style={{ color: isAssigned ? '#2C6E6A' : '#A8A29E' }} />
+                      {isAssigned ? (
+                        <>
+                          <strong style={{ color: 'var(--neutral-dark)' }}>{activePowersCount} / 20</strong> Powers Active
+                        </>
+                      ) : (
+                        <span style={{ color: '#A8A29E' }}>0 / 20 Powers Active</span>
+                      )}
                     </span>
-                  ))}
-                  {dept.subjects.length > 3 && (
-                    <span
-                      key="more"
-                      style={{
-                        fontSize: 9.5,
-                        color: '#A8A29E',
-                        background: '#F5F4F0',
-                        padding: '1px 6px',
-                        borderRadius: 3,
-                      }}
-                    >
-                      +{dept.subjects.length - 3} more
+                    <span style={{ fontSize: 9.5, color: isAssigned ? '#78716C' : '#A8A29E', fontStyle: 'italic' }}>
+                      Governed by Principal &amp; SLT
                     </span>
-                  )}
+                  </div>
                 </div>
               </div>
             );
           })}
+
+          {hodAssignments
+            .filter((a) => !ACADEMIC_DEPARTMENTS.some((d) => d.name === a.department))
+            .map((extraHod) => {
+              const activePowersCount = countHodActivePowers(extraHod.permissions);
+              const isWholeDept =
+                !extraHod.managedGrades ||
+                extraHod.managedGrades.length === 4 ||
+                extraHod.scopeType === 'all';
+
+              return (
+                <div
+                  key={extraHod.id}
+                  style={{
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 8,
+                    padding: '14px 16px',
+                    background: '#FAF9F6',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                    transition: 'background 0.12s, border-color 0.12s',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                        {extraHod.userName}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#2C6E6A', fontWeight: 600, marginTop: 1 }}>
+                        {extraHod.title || `Head of ${extraHod.department || 'Department'}`}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenHodModal(extraHod.department, extraHod.id)}
+                        title="Configure Jurisdiction & Delegated Powers"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#78716C',
+                          padding: '4px',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.color = '#1A1A1A';
+                          e.currentTarget.style.background = '#EBEAE5';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.color = '#78716C';
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        <Edit2 size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAssignment(extraHod.id, 'hod')}
+                        title="Revoke Role"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#A8A29E',
+                          padding: '4px',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.color = '#DC2626';
+                          e.currentTarget.style.background = '#FEE2E2';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.color = '#A8A29E';
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      padding: '8px 10px',
+                      background: '#FFFFFF',
+                      border: '1px solid #E7E5E4',
+                      borderRadius: 6,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                    }}
+                  >
+                    <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
+                      {extraHod.userEmail}
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        fontSize: 10.5,
+                        color: isWholeDept ? '#1D4ED8' : '#2C6E6A',
+                        background: isWholeDept ? '#EFF6FF' : '#EAF3EF',
+                        padding: '4px 7px',
+                        borderRadius: 4,
+                        fontWeight: 600,
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      <Building size={11} style={{ flexShrink: 0 }} />
+                      <span>
+                        {isWholeDept
+                          ? 'Whole Department (Grades 9-12 • All Sections)'
+                          : `Grades ${extraHod.managedGrades?.join(', ') || 'None'}${
+                              extraHod.managedSections && extraHod.managedSections.length > 0
+                                ? ` • Sections: ${extraHod.managedSections.join(', ')}`
+                                : ' • All Sections'
+                            }`}
+                      </span>
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        fontSize: 10,
+                        color: 'var(--text-secondary)',
+                        borderTop: '1px dashed #E7E5E4',
+                        paddingTop: 5,
+                      }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <ShieldCheck size={11} style={{ color: '#2C6E6A' }} />
+                        <strong style={{ color: 'var(--neutral-dark)' }}>{activePowersCount} / 20</strong> Powers Active
+                      </span>
+                      <span style={{ fontSize: 9.5, color: '#78716C', fontStyle: 'italic' }}>
+                        Governed by Principal &amp; SLT
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
         </div>
       </div>
 
