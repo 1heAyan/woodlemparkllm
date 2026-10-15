@@ -134,6 +134,12 @@ export const ExportAttendanceModal: React.FC<ExportAttendanceModalProps> = ({
           (s.email || '').toLowerCase().includes(q)
       );
     }
+    // Sort alphabetically by student name by default
+    filtered = filtered.sort((a, b) => {
+      const nameA = (a.name || '').toLowerCase();
+      const nameB = (b.name || '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
     return filtered;
   }, [students, selectedStudentFilter, searchStudentQuery]);
 

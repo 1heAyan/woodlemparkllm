@@ -59,8 +59,59 @@ interface AdminDashboardProps {
 
 type AdminTab = 'overview' | 'delegation' | 'directory' | 'classes' | 'assessments' | 'late_entry' | 'settings' | 'support';
 
+type DirectorySortOption = 'adm_asc' | 'adm_desc' | 'roll_wise' | 'name_asc';
+
 const VALID_GRADES = ['9', '10', '11', '12'] as const;
 const BASE_SECTIONS = ['A', 'B', 'C', 'D'] as const;
+
+// The admission/code value shown in the directory (parents have none)
+const directoryAdmissionCode = (p: UserProfile) =>
+  p.role === 'parent' ? '' : sanitizeUserCode(p.admission_number || p.user_code, p.email) || '';
+
+const compareByAdmission = (a: UserProfile, b: UserProfile, descending = false) => {
+  const codeA = directoryAdmissionCode(a);
+  const codeB = directoryAdmissionCode(b);
+  if (!codeA && !codeB) return 0;
+  if (!codeA) return 1; // entries without a code always sort last
+  if (!codeB) return -1;
+  const cmp = codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+  return descending ? -cmp : cmp;
+};
+
+const compareByName = (a: UserProfile, b: UserProfile) =>
+  (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' });
+
+// Roll-wise hierarchy: Leadership → Teacher → Admin → Parent → Student
+const rollTier = (p: UserProfile) => {
+  if (p.role === 'principal' || isPrincipalUser(p) || isSltUser(p) || p.special_role === 'slt') return 0;
+  if (p.role === 'teacher') return 1;
+  if (p.role === 'admin') return 2;
+  if (p.role === 'parent') return 3;
+  return 4;
+};
+
+// Within leadership: Principal first, then Vice Principal, then the rest
+const leadershipRank = (p: UserProfile) => {
+  const designation = (p.designation || '').toLowerCase();
+  if (designation.includes('vice')) return 1;
+  if (designation.includes('principal') || isPrincipalUser(p)) return 0;
+  return 2;
+};
+
+const compareDirectoryProfiles = (a: UserProfile, b: UserProfile, sort: DirectorySortOption) => {
+  if (sort === 'name_asc') return compareByName(a, b);
+  if (sort === 'adm_desc') return compareByAdmission(a, b, true);
+  if (sort === 'roll_wise') {
+    const tierDiff = rollTier(a) - rollTier(b);
+    if (tierDiff !== 0) return tierDiff;
+    if (rollTier(a) === 0) {
+      const leaderDiff = leadershipRank(a) - leadershipRank(b);
+      if (leaderDiff !== 0) return leaderDiff;
+    }
+    return compareByAdmission(a, b);
+  }
+  return compareByAdmission(a, b);
+};
 
 // Styled tooltip that renders through a portal to document.body so it is never
 // clipped by table cells or scroll containers.
@@ -239,6 +290,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [directorySort, setDirectorySort] = useState<DirectorySortOption>('adm_asc');
   const pageSize = 50;
 
   const [selectedClassInspect, setSelectedClassInspect] = useState<string | null>(null);
@@ -759,9 +811,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Deactivated accounts count
   const deactivatedCount = useMemo(() => profiles.filter((p) => p.is_deactivated).length, [profiles]);
 
-  // Filtered profiles for User Directory
+  // Filtered & sorted profiles for User Directory
   const filteredProfiles = useMemo(() => {
-    return profiles.filter((p) => {
+    const list = profiles.filter((p) => {
       // Strict Jurisdictional Scoping for SLT
       if (isSlt && sltScope.scopeType === 'custom') {
         if (p.role === 'student') {
@@ -820,7 +872,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
       return true;
     });
-  }, [profiles, roleFilter, classFilter, searchQuery, subjectClasses, isSlt, sltScope]);
+    return [...list].sort((a, b) => compareDirectoryProfiles(a, b, directorySort));
+  }, [profiles, roleFilter, classFilter, searchQuery, subjectClasses, isSlt, sltScope, directorySort]);
 
   // Pagination calculation (50 records per page)
   const totalPages = Math.ceil(filteredProfiles.length / pageSize) || 1;
@@ -1443,6 +1496,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 ...activeClassList.map((c) => ({ value: c, label: `Section ${c}` })),
               ]}
             />
+          </div>
+
+          {/* Sort order */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#7A7874' }}>Sort:</span>
+            <div style={{ width: 170 }}>
+              <CustomSelect
+                value={directorySort}
+                onChange={(val) => {
+                  setDirectorySort(val as DirectorySortOption);
+                  setCurrentPage(1);
+                }}
+                buttonStyle={{ height: 32, padding: '0 10px', fontSize: 12, borderRadius: 6, borderColor: '#E5E3DF' }}
+                options={[
+                  { value: 'adm_asc', label: 'Adm No. Asc.' },
+                  { value: 'adm_desc', label: 'Adm No. Desc.' },
+                  { value: 'roll_wise', label: 'Roll Order', sublabel: 'Leadership → Students' },
+                  { value: 'name_asc', label: 'Alphabetical', sublabel: 'Name A → Z' },
+                ]}
+              />
+            </div>
           </div>
 
           {(searchQuery || roleFilter !== 'all' || classFilter !== 'all') && (
