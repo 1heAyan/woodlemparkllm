@@ -595,12 +595,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // Homeroom students (strictly empty if not assigned as Class Teacher)
   const homeroomStudents = useMemo(() => {
     if (!homeroomClassInfo.isClassTeacher) return [];
-    return profiles.filter((p) => {
+    const filtered = profiles.filter((p) => {
       if (p.role !== 'student') return false;
       const g = (p.grade || '').replace(/[^0-9]/g, '');
       const s = (p.class_letter || '').toUpperCase().trim();
       return g === homeroomGrade && (!homeroomSection || s === homeroomSection);
     });
+    return filtered.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' }));
   }, [profiles, homeroomClassInfo.isClassTeacher, homeroomGrade, homeroomSection]);
 
   // Synthetic class_id for the homeroom (used to tag resources/broadcasts sent to the whole class)
