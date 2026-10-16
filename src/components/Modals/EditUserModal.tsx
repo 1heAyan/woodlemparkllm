@@ -5,7 +5,7 @@ import { UserProfile, ParentDocument, SubjectClass } from '@/lib/supabaseClient'
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { MultiSubjectSelect } from '@/components/UI/MultiSubjectSelect';
 import { resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
-import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
+import { extractClassTeacherInfo, extractUserClassInfo } from '@/lib/classTeacherHelper';
 import { isPrincipalUser } from '@/lib/specialRolesHelper';
 import { sanitizeUserCode } from '@/lib/userCodeHelper';
 import { Eye, EyeOff, Lock, FileText, CheckCircle2, Clock, AlertCircle, AlertTriangle, Crown } from 'lucide-react';
@@ -115,7 +115,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       setSelectedStudentIds(user.linked_student_ids || []);
       setStudentSearchTerm('');
 
-      const classInfo = extractClassTeacherInfo(user, subjectClasses);
+      const classInfo = extractUserClassInfo(user, subjectClasses);
       setGrade(classInfo.grade);
       setSection(classInfo.section);
       setIsClassTeacher(classInfo.isClassTeacher);

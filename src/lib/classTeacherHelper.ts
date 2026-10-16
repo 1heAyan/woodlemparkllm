@@ -101,6 +101,71 @@ export function extractClassTeacherInfo(
   };
 }
 
+const ROMAN_GRADES: Record<string, ValidGrade> = { IX: '9', X: '10', XI: '11', XII: '12' };
+
+/**
+ * Normalises any stored grade value ("12", "Grade 12", "12th", "XII", "12-A") to a ValidGrade.
+ */
+export function parseGradeValue(raw?: string | null): ValidGrade | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const digits = trimmed.match(/\d+/)?.[0];
+  if (digits && VALID_GRADES.includes(digits as ValidGrade)) return digits as ValidGrade;
+
+  const roman = trimmed.replace(/^grade\s*/i, '').match(/^(XII|XI|IX|X)\b/i)?.[1]?.toUpperCase();
+  if (roman && ROMAN_GRADES[roman]) return ROMAN_GRADES[roman];
+
+  return null;
+}
+
+/**
+ * Normalises any stored section value ("A", "Section A", "a", "12-A") to an uppercase letter.
+ */
+export function parseSectionValue(raw?: string | null): string | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const cleaned = raw.trim().replace(/^section\s*/i, '');
+  if (!cleaned) return null;
+
+  // Single letter (most common: "A")
+  if (/^[a-zA-Z]$/.test(cleaned)) return cleaned.toUpperCase();
+
+  // Combined format like "12-A", "12A", "Grade 12 (A)" → take the trailing letter after digits
+  const combo = cleaned.match(/\d+[^0-9a-zA-Z]*([a-zA-Z])\b/);
+  if (combo) return combo[1].toUpperCase();
+
+  return null;
+}
+
+/**
+ * Role-aware class cohort extraction used by admin edit screens.
+ * - Students: reads their actual enrolled `grade` + `class_letter` from the profile.
+ * - Teachers: delegates to `extractClassTeacherInfo` (homeroom assignment).
+ */
+export function extractUserClassInfo(
+  user?: UserProfile | null,
+  subjectClasses?: SubjectClass[]
+): ClassTeacherInfo {
+  if (!user || user.role === 'teacher') {
+    return extractClassTeacherInfo(user, subjectClasses);
+  }
+
+  const grade = parseGradeValue(user.grade) || '12';
+  const section =
+    parseSectionValue(user.class_letter) ||
+    parseSectionValue(user.grade) || // e.g. grade stored as "12-B"
+    'A';
+
+  return {
+    isClassTeacher: false,
+    grade,
+    section,
+    classKey: `${grade}-${section}`,
+    classLabel: `Grade ${grade}-${section}`,
+  };
+}
+
 /**
  * Checks whether a teacher is assigned to a specific class cohort (e.g. "12-A" or "Grade 12-A").
  */

@@ -6,7 +6,7 @@ import { CustomSelect } from '@/components/UI/CustomSelect';
 import { MultiSubjectSelect } from '@/components/UI/MultiSubjectSelect';
 import { openFileInNewTab, downloadFile } from '@/lib/fileHelper';
 import { resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
-import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
+import { extractClassTeacherInfo, extractUserClassInfo } from '@/lib/classTeacherHelper';
 import { isPrincipalUser } from '@/lib/specialRolesHelper';
 import { sanitizeUserCode } from '@/lib/userCodeHelper';
 import {
@@ -69,7 +69,7 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
   onSave,
   onDelete,
 }) => {
-  const initialClassInfo = useMemo(() => extractClassTeacherInfo(user, subjectClasses), [user, subjectClasses]);
+  const initialClassInfo = useMemo(() => extractUserClassInfo(user, subjectClasses), [user, subjectClasses]);
 
   const [name, setName] = useState(user.name || '');
   const [email, setEmail] = useState(user.email || '');
@@ -109,7 +109,9 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
   const [section, setSection] = useState<string>(() => initialClassInfo.section);
 
   // Teacher specific fields
-  const [subject, setSubject] = useState(user.subject || '');
+  const [subject, setSubject] = useState(
+    () => user.subject || (user.enrolled_subjects ? user.enrolled_subjects.join(', ') : '')
+  );
   const [isClassTeacher, setIsClassTeacher] = useState(() => initialClassInfo.isClassTeacher);
 
   // Student specific: Assigned Parent IDs & Parent Email
@@ -270,7 +272,7 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
     setStudentSearchTerm('');
     setSaveSuccess(false);
 
-    const classInfo = extractClassTeacherInfo(user, subjectClasses);
+    const classInfo = extractUserClassInfo(user, subjectClasses);
     setGrade(classInfo.grade);
     setSection(classInfo.section);
     setIsClassTeacher(classInfo.isClassTeacher);
