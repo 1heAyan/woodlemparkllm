@@ -497,7 +497,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   };
 
   return (
-    <div className="app-viewport">
+    <div className="app-viewport parent-viewport">
       {/* MOBILE TOP BAR (Screens <= 768px) */}
       <div className="mobile-top-bar">
         <div className="mobile-top-bar-brand" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1356,7 +1356,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             {/* RIGHT ACTION BUTTONS & WARD SELECTOR */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {linkedStudents.length > 1 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div className="hide-mobile" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', fontWeight: 600 }}>Ward:</span>
                   <CustomSelect
                     value={selectedChildId}
@@ -1484,7 +1484,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
               {/* TOP STATS CARDS */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 12 }}>
                 {/* Attendance Rate Card */}
                 <div
                   style={{
@@ -2027,6 +2027,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                           {/* CLICKABLE SUBJECT HEADER CARD */}
                           <div
                             onClick={() => toggleClassExpanded(sc.id)}
+                            className="syllabus-card-header"
                             style={{
                               padding: '16px 20px',
                               display: 'flex',
@@ -2035,15 +2036,16 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                               cursor: 'pointer',
                               background: isExpanded ? 'linear-gradient(135deg, #F8FFFE 0%, #F0FAF8 100%)' : '#FFFFFF',
                               borderBottom: isExpanded ? '1px solid #D4EDE9' : 'none',
-                              gap: 16,
+                              gap: 14,
                               userSelect: 'none',
+                              flexWrap: 'wrap',
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 200px', minWidth: 0 }}>
                               <div
                                 style={{
-                                  width: 42,
-                                  height: 42,
+                                  width: 40,
+                                  height: 40,
                                   borderRadius: 10,
                                   background: 'linear-gradient(135deg, #EAF3EF 0%, #D4EDE9 100%)',
                                   color: '#1C4D46',
@@ -2051,42 +2053,43 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                                   alignItems: 'center',
                                   justifyContent: 'center',
                                   fontWeight: 800,
-                                  fontSize: 15,
+                                  fontSize: 14,
                                   letterSpacing: '0.02em',
                                   flexShrink: 0,
                                 }}
                               >
                                 {sc.subject ? sc.subject.slice(0, 2).toUpperCase() : 'SC'}
                               </div>
-                              <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                  <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                  <h4 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: 'var(--neutral-dark)', wordBreak: 'break-word' }}>
                                     {sc.name}
                                   </h4>
                                   <span
                                     style={{
-                                      fontSize: 11,
+                                      fontSize: 10.5,
                                       background: '#F1F5F9',
                                       color: '#475569',
-                                      padding: '2px 8px',
+                                      padding: '2px 7px',
                                       borderRadius: 4,
                                       fontWeight: 600,
+                                      whiteSpace: 'nowrap',
                                     }}
                                   >
                                     {sc.class_name || sc.section || 'Classroom'}
                                   </span>
                                 </div>
-                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>
+                                <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                   Faculty: <strong style={{ color: 'var(--neutral-dark)' }}>{sc.teacher_name || 'Subject Teacher'}</strong>
                                   {sc.room ? ` • Room: ${sc.room}` : ''}
                                 </div>
                               </div>
                             </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 180px', justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
                               {/* Progress bar & coverage */}
-                              <div style={{ width: 130, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5 }}>
+                              <div className="syllabus-progress-wrap" style={{ minWidth: 90, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
                                   <span style={{ color: 'var(--text-secondary)' }}>Taught</span>
                                   <strong style={{ color: '#2C6E6A' }}>{scPct}%</strong>
                                 </div>
@@ -2106,33 +2109,34 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                               {/* Topics Pill Badge */}
                               <span
                                 style={{
-                                  fontSize: 12,
+                                  fontSize: 11,
                                   fontWeight: 600,
-                                  padding: '4px 10px',
+                                  padding: '3px 8px',
                                   borderRadius: 6,
                                   background: scTotal > 0 ? 'rgba(44,110,106,0.1)' : '#F1F5F9',
                                   color: scTotal > 0 ? '#1C4D46' : '#64748B',
                                   whiteSpace: 'nowrap',
+                                  flexShrink: 0,
                                 }}
                               >
-                                {scTotal > 0 ? `${scDone}/${scTotal} Topics` : 'No Topics'}
+                                {scTotal > 0 ? `${scDone}/${scTotal}` : '0'} Topics
                               </span>
 
                               {/* Arrow Toggle */}
                               <div
                                 style={{
-                                  width: 28,
-                                  height: 28,
+                                  width: 26,
+                                  height: 26,
                                   borderRadius: 6,
                                   background: isExpanded ? 'rgba(44,110,106,0.12)' : '#F1F5F9',
                                   color: isExpanded ? '#1C4D46' : '#64748B',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  transition: 'all 0.15s ease',
+                                  flexShrink: 0,
                                 }}
                               >
-                                {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
                               </div>
                             </div>
                           </div>
@@ -2187,9 +2191,11 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                                                   background: topic.teacher_checked ? '#F0FAF8' : '#FAF9F7',
                                                   borderRadius: 6,
                                                   border: topic.teacher_checked ? '1px solid #D4EDE9' : '1px solid var(--border-color)',
+                                                  flexWrap: 'wrap',
+                                                  gap: 8,
                                                 }}
                                               >
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 1 180px', minWidth: 0 }}>
                                                   <span
                                                     style={{
                                                       width: 18,
@@ -2209,9 +2215,10 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                                                   </span>
                                                   <span
                                                     style={{
-                                                      fontSize: 13,
+                                                      fontSize: 12.5,
                                                       color: 'var(--neutral-dark)',
                                                       fontWeight: topic.teacher_checked ? 600 : 400,
+                                                      wordBreak: 'break-word',
                                                     }}
                                                   >
                                                     {topic.title}
@@ -2220,13 +2227,14 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
                                                 <span
                                                   style={{
-                                                    fontSize: 11,
+                                                    fontSize: 10.5,
                                                     fontWeight: 700,
                                                     padding: '2px 8px',
                                                     borderRadius: 4,
                                                     background: topic.teacher_checked ? '#EAF3EF' : '#F1F5F9',
                                                     color: topic.teacher_checked ? '#2D6E5D' : '#64748B',
                                                     whiteSpace: 'nowrap',
+                                                    flexShrink: 0,
                                                   }}
                                                 >
                                                   {topic.teacher_checked ? 'Taught in Class' : 'Upcoming'}
@@ -2306,10 +2314,12 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center',
-                            padding: '12px 16px',
+                            padding: '12px 14px',
                             background: '#FFFFFF',
                             borderRadius: 8,
                             border: '1px solid var(--border-color)',
+                            flexWrap: 'wrap',
+                            gap: 10,
                           }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -2367,12 +2377,15 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           {activeChild && activeTab === 'behavior' && (
             <div>
               {/* TOP KPI SCORE CARDS */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                gap: 16,
-                marginBottom: 24,
-              }}>
+              <div
+                className="parent-kpi-grid"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))',
+                  gap: 12,
+                  marginBottom: 20,
+                }}
+              >
                 {/* CARD 1: CURRENT CONDUCT SCORE */}
                 <div style={{
                   background: '#FFFFFF',
@@ -2553,96 +2566,177 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-                      <thead>
-                        <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Date & Time</th>
-                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Infraction Reason</th>
-                          <th style={{ textAlign: 'center', padding: '10px 16px', fontWeight: 700 }}>Deduction</th>
-                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Recorded By</th>
-                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Context / Subject</th>
-                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Teacher Notes & Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {childBehaviorIncidents.map((inc, i) => (
-                          <tr
-                            key={inc.id || i}
-                            style={{
-                              borderBottom: i < childBehaviorIncidents.length - 1 ? '1px solid #ECEAE5' : 'none',
-                              background: i % 2 === 0 ? '#FFFFFF' : '#FAFAF9',
-                            }}
-                          >
-                            <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', fontWeight: 600, color: 'var(--neutral-dark)' }}>
-                              <div>{inc.incident_date}</div>
-                              {inc.incident_time && (
-                                <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>{inc.incident_time}</div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px 16px' }}>
-                              <div style={{ fontWeight: 700, color: '#A83B38' }}>{inc.reason}</div>
-                              {inc.category && (
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
-                                  Category: {inc.category.replace('_', ' ')}
+                  <>
+                    <div className="hide-mobile" style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                        <thead>
+                          <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Date & Time</th>
+                            <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Infraction Reason</th>
+                            <th style={{ textAlign: 'center', padding: '10px 16px', fontWeight: 700 }}>Deduction</th>
+                            <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Recorded By</th>
+                            <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Context / Subject</th>
+                            <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Teacher Notes & Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {childBehaviorIncidents.map((inc, i) => (
+                            <tr
+                              key={inc.id || i}
+                              style={{
+                                borderBottom: i < childBehaviorIncidents.length - 1 ? '1px solid #ECEAE5' : 'none',
+                                background: i % 2 === 0 ? '#FFFFFF' : '#FAFAF9',
+                              }}
+                            >
+                              <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                                <div>{inc.incident_date}</div>
+                                {inc.incident_time && (
+                                  <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>{inc.incident_time}</div>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px 16px' }}>
+                                <div style={{ fontWeight: 700, color: '#A83B38' }}>{inc.reason}</div>
+                                {inc.category && (
+                                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                                    Category: {inc.category.replace('_', ' ')}
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                                <span style={{
+                                  display: 'inline-block',
+                                  padding: '3px 10px',
+                                  borderRadius: 12,
+                                  background: '#FDF1F0',
+                                  color: '#A83B38',
+                                  fontWeight: 800,
+                                  fontSize: 12,
+                                  border: '1px solid #F5C6CB',
+                                }}>
+                                  -{inc.points_deducted} pts
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                                <div style={{ fontWeight: 600, color: 'var(--neutral-dark)' }}>{inc.teacher_name}</div>
+                                <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                                  {inc.teacher_role ? inc.teacher_role.replace('_', ' ') : 'Teacher'}
                                 </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                              <span style={{
+                              </td>
+                              <td style={{ padding: '12px 16px' }}>
+                                {inc.subject_name ? (
+                                  <span style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    padding: '2px 8px',
+                                    borderRadius: 6,
+                                    background: '#F0EFEA',
+                                    color: 'var(--neutral-dark)',
+                                  }}>
+                                    {inc.subject_name}
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Homeroom</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px 16px', maxWidth: 280 }}>
+                                {inc.notes ? (
+                                  <div style={{ color: 'var(--neutral-dark)', fontStyle: 'italic', marginBottom: 2 }}>
+                                    "{inc.notes}"
+                                  </div>
+                                ) : null}
+                                {inc.action_taken ? (
+                                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                    <strong>Action Taken:</strong> {inc.action_taken}
+                                  </div>
+                                ) : !inc.notes && (
+                                  <span style={{ color: 'var(--text-secondary)' }}>—</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile Touch Cards View */}
+                    <div className="hide-desktop-flex" style={{ flexDirection: 'column', gap: 10, padding: 12 }}>
+                      {childBehaviorIncidents.map((inc, i) => (
+                        <div
+                          key={inc.id || i}
+                          style={{
+                            background: '#FFFFFF',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 8,
+                            padding: '12px 14px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 8,
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 13.5, fontWeight: 700, color: '#A83B38' }}>
+                                {inc.reason}
+                              </div>
+                              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                                {inc.incident_date} {inc.incident_time ? `• ${inc.incident_time}` : ''}
+                              </div>
+                            </div>
+                            <span
+                              style={{
                                 display: 'inline-block',
-                                padding: '3px 10px',
-                                borderRadius: 12,
+                                padding: '3px 8px',
+                                borderRadius: 10,
                                 background: '#FDF1F0',
                                 color: '#A83B38',
                                 fontWeight: 800,
-                                fontSize: 12,
+                                fontSize: 11.5,
                                 border: '1px solid #F5C6CB',
-                              }}>
-                                -{inc.points_deducted} pts
+                                whiteSpace: 'nowrap',
+                                flexShrink: 0,
+                              }}
+                            >
+                              -{inc.points_deducted} pts
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 11.5, color: 'var(--text-secondary)', borderTop: '1px solid #F1F5F9', paddingTop: 6 }}>
+                            <span style={{ fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                              {inc.teacher_name}
+                            </span>
+                            {inc.teacher_role && (
+                              <span style={{ textTransform: 'capitalize', color: 'var(--text-secondary)' }}>
+                                ({inc.teacher_role.replace('_', ' ')})
                               </span>
-                            </td>
-                            <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                              <div style={{ fontWeight: 600, color: 'var(--neutral-dark)' }}>{inc.teacher_name}</div>
-                              <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
-                                {inc.teacher_role ? inc.teacher_role.replace('_', ' ') : 'Teacher'}
-                              </div>
-                            </td>
-                            <td style={{ padding: '12px 16px' }}>
-                              {inc.subject_name ? (
-                                <span style={{
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  padding: '2px 8px',
-                                  borderRadius: 6,
-                                  background: '#F0EFEA',
-                                  color: 'var(--neutral-dark)',
-                                }}>
-                                  {inc.subject_name}
-                                </span>
-                              ) : (
-                                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Homeroom</span>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px 16px', maxWidth: 280 }}>
-                              {inc.notes ? (
-                                <div style={{ color: 'var(--neutral-dark)', fontStyle: 'italic', marginBottom: 2 }}>
-                                  "{inc.notes}"
-                                </div>
-                              ) : null}
-                              {inc.action_taken ? (
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                                  <strong>Action Taken:</strong> {inc.action_taken}
-                                </div>
-                              ) : !inc.notes && (
-                                <span style={{ color: 'var(--text-secondary)' }}>—</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                            )}
+                            {inc.subject_name && (
+                              <span style={{ background: '#F0EFEA', color: 'var(--neutral-dark)', padding: '1px 6px', borderRadius: 4, fontWeight: 600, fontSize: 10.5 }}>
+                                {inc.subject_name}
+                              </span>
+                            )}
+                            {inc.category && (
+                              <span style={{ textTransform: 'capitalize' }}>
+                                • {inc.category.replace('_', ' ')}
+                              </span>
+                            )}
+                          </div>
+
+                          {inc.notes && (
+                            <div style={{ fontSize: 11.5, color: '#374151', background: '#F8F7F4', padding: '6px 10px', borderRadius: 6, border: '1px solid #ECEAE5', fontStyle: 'italic', lineHeight: 1.4 }}>
+                              &ldquo;{inc.notes}&rdquo;
+                            </div>
+                          )}
+
+                          {inc.action_taken && (
+                            <div style={{ fontSize: 11, color: '#4B5563', lineHeight: 1.35 }}>
+                              <strong>Action:</strong> {inc.action_taken}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
                 )}
               </div>
 
@@ -3130,6 +3224,84 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           )}
         </div>
       </main>
+
+      {/* MOBILE BOTTOM NAVIGATION BAR (Screens <= 768px) */}
+      <nav className="mobile-bottom-nav">
+        <button
+          type="button"
+          className={`mobile-nav-tab ${activeTab === 'progress' ? 'active parent-theme' : ''}`}
+          onClick={() => setActiveTab('progress')}
+          aria-label="Academic Progress"
+        >
+          <div className="tab-icon-wrap">
+            <BookOpen size={18} />
+          </div>
+          <span>Progress</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-tab ${activeTab === 'attendance' ? 'active parent-theme' : ''}`}
+          onClick={() => setActiveTab('attendance')}
+          aria-label="Attendance Record"
+        >
+          <div className="tab-icon-wrap">
+            <Calendar size={18} />
+            {absentCount > 0 && (
+              <span className="nav-badge" style={{ background: absentCount > 2 ? '#DC2626' : '#D97706' }}>
+                {absentCount}
+              </span>
+            )}
+          </div>
+          <span>Attendance</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-tab ${activeTab === 'behavior' ? 'active parent-theme' : ''}`}
+          onClick={() => setActiveTab('behavior')}
+          aria-label="Behavior & Conduct"
+        >
+          <div className="tab-icon-wrap">
+            <ShieldAlert size={18} style={{ color: activeTab === 'behavior' ? '#265E5A' : childBehaviorTier.color }} />
+            {childBehaviorScore < 75 && (
+              <span className="nav-badge" style={{ background: childBehaviorTier.color }}>
+                !
+              </span>
+            )}
+          </div>
+          <span>Conduct</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-tab ${activeTab === 'broadcasts' ? 'active parent-theme' : ''}`}
+          onClick={() => setActiveTab('broadcasts')}
+          aria-label="Classroom Notices"
+        >
+          <div className="tab-icon-wrap">
+            <Megaphone size={18} />
+            {childBroadcasts.length > 0 && (
+              <span className="nav-badge" style={{ background: '#2C6E6A' }}>
+                {childBroadcasts.length}
+              </span>
+            )}
+          </div>
+          <span>Notices</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-tab ${['achievements', 'documents', 'hub', 'settings', 'support'].includes(activeTab) ? 'active parent-theme' : ''}`}
+          onClick={() => setIsMobileDrawerOpen(true)}
+          aria-label="More Features"
+        >
+          <div className="tab-icon-wrap">
+            <Menu size={18} />
+          </div>
+          <span>More</span>
+        </button>
+      </nav>
 
       {/* MODALS */}
 

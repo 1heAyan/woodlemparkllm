@@ -2460,6 +2460,45 @@ textarea.form-input { resize: vertical; }
     background: #D2D0CD;
     margin: 0 auto 16px;
   }
+
+  /* Parent Portal Mobile Responsive Refinements */
+  .parent-viewport .main-content {
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .parent-kpi-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+
+  .syllabus-card-header {
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+    padding: 14px 14px !important;
+  }
+
+  .syllabus-progress-wrap {
+    flex: 1 1 140px !important;
+    min-width: 0 !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .parent-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+  .doc-card {
+    padding: 16px !important;
+    gap: 12px !important;
+  }
+}
+
+@media (max-width: 350px) {
+  .parent-kpi-grid {
+    grid-template-columns: 1fr !important;
+  }
 }
 
 /* User Detail View Full-Width Responsive Grid */

@@ -610,7 +610,6 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
                 borderRadius: 6,
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
                 gap: 6,
               }}
             >
@@ -628,7 +627,6 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
               >
                 {isPrincipal ? 'Principal & Super Admin' : (currentUser.designation || 'Senior Leadership')}
               </span>
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#2D8C5E', flexShrink: 0 }}>Active</span>
             </div>
           </div>
         )}

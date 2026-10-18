@@ -3163,7 +3163,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 borderRadius: 6,
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
                 gap: 6,
               }}
             >
@@ -3179,7 +3178,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               }}>
                 {isPrincipal ? 'Principal & Super Admin' : isSlt ? (currentUser.designation || 'Senior Leadership') : 'Administrator'}
               </span>
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#2D8C5E', flexShrink: 0 }}>Active</span>
             </div>
 
             {isSlt && (
