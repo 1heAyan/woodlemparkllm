@@ -2465,12 +2465,14 @@ textarea.form-input { resize: vertical; }
     margin: 0 auto 16px;
   }
 
-  /* Parent Portal Mobile Responsive Refinements */
-  .parent-viewport .main-content {
+  /* Parent & Student Portal Mobile Responsive Refinements */
+  .parent-viewport .main-content,
+  .student-viewport .main-content {
     padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
-  .parent-kpi-grid {
+  .parent-kpi-grid,
+  .student-kpi-grid {
     display: grid !important;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 10px !important;

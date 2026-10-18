@@ -815,7 +815,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   };
 
   return (
-    <div className="app-viewport">
+    <div className="app-viewport student-viewport">
       {/* MOBILE TOP BAR (Screens <= 768px) */}
       <div className="mobile-top-bar">
         <div className="mobile-top-bar-brand" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2606,113 +2606,192 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                         No marks have been released for this class yet.
                       </div>
                     ) : (
-                      <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-                          <thead>
-                            <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                              <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Date &amp; Time</th>
-                              <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Assessment Details</th>
-                              <th style={{ textAlign: 'center', padding: '10px 16px', fontWeight: 700 }}>Score</th>
-                              <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Recorded By</th>
-                              <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Context / Subject</th>
-                              <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Notes &amp; Action</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {classReleasedMarks.map((m: any, i: number) => {
-                              const score = Number(m.marks);
-                              const maxScore = Number(m.offline_assessments?.maximum_marks || 100);
-                              const pct = Math.round((score / maxScore) * 100);
-                              const isFailing = pct < 50;
-                              const decoded = decodeMarkNote(m.teacher_note);
+                      <>
+                        {/* Desktop Table View */}
+                        <div className="hide-mobile" style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                            <thead>
+                              <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Date &amp; Time</th>
+                                <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Assessment Details</th>
+                                <th style={{ textAlign: 'center', padding: '10px 16px', fontWeight: 700 }}>Score</th>
+                                <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Recorded By</th>
+                                <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Context / Subject</th>
+                                <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Notes &amp; Action</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {classReleasedMarks.map((m: any, i: number) => {
+                                const score = Number(m.marks);
+                                const maxScore = Number(m.offline_assessments?.maximum_marks || 100);
+                                const pct = Math.round((score / maxScore) * 100);
+                                const isFailing = pct < 50;
+                                const decoded = decodeMarkNote(m.teacher_note);
 
-                              const dateStr = m.offline_assessments?.assessment_date || '2026-10-06';
+                                const dateStr = m.offline_assessments?.assessment_date || '2026-10-06';
 
-                              return (
-                                <tr
-                                  key={m.id || i}
-                                  style={{
-                                    borderBottom: i < classReleasedMarks.length - 1 ? '1px solid #ECEAE5' : 'none',
-                                    background: i % 2 === 0 ? '#FFFFFF' : '#FAFAF9',
-                                  }}
-                                >
-                                  <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', fontWeight: 600, color: 'var(--neutral-dark)' }}>
-                                    <div>{dateStr}</div>
-                                    <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
-                                      {m.offline_assessments?.created_at
-                                        ? new Date(m.offline_assessments.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                                        : 'Term Exam'}
-                                    </div>
-                                  </td>
+                                return (
+                                  <tr
+                                    key={m.id || i}
+                                    style={{
+                                      borderBottom: i < classReleasedMarks.length - 1 ? '1px solid #ECEAE5' : 'none',
+                                      background: i % 2 === 0 ? '#FFFFFF' : '#FAFAF9',
+                                    }}
+                                  >
+                                    <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                                      <div>{dateStr}</div>
+                                      <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
+                                        {m.offline_assessments?.created_at
+                                          ? new Date(m.offline_assessments.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                          : 'Term Exam'}
+                                      </div>
+                                    </td>
 
-                                  <td style={{ padding: '12px 16px' }}>
-                                    <div style={{ fontWeight: 700, color: isFailing ? '#A83B38' : '#2C6E6A' }}>
+                                    <td style={{ padding: '12px 16px' }}>
+                                      <div style={{ fontWeight: 700, color: isFailing ? '#A83B38' : '#2C6E6A' }}>
+                                        {m.offline_assessments?.title || 'Assessment'}
+                                      </div>
+                                      <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                        Category: In-School Assessment
+                                      </div>
+                                    </td>
+
+                                    <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                                      <span style={{
+                                        display: 'inline-block',
+                                        padding: '3px 10px',
+                                        borderRadius: 12,
+                                        background: isFailing ? '#FDF1F0' : '#EAF3EF',
+                                        color: isFailing ? '#A83B38' : '#2C6E6A',
+                                        fontWeight: 800,
+                                        fontSize: 12,
+                                        border: isFailing ? '1px solid #F5C6CB' : '1px solid #C7E4D8',
+                                      }}>
+                                        {score} / {maxScore} pts
+                                      </span>
+                                    </td>
+
+                                    <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                                      <div style={{ fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                                        {activeClassObj?.teacher_name || 'Subject Teacher'}
+                                      </div>
+                                      <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                                        Faculty
+                                      </div>
+                                    </td>
+
+                                    <td style={{ padding: '12px 16px' }}>
+                                      <span style={{
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        padding: '2px 8px',
+                                        borderRadius: 6,
+                                        background: '#F0EFEA',
+                                        color: 'var(--neutral-dark)',
+                                        display: 'inline-block',
+                                      }}>
+                                        {activeClassObj?.subject || activeClassObj?.name || 'Classroom'}
+                                      </span>
+                                      {(decoded.written || decoded.internal) ? (
+                                        <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 3 }}>
+                                          Theory: {decoded.written || '—'} • Internal: {decoded.internal || '—'}
+                                        </div>
+                                      ) : null}
+                                    </td>
+
+                                    <td style={{ padding: '12px 16px', maxWidth: 280 }}>
+                                      {decoded.note ? (
+                                        <div style={{ color: 'var(--neutral-dark)', fontStyle: 'italic', marginBottom: 2 }}>
+                                          "{decoded.note}"
+                                        </div>
+                                      ) : null}
+                                      <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                        <strong>Action:</strong> {isFailing ? 'Revision Required' : 'Satisfactory Progress'}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Mobile Touch Cards View */}
+                        <div className="hide-desktop-flex" style={{ flexDirection: 'column', gap: 10, padding: 12 }}>
+                          {classReleasedMarks.map((m: any, i: number) => {
+                            const score = Number(m.marks);
+                            const maxScore = Number(m.offline_assessments?.maximum_marks || 100);
+                            const pct = Math.round((score / maxScore) * 100);
+                            const isFailing = pct < 50;
+                            const decoded = decodeMarkNote(m.teacher_note);
+                            const dateStr = m.offline_assessments?.assessment_date || '2026-10-06';
+
+                            return (
+                              <div
+                                key={m.id || i}
+                                style={{
+                                  background: '#FFFFFF',
+                                  border: '1px solid var(--border-color)',
+                                  borderRadius: 8,
+                                  padding: '12px 14px',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 8,
+                                  boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontSize: 13.5, fontWeight: 700, color: isFailing ? '#A83B38' : '#2C6E6A' }}>
                                       {m.offline_assessments?.title || 'Assessment'}
                                     </div>
-                                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                                      Category: In-School Assessment
+                                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                                      {dateStr}
                                     </div>
-                                  </td>
+                                  </div>
+                                  <span style={{
+                                    display: 'inline-block',
+                                    padding: '3px 9px',
+                                    borderRadius: 12,
+                                    background: isFailing ? '#FDF1F0' : '#EAF3EF',
+                                    color: isFailing ? '#A83B38' : '#2C6E6A',
+                                    fontWeight: 800,
+                                    fontSize: 12,
+                                    border: isFailing ? '1px solid #F5C6CB' : '1px solid #C7E4D8',
+                                    flexShrink: 0,
+                                  }}>
+                                    {score} / {maxScore} pts ({pct}%)
+                                  </span>
+                                </div>
 
-                                  <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                                    <span style={{
-                                      display: 'inline-block',
-                                      padding: '3px 10px',
-                                      borderRadius: 12,
-                                      background: isFailing ? '#FDF1F0' : '#EAF3EF',
-                                      color: isFailing ? '#A83B38' : '#2C6E6A',
-                                      fontWeight: 800,
-                                      fontSize: 12,
-                                      border: isFailing ? '1px solid #F5C6CB' : '1px solid #C7E4D8',
-                                    }}>
-                                      {score} / {maxScore} pts
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 11.5 }}>
+                                  <span style={{
+                                    padding: '2px 7px',
+                                    borderRadius: 4,
+                                    background: '#F0EFEA',
+                                    color: 'var(--neutral-dark)',
+                                    fontWeight: 600,
+                                    fontSize: 11,
+                                  }}>
+                                    {activeClassObj?.subject || 'Class'}
+                                  </span>
+                                  {(decoded.written || decoded.internal) && (
+                                    <span style={{ color: 'var(--text-secondary)' }}>
+                                      Theory: {decoded.written || '—'} • Int: {decoded.internal || '—'}
                                     </span>
-                                  </td>
+                                  )}
+                                </div>
 
-                                  <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                                    <div style={{ fontWeight: 600, color: 'var(--neutral-dark)' }}>
-                                      {activeClassObj?.teacher_name || 'Subject Teacher'}
-                                    </div>
-                                    <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
-                                      Faculty
-                                    </div>
-                                  </td>
-
-                                  <td style={{ padding: '12px 16px' }}>
-                                    <span style={{
-                                      fontSize: 11,
-                                      fontWeight: 600,
-                                      padding: '2px 8px',
-                                      borderRadius: 6,
-                                      background: '#F0EFEA',
-                                      color: 'var(--neutral-dark)',
-                                      display: 'inline-block',
-                                    }}>
-                                      {activeClassObj?.subject || activeClassObj?.name || 'Classroom'}
-                                    </span>
-                                    {(decoded.written || decoded.internal) ? (
-                                      <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 3 }}>
-                                        Theory: {decoded.written || '—'} • Internal: {decoded.internal || '—'}
-                                      </div>
-                                    ) : null}
-                                  </td>
-
-                                  <td style={{ padding: '12px 16px', maxWidth: 280 }}>
-                                    {decoded.note ? (
-                                      <div style={{ color: 'var(--neutral-dark)', fontStyle: 'italic', marginBottom: 2 }}>
-                                        "{decoded.note}"
-                                      </div>
-                                    ) : null}
-                                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                                      <strong>Action:</strong> {isFailing ? 'Revision Required' : 'Satisfactory Progress'}
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                                {decoded.note && (
+                                  <div style={{ fontSize: 12, color: 'var(--neutral-dark)', fontStyle: 'italic', background: '#FBFBFA', padding: '8px 10px', borderRadius: 6, border: '1px solid #ECEAE5' }}>
+                                    "{decoded.note}"
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
                     )}
                   </div>
                 );
@@ -3060,7 +3139,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   </h1>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <button
                     type="button"
                     onClick={() => setIsExportAttendanceOpen(true)}
@@ -3079,7 +3158,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                     }}
                   >
                     <Download size={14} />
-                    <span>Export Attendance Statement</span>
+                    <span>Export Statement</span>
                   </button>
 
                   <button
@@ -3092,7 +3171,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                     style={{ padding: '7px 16px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
                   >
                     <Plus size={14} />
-                    <span>Apply for Leave / Sick Note</span>
+                    <span>Apply for Leave</span>
                   </button>
                 </div>
               </div>
@@ -3110,6 +3189,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
+                    flexWrap: 'wrap',
                     gap: 12,
                     marginBottom: 20,
                     animation: 'fadeIn 0.2s ease',
@@ -3591,12 +3671,15 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
             <div className="content-body" style={{ padding: '0 24px 24px' }}>
               {/* TOP KPI CARDS */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                gap: 16,
-                marginBottom: 24,
-              }}>
+              <div
+                className="student-kpi-grid"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: 16,
+                  marginBottom: 24,
+                }}
+              >
                 {/* CARD 1: CURRENT SCORE */}
                 <div style={{
                   background: '#FFFFFF',
@@ -3737,7 +3820,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 }}>
                   <div>
                     <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--neutral-dark)' }}>
-                      Itemized Conduct Observations & Deductions
+                      Itemized Conduct Observations &amp; Deductions
                     </h2>
                     <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
                       Complete digital record of infractions logged by homeroom and subject teachers
@@ -3778,96 +3861,176 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-                      <thead>
-                        <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Date & Time</th>
-                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Infraction Reason</th>
-                          <th style={{ textAlign: 'center', padding: '10px 16px', fontWeight: 700 }}>Deduction</th>
-                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Recorded By</th>
-                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Context / Subject</th>
-                          <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Notes & Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {myBehaviorIncidents.map((inc, i) => (
-                          <tr
-                            key={inc.id || i}
-                            style={{
-                              borderBottom: i < myBehaviorIncidents.length - 1 ? '1px solid #ECEAE5' : 'none',
-                              background: i % 2 === 0 ? '#FFFFFF' : '#FAFAF9',
-                            }}
-                          >
-                            <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', fontWeight: 600, color: 'var(--neutral-dark)' }}>
-                              <div>{inc.incident_date}</div>
-                              {inc.incident_time && (
-                                <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>{inc.incident_time}</div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px 16px' }}>
-                              <div style={{ fontWeight: 700, color: '#A83B38' }}>{inc.reason}</div>
-                              {inc.category && (
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
-                                  Category: {inc.category.replace('_', ' ')}
-                                </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                              <span style={{
-                                display: 'inline-block',
-                                padding: '3px 10px',
-                                borderRadius: 12,
-                                background: '#FDF1F0',
-                                color: '#A83B38',
-                                fontWeight: 800,
-                                fontSize: 12,
-                                border: '1px solid #F5C6CB',
-                              }}>
-                                -{inc.points_deducted} pts
-                              </span>
-                            </td>
-                            <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                              <div style={{ fontWeight: 600, color: 'var(--neutral-dark)' }}>{inc.teacher_name}</div>
-                              <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
-                                {inc.teacher_role ? inc.teacher_role.replace('_', ' ') : 'Teacher'}
-                              </div>
-                            </td>
-                            <td style={{ padding: '12px 16px' }}>
-                              {inc.subject_name ? (
-                                <span style={{
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  padding: '2px 8px',
-                                  borderRadius: 6,
-                                  background: '#F0EFEA',
-                                  color: 'var(--neutral-dark)',
-                                }}>
-                                  {inc.subject_name}
-                                </span>
-                              ) : (
-                                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Homeroom</span>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px 16px', maxWidth: 280 }}>
-                              {inc.notes ? (
-                                <div style={{ color: 'var(--neutral-dark)', fontStyle: 'italic', marginBottom: 2 }}>
-                                  "{inc.notes}"
-                                </div>
-                              ) : null}
-                              {inc.action_taken ? (
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                                  <strong>Action:</strong> {inc.action_taken}
-                                </div>
-                              ) : !inc.notes && (
-                                <span style={{ color: 'var(--text-secondary)' }}>—</span>
-                              )}
-                            </td>
+                  <>
+                    {/* Desktop Table View */}
+                    <div className="hide-mobile" style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                        <thead>
+                          <tr style={{ background: '#F8F7F4', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Date &amp; Time</th>
+                            <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Infraction Reason</th>
+                            <th style={{ textAlign: 'center', padding: '10px 16px', fontWeight: 700 }}>Deduction</th>
+                            <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Recorded By</th>
+                            <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Context / Subject</th>
+                            <th style={{ textAlign: 'left', padding: '10px 16px', fontWeight: 700 }}>Notes &amp; Action</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {myBehaviorIncidents.map((inc, i) => (
+                            <tr
+                              key={inc.id || i}
+                              style={{
+                                borderBottom: i < myBehaviorIncidents.length - 1 ? '1px solid #ECEAE5' : 'none',
+                                background: i % 2 === 0 ? '#FFFFFF' : '#FAFAF9',
+                              }}
+                            >
+                              <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', fontWeight: 600, color: 'var(--neutral-dark)' }}>
+                                <div>{inc.incident_date}</div>
+                                {inc.incident_time && (
+                                  <div style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>{inc.incident_time}</div>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px 16px' }}>
+                                <div style={{ fontWeight: 700, color: '#A83B38' }}>{inc.reason}</div>
+                                {inc.category && (
+                                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                                    Category: {inc.category.replace('_', ' ')}
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                                <span style={{
+                                  display: 'inline-block',
+                                  padding: '3px 10px',
+                                  borderRadius: 12,
+                                  background: '#FDF1F0',
+                                  color: '#A83B38',
+                                  fontWeight: 800,
+                                  fontSize: 12,
+                                  border: '1px solid #F5C6CB',
+                                }}>
+                                  -{inc.points_deducted} pts
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                                <div style={{ fontWeight: 600, color: 'var(--neutral-dark)' }}>{inc.teacher_name}</div>
+                                <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                                  {inc.teacher_role ? inc.teacher_role.replace('_', ' ') : 'Teacher'}
+                                </div>
+                              </td>
+                              <td style={{ padding: '12px 16px' }}>
+                                {inc.subject_name ? (
+                                  <span style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    padding: '2px 8px',
+                                    borderRadius: 6,
+                                    background: '#F0EFEA',
+                                    color: 'var(--neutral-dark)',
+                                  }}>
+                                    {inc.subject_name}
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Homeroom</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '12px 16px', maxWidth: 280 }}>
+                                {inc.notes ? (
+                                  <div style={{ color: 'var(--neutral-dark)', fontStyle: 'italic', marginBottom: 2 }}>
+                                    "{inc.notes}"
+                                  </div>
+                                ) : null}
+                                {inc.action_taken ? (
+                                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                    <strong>Action:</strong> {inc.action_taken}
+                                  </div>
+                                ) : !inc.notes && (
+                                  <span style={{ color: 'var(--text-secondary)' }}>—</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile Touch Cards View */}
+                    <div className="hide-desktop-flex" style={{ flexDirection: 'column', gap: 10, padding: 12 }}>
+                      {myBehaviorIncidents.map((inc, i) => (
+                        <div
+                          key={inc.id || i}
+                          style={{
+                            background: '#FFFFFF',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 8,
+                            padding: '12px 14px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 8,
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 13.5, fontWeight: 700, color: '#A83B38' }}>
+                                {inc.reason}
+                              </div>
+                              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                                {inc.incident_date} {inc.incident_time ? `• ${inc.incident_time}` : ''}
+                              </div>
+                            </div>
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '3px 9px',
+                              borderRadius: 12,
+                              background: '#FDF1F0',
+                              color: '#A83B38',
+                              fontWeight: 800,
+                              fontSize: 12,
+                              border: '1px solid #F5C6CB',
+                              flexShrink: 0,
+                            }}>
+                              -{inc.points_deducted} pts
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 11.5 }}>
+                            <span style={{ color: 'var(--neutral-dark)', fontWeight: 600 }}>
+                              {inc.teacher_name}
+                            </span>
+                            <span style={{ color: 'var(--text-secondary)' }}>•</span>
+                            <span style={{
+                              padding: '2px 7px',
+                              borderRadius: 4,
+                              background: '#F0EFEA',
+                              color: 'var(--neutral-dark)',
+                              fontWeight: 600,
+                              fontSize: 11,
+                            }}>
+                              {inc.subject_name || 'Homeroom'}
+                            </span>
+                            {inc.category && (
+                              <span style={{ color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                                ({inc.category.replace('_', ' ')})
+                              </span>
+                            )}
+                          </div>
+
+                          {inc.notes && (
+                            <div style={{ fontSize: 12, color: 'var(--neutral-dark)', fontStyle: 'italic', background: '#FBFBFA', padding: '8px 10px', borderRadius: 6, border: '1px solid #ECEAE5' }}>
+                              "{inc.notes}"
+                            </div>
+                          )}
+
+                          {inc.action_taken && (
+                            <div style={{ fontSize: 11.5, color: '#2C6E6A', fontWeight: 600 }}>
+                              Action: {inc.action_taken}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
                 )}
               </div>
 
@@ -4645,6 +4808,89 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           />
         )}
       </main>
+
+      {/* MOBILE BOTTOM NAVIGATION BAR (Screens <= 768px) */}
+      <nav className="mobile-bottom-nav">
+        <button
+          type="button"
+          className={`mobile-nav-tab ${activeNavType === 'class' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveNavType('class');
+            if (!selectedClassId && subjectClasses.length > 0) {
+              setSelectedClassId(subjectClasses[0].id);
+            }
+          }}
+          aria-label="Classrooms & Subjects"
+        >
+          <div className="tab-icon-wrap">
+            <BookOpen size={18} />
+          </div>
+          <span>Classes</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-tab ${activeNavType === 'attendance' ? 'active' : ''}`}
+          onClick={() => setActiveNavType('attendance')}
+          aria-label="Attendance Records"
+        >
+          <div className="tab-icon-wrap">
+            <Calendar size={18} />
+            {attendanceStats.authAbsentCount > 0 && (
+              <span className="nav-badge" style={{ background: '#D97706' }}>
+                {attendanceStats.authAbsentCount}
+              </span>
+            )}
+          </div>
+          <span>Attendance</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-tab ${activeNavType === 'behavior' ? 'active' : ''}`}
+          onClick={() => setActiveNavType('behavior')}
+          aria-label="Behavior & Conduct"
+        >
+          <div className="tab-icon-wrap">
+            <ShieldAlert size={18} style={{ color: activeNavType === 'behavior' ? '#2C6E6A' : myBehaviorTier.color }} />
+            {myBehaviorScore < 75 && (
+              <span className="nav-badge" style={{ background: myBehaviorTier.color }}>
+                !
+              </span>
+            )}
+          </div>
+          <span>Conduct</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-tab ${activeNavType === 'homeroom_circulars' ? 'active' : ''}`}
+          onClick={() => setActiveNavType('homeroom_circulars')}
+          aria-label="Class Circulars & Notices"
+        >
+          <div className="tab-icon-wrap">
+            <Megaphone size={18} />
+            {myHomeroomBroadcasts.length > 0 && (
+              <span className="nav-badge" style={{ background: '#2C6E6A' }}>
+                {myHomeroomBroadcasts.length}
+              </span>
+            )}
+          </div>
+          <span>Notices</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-tab ${['awards', 'hub', 'cslab', 'settings', 'support'].includes(activeNavType) ? 'active' : ''}`}
+          onClick={() => setIsMobileDrawerOpen(true)}
+          aria-label="More Features & Menu"
+        >
+          <div className="tab-icon-wrap">
+            <Menu size={18} />
+          </div>
+          <span>More</span>
+        </button>
+      </nav>
 
       {/* Full-Page High-Security Online Examination Portal */}
       {activeTestModal && (
