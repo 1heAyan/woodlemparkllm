@@ -4,6 +4,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock, Download, Building, Trash2, Plus, Search, AlertTriangle } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
+import { DesktopRecommendedBanner } from '@/components/Shared/DesktopRecommendedBanner';
 import { useSidebarState } from '@/lib/useSidebarState';
 import { supabase, UserProfile, ParentDocument, HubActivity, SubjectClass, TestItem, SyllabusTerm, LateEntryRecord, OfflineAssessment, OfflineAssessmentMark, SpecialRoleAssignment } from '@/lib/supabaseClient';
 import { CustomSelect } from '@/components/UI/CustomSelect';
@@ -3407,6 +3408,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* MAIN VIEWPORT */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+        <DesktopRecommendedBanner portalName="Admin Management Console" storageKey="woodlem_admin_laptop_warn" />
         {/* Compact Top Header Bar */}
         <header
           style={{

@@ -1867,6 +1867,10 @@ textarea.form-input { resize: vertical; }
   display: none;
 }
 
+.mobile-desktop-warning-banner {
+  display: none;
+}
+
 .hide-desktop {
   display: none !important;
 }
@@ -2481,6 +2485,91 @@ textarea.form-input { resize: vertical; }
   .syllabus-progress-wrap {
     flex: 1 1 140px !important;
     min-width: 0 !important;
+  }
+
+  /* Mobile Desktop Recommendation Banner */
+  .mobile-desktop-warning-banner {
+    display: flex !important;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    background: linear-gradient(135deg, #FEF9EE 0%, #FEF3C7 100%);
+    border-bottom: 1px solid #F59E0B;
+    border-left: 4px solid #D97706;
+    color: #92400E;
+    z-index: 60;
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    flex-shrink: 0;
+    animation: fadeIn 0.2s ease;
+  }
+
+  .mobile-warning-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .mobile-warning-icon-wrap {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: rgba(217, 119, 6, 0.14);
+    color: #B45309;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .mobile-warning-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .mobile-warning-title {
+    font-size: 12.5px;
+    font-weight: 800;
+    color: #92400E;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .mobile-warning-desc {
+    font-size: 11.5px;
+    color: #B45309;
+    line-height: 1.4;
+    margin: 0;
+  }
+
+  .mobile-warning-dismiss {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    background: rgba(217, 119, 6, 0.12);
+    border: none;
+    color: #92400E;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 0;
+    transition: all 0.15s ease;
+  }
+
+  .mobile-warning-dismiss:active {
+    background: rgba(217, 119, 6, 0.25);
+    transform: scale(0.92);
   }
 }
 

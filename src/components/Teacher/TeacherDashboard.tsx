@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Users, Award, BookOpen, UserCheck, MessageSquare, LayoutDashboard, Calendar, Settings, LifeBuoy, LogOut, Megaphone, FileText, Pin, PinOff, SlidersHorizontal, Check, Video, Link2, X, Plus, Edit3, KeyRound, Copy, Share2, RotateCcw, ExternalLink, Download, Trash2, Clock, AlertTriangle, Search, Paperclip } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
+import { DesktopRecommendedBanner } from '@/components/Shared/DesktopRecommendedBanner';
 import { useSidebarState } from '@/lib/useSidebarState';
 import {
   UserProfile,
@@ -2123,6 +2124,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
       {/* MAIN CONTENT VIEWPORT */}
       <main className="main-content">
+        <DesktopRecommendedBanner portalName="Teacher Workspace" storageKey="woodlem_teacher_laptop_warn" />
         {isMarkEntryOpen ? (
           <div style={{ padding: '28px 32px', height: '100%', overflowY: 'auto' }}>
             <MarkEntryModal

@@ -17,6 +17,7 @@ import {
 } from '@/lib/supabaseClient';
 import { useSidebarState } from '@/lib/useSidebarState';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
+import { DesktopRecommendedBanner } from '@/components/Shared/DesktopRecommendedBanner';
 import { SegmentedControl } from '@/components/UI/SegmentedControl';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 import { computeExecutiveAnalytics, isSubjectClassInGrade } from '@/lib/analyticsHelper';
@@ -785,6 +786,7 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
           background: 'var(--neutral-bg)',
         }}
       >
+        <DesktopRecommendedBanner portalName="Principal & Executive Suite" storageKey="woodlem_principal_laptop_warn" />
         {/* Top Header */}
         <header
           style={{
