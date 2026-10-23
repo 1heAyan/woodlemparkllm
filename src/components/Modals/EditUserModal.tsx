@@ -8,7 +8,9 @@ import { resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/pass
 import { extractClassTeacherInfo, extractUserClassInfo } from '@/lib/classTeacherHelper';
 import { isPrincipalUser } from '@/lib/specialRolesHelper';
 import { sanitizeUserCode } from '@/lib/userCodeHelper';
-import { Eye, EyeOff, Lock, FileText, CheckCircle2, Clock, AlertCircle, AlertTriangle, Crown } from 'lucide-react';
+import { Eye, EyeOff, Lock, FileText, CheckCircle2, Clock, AlertCircle, AlertTriangle, Crown, ExternalLink, Download } from 'lucide-react';
+import { getDocumentExpiryStatus, formatShortDate } from '@/lib/documentExpiryHelper';
+import { openFileInNewTab, downloadFile } from '@/lib/fileHelper';
 
 const GRADES = ['9', '10', '11', '12'] as const;
 const SECTIONS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)); // A through Z
@@ -981,61 +983,136 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                       const wardGrade = ward?.grade
                         ? ` (Grade ${ward.grade.replace(/[^0-9]/g, '')}-${ward.class_letter || ''})`
                         : '';
+                      const expiryStatus = getDocumentExpiryStatus(doc.expiry_date, true);
 
                       return (
                         <div
-                          key={doc.id}
+                          key={doc.id || doc.doc_type}
                           style={{
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
                             padding: '10px 14px',
-                            background: '#FAF9F6',
-                            border: '1px solid #E8E5DF',
+                            background: expiryStatus.isUrgent ? '#FFF7ED' : '#FAF9F6',
+                            border: expiryStatus.isUrgent ? '1.5px solid #FDBA74' : '1px solid #E8E5DF',
                             borderRadius: 8,
+                            flexWrap: 'wrap',
+                            gap: 10,
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 200, flex: 1 }}>
                             <div
                               style={{
-                                width: 32,
-                                height: 32,
+                                width: 34,
+                                height: 34,
                                 borderRadius: 6,
-                                background: '#EAF3EF',
-                                color: '#2D6E5D',
+                                background: expiryStatus.isUrgent ? '#FFEDD5' : '#EAF3EF',
+                                color: expiryStatus.isUrgent ? '#C2410C' : '#2D6E5D',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 flexShrink: 0,
                               }}
                             >
-                              <FileText size={16} />
+                              <FileText size={18} />
                             </div>
                             <div style={{ minWidth: 0, flex: 1 }}>
-                              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--neutral-dark)', display: 'flex', alignItems: 'center', gap: 6 }}>
                                 {doc.doc_type}
+                                {doc.document_number && (
+                                  <span style={{ fontSize: 10.5, fontFamily: 'monospace', background: '#F1F5F9', padding: '1px 5px', borderRadius: 4, color: '#475569' }}>
+                                    {doc.document_number}
+                                  </span>
+                                )}
                               </div>
                               <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
                                 Ward: <strong>{wardName}{wardGrade}</strong> • {doc.file_name}
-                                {doc.uploaded_at ? ` • ${doc.uploaded_at}` : ''}
+                                {doc.expiry_date && (
+                                  <span style={{ marginLeft: 6, fontWeight: 600, color: expiryStatus.isUrgent ? '#C2410C' : '#15803D' }}>
+                                    • Exp: {formatShortDate(doc.expiry_date)}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                             <span
                               style={{
                                 fontSize: 10.5,
                                 fontWeight: 700,
                                 padding: '2px 7px',
                                 borderRadius: 4,
-                                background: doc.status === 'submitted' ? '#EAF3EF' : '#FEF3C7',
-                                color: doc.status === 'submitted' ? '#2D6E5D' : '#92400E',
-                                border: doc.status === 'submitted' ? '1px solid #C7E4D8' : '1px solid #FDE68A',
-                                textTransform: 'capitalize',
+                                background: expiryStatus.badgeBg,
+                                color: expiryStatus.badgeColor,
+                                border: `1px solid ${expiryStatus.badgeBorder}`,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
                               }}
                             >
-                              {doc.status || 'submitted'}
+                              {expiryStatus.isUrgent && <AlertTriangle size={11} />}
+                              {expiryStatus.label}
                             </span>
+
+                            {/* View Button */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                openFileInNewTab({
+                                  fileName: doc.file_name,
+                                  fileUrl: doc.file_url,
+                                  studentName: wardName,
+                                  title: doc.doc_type,
+                                  submissionDate: doc.uploaded_at,
+                                });
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '4px 8px',
+                                fontSize: 11,
+                                fontWeight: 600,
+                                color: '#2C6E6A',
+                                background: '#EAF3EF',
+                                border: '1px solid #C7E4D8',
+                                borderRadius: 4,
+                                cursor: 'pointer',
+                              }}
+                              title="View Document"
+                            >
+                              <ExternalLink size={11} />
+                              View
+                            </button>
+
+                            {/* Download Button */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                downloadFile({
+                                  fileName: doc.file_name,
+                                  fileUrl: doc.file_url,
+                                  studentName: wardName,
+                                  title: doc.doc_type,
+                                });
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '4px 8px',
+                                fontSize: 11,
+                                fontWeight: 600,
+                                color: 'var(--neutral-dark)',
+                                background: '#FFFFFF',
+                                border: '1px solid #E8E5DF',
+                                borderRadius: 4,
+                                cursor: 'pointer',
+                              }}
+                              title="Download Document"
+                            >
+                              <Download size={11} />
+                            </button>
                           </div>
                         </div>
                       );

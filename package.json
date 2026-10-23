@@ -17,6 +17,7 @@
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "^1.33.0",
     "next": "^14.2.23",
+    "nodemailer": "^10.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "sql.js": "^1.14.2",
@@ -24,6 +25,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.17.16",
+    "@types/nodemailer": "^8.0.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@types/sql.js": "^1.4.11",

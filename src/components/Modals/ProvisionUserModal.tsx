@@ -40,6 +40,7 @@ interface ProvisionUserModalProps {
   profiles: UserProfile[];
   subjectClasses?: SubjectClass[];
   onClose: () => void;
+  onOpenStudentOnboarding?: () => void;
   onSubmit: (userData: {
     name: string;
     email: string;
@@ -64,6 +65,7 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
   profiles = [],
   subjectClasses = [],
   onClose,
+  onOpenStudentOnboarding,
   onSubmit,
 }) => {
   const [name, setName] = useState('');
@@ -255,6 +257,53 @@ export const ProvisionUserModal: React.FC<ProvisionUserModalProps> = ({
               ]}
             />
           </div>
+
+          {/* Student Onboarding Recommendation Banner */}
+          {role === 'student' && onOpenStudentOnboarding && (
+            <div
+              style={{
+                padding: '12px 14px',
+                marginBottom: 16,
+                background: '#EAF3EF',
+                border: '1px solid #C7E4D8',
+                borderRadius: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#2D6E5D' }}>
+                  Looking for Complete Student Onboarding?
+                </div>
+                <div style={{ fontSize: 11.5, color: '#4A5568', marginTop: 2 }}>
+                  Scan physical forms with AI OCR, collect Emirates IDs, passports & regulatory documents with expiry tracking, and auto-dispatch parent credentials.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenStudentOnboarding();
+                }}
+                style={{
+                  padding: '7px 12px',
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  background: '#2C6E6A',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Launch Onboarding Wizard ➔
+              </button>
+            </div>
+          )}
 
           {/* Full Name */}
           <div className="form-group">

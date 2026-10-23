@@ -70,6 +70,8 @@ import { CreateTestModal } from '@/components/Modals/CreateTestModal';
 import { CreateAssignmentModal, CreateAssignmentData } from '@/components/Modals/CreateAssignmentModal';
 import { CreateHubActivityModal } from '@/components/Modals/CreateHubActivityModal';
 import { ProvisionUserModal } from '@/components/Modals/ProvisionUserModal';
+import { StudentOnboardingModal, StudentOnboardData } from '@/components/Modals/StudentOnboardingModal';
+import { dispatchParentWelcomeEmail } from '@/lib/emailNotificationHelper';
 import { EditUserModal } from '@/components/Modals/EditUserModal';
 import { BulkImportModal, BulkUserRow } from '@/components/Modals/BulkImportModal';
 import { CreateSubjectClassModal } from '@/components/Modals/CreateSubjectClassModal';
@@ -153,6 +155,7 @@ export default function WoodlemApp() {
   const [isCreateHubActivityOpen, setIsCreateHubActivityOpen] = useState(false);
   const [editingHubActivity, setEditingHubActivity] = useState<any>(null);
   const [isProvisionUserOpen, setIsProvisionUserOpen] = useState(false);
+  const [isStudentOnboardingOpen, setIsStudentOnboardingOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
@@ -618,12 +621,25 @@ export default function WoodlemApp() {
         console.error('Failed to load syllabus terms from Supabase:', sylRes.error);
       }
 
-      // Extract all cloud-stored parent document files from Supabase
+      // Extract all cloud-stored parent document files and expiry metadata from Supabase
       const docFileMap: Record<string, string> = {};
+      const docMetaMap: Record<string, { expiry_date?: string; document_number?: string }> = {};
       (achRes.data || []).forEach((ach: any) => {
         if (ach.title === '__PARENT_DOC__') {
-          const key = `${ach.student_id}_${ach.desc_text}`;
+          let docType = ach.desc_text || '';
+          let expiryDate: string | undefined = undefined;
+          let docNum: string | undefined = undefined;
+          if (ach.desc_text && (ach.desc_text.startsWith('{') || ach.desc_text.startsWith('['))) {
+            try {
+              const parsed = JSON.parse(ach.desc_text);
+              docType = parsed.docType || docType;
+              expiryDate = parsed.expiryDate || undefined;
+              docNum = parsed.documentNumber || undefined;
+            } catch (e) {}
+          }
+          const key = `${ach.student_id}_${docType}`;
           docFileMap[key] = ach.file_url || '';
+          docMetaMap[key] = { expiry_date: expiryDate, document_number: docNum };
         }
       });
 
@@ -735,16 +751,22 @@ export default function WoodlemApp() {
         });
       setHubActivities(builtHub);
 
-      // Load parent clearance documents directly from Supabase with cloud file URLs
-      const loadedParentDocs: ParentDocument[] = (parentDocRes.data || []).map((d: any) => ({
-        id: d.id,
-        student_id: d.student_id,
-        doc_type: d.doc_type,
-        status: d.status,
-        file_name: d.file_name,
-        file_url: docFileMap[`${d.student_id}_${d.doc_type}`] || '',
-        uploaded_at: d.uploaded_at,
-      }));
+      // Load parent clearance documents directly from Supabase with cloud file URLs and expiry metadata
+      const loadedParentDocs: ParentDocument[] = (parentDocRes.data || []).map((d: any) => {
+        const key = `${d.student_id}_${d.doc_type}`;
+        const meta = docMetaMap[key] || {};
+        return {
+          id: d.id,
+          student_id: d.student_id,
+          doc_type: d.doc_type,
+          status: d.status,
+          file_name: d.file_name,
+          file_url: docFileMap[key] || d.file_url || '',
+          uploaded_at: d.uploaded_at,
+          expiry_date: d.expiry_date || meta.expiry_date,
+          document_number: d.document_number || meta.document_number,
+        };
+      });
       setParentDocuments(loadedParentDocs);
 
       // Pure Supabase state loading: 100% in sync with database
@@ -1274,6 +1296,232 @@ export default function WoodlemApp() {
       await loadAllData();
     } catch (err: any) {
       alert('Unable to create user account. Please try again.');
+    }
+  };
+
+  // 1a-2. Comprehensive Student Onboarding with AI Form Scan & Document Regulatory Intake
+  const handleStudentOnboardSubmit = async (data: StudentOnboardData) => {
+    try {
+      const isolatedClient = createIsolatedSupabaseClient();
+      let createdStudentAuthId: string | null = null;
+      const studentAppCode = (data.admissionNumber || '').trim() || `APP-${Math.floor(10000 + Math.random() * 90000)}`;
+      const assignedAdmissionNo = (data.admissionNumber || '').trim();
+
+      // 1. Create student Supabase Auth account
+      try {
+        const { data: authRes, error: authErr } = await isolatedClient.auth.signUp({
+          email: data.email.trim(),
+          password: data.password || 'woodlem123',
+          options: {
+            data: {
+              name: data.name.trim(),
+              role: 'student',
+              user_code: studentAppCode,
+              admission_number: assignedAdmissionNo,
+              grade: `Grade ${data.grade.replace(/[^0-9]/g, '')}`,
+              class_letter: (data.classLetter || 'Unassigned').trim().toUpperCase(),
+            },
+          },
+        });
+        if (authRes?.user) {
+          createdStudentAuthId = authRes.user.id;
+        } else if (authErr) {
+          console.warn('Student auth sign-up notice:', authErr.message);
+        }
+      } catch (authErr) {
+        console.warn('Student auth exception:', authErr);
+      }
+
+      // 2. Check existing student profile or create profile ID
+      const { data: existingStudentProf } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('email', data.email.trim().toLowerCase())
+        .maybeSingle();
+
+      const studentProfileId =
+        existingStudentProf?.id ||
+        createdStudentAuthId ||
+        `stud_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+      const studentProfilePayload: any = {
+        id: studentProfileId,
+        email: data.email.trim().toLowerCase(),
+        name: data.name.trim(),
+        role: 'student',
+        user_code: studentAppCode,
+        admission_number: assignedAdmissionNo,
+        grade: `Grade ${data.grade.replace(/[^0-9]/g, '')}`,
+        class_letter: (data.classLetter || 'Unassigned').trim().toUpperCase(),
+        house_colour: data.houseColour || null,
+        parent_email: data.parentEmail.trim().toLowerCase(),
+        created_at: new Date().toISOString(),
+      };
+
+      if (data.enrolledSubjects && data.enrolledSubjects.length > 0) {
+        studentProfilePayload.enrolled_subjects = data.enrolledSubjects;
+      }
+
+      await supabase.from('profiles').upsert([studentProfilePayload], { onConflict: 'email' });
+
+      // Save student password
+      await saveUserPasswordToCloudAndLocal(
+        studentProfileId,
+        data.email.trim().toLowerCase(),
+        data.password || 'woodlem123'
+      );
+
+      // 3. Persist student additional comprehensive metadata (prior school, CAT4, medical, etc.)
+      await persistStudentAdditionalInfo(studentProfileId, {
+        studentId: studentProfileId,
+        admissionNumber: assignedAdmissionNo,
+        email: data.email.trim().toLowerCase(),
+        parent_email: data.parentEmail.trim().toLowerCase(),
+        house_colour: data.houseColour,
+        enrolled_subjects: data.enrolledSubjects,
+        additional_info: {
+          academicYear: data.academicYear,
+          dob: data.dob,
+          gender: data.gender,
+          nationality: data.nationality,
+          religion: data.religion,
+          bloodGroup: data.bloodGroup,
+          firstLanguage: data.firstLanguage,
+          secondLanguage: data.secondLanguage,
+          studentEmiratesId: data.studentEmiratesId,
+          studentPassportNumber: data.studentPassportNumber,
+          residentialAddress: data.residentialAddress,
+          cityEmirate: data.cityEmirate,
+          lastSchoolName: data.lastSchoolName,
+          lastSchoolLocation: data.lastSchoolLocation || '',
+          previousCurriculum: data.previousCurriculum,
+          transferReason: data.transferReason,
+          previousMarks: data.previousMarks,
+          cat4Score: data.cat4Score,
+          fatherName: data.fatherName,
+          fatherPhone: data.fatherPhone,
+          fatherOccupation: data.fatherOccupation,
+          motherName: data.motherName,
+          motherPhone: data.motherPhone,
+          motherOccupation: data.motherOccupation,
+          primaryContact: data.primaryContact,
+          emergencyContactName: data.emergencyContactName,
+          emergencyContactPhone: data.emergencyContactPhone,
+          emergencyContactRelationship: data.emergencyContactRelationship,
+          allergies: data.allergies,
+          chronicConditions: data.chronicConditions,
+          emergencyMedication: data.emergencyMedication,
+          senNotes: data.senNotes,
+          onboardedAt: new Date().toISOString(),
+        },
+      });
+
+      // 4. Provision / Link Parent Account
+      const primaryParentName =
+        (data.primaryContact === 'Mother' ? data.motherName : data.fatherName) ||
+        data.fatherName ||
+        data.motherName ||
+        'Parent / Guardian';
+      const cleanParentEmail = data.parentEmail.trim().toLowerCase();
+
+      const { data: existingParentProf } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('email', cleanParentEmail)
+        .maybeSingle();
+
+      let parentProfileId: string;
+
+      if (existingParentProf) {
+        parentProfileId = existingParentProf.id;
+        const currentLinked: string[] = Array.isArray(existingParentProf.linked_student_ids)
+          ? existingParentProf.linked_student_ids
+          : [];
+        if (!currentLinked.includes(studentProfileId)) {
+          const updatedLinked = [...currentLinked, studentProfileId];
+          await supabase
+            .from('profiles')
+            .update({ linked_student_ids: updatedLinked })
+            .eq('id', existingParentProf.id);
+        }
+      } else {
+        let createdParentAuthId: string | null = null;
+        try {
+          const { data: pAuthRes } = await isolatedClient.auth.signUp({
+            email: cleanParentEmail,
+            password: 'woodlem123',
+            options: {
+              data: {
+                name: primaryParentName,
+                role: 'parent',
+                user_code: '',
+              },
+            },
+          });
+          if (pAuthRes?.user) createdParentAuthId = pAuthRes.user.id;
+        } catch (pErr) {
+          console.warn('Parent auth sign-up notice:', pErr);
+        }
+
+        parentProfileId =
+          createdParentAuthId ||
+          `par_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+        const parentPayload = {
+          id: parentProfileId,
+          email: cleanParentEmail,
+          name: primaryParentName,
+          role: 'parent',
+          user_code: '',
+          admission_number: '',
+          linked_student_ids: [studentProfileId],
+          created_at: new Date().toISOString(),
+        };
+
+        await supabase.from('profiles').upsert([parentPayload], { onConflict: 'email' });
+        await saveUserPasswordToCloudAndLocal(parentProfileId, cleanParentEmail, 'woodlem123');
+      }
+
+      // 5. Upload all submitted onboarding documents with their expiry dates and document numbers
+      if (data.documents && data.documents.length > 0) {
+        for (const doc of data.documents) {
+          if (doc.fileDataUrl || doc.fileName) {
+            const isParentDoc = doc.docType.toLowerCase().startsWith('parent');
+            const targetOwnerId = isParentDoc ? parentProfileId : studentProfileId;
+            await handleUploadParentDocument(
+              doc.docType,
+              doc.fileName,
+              targetOwnerId,
+              doc.fileDataUrl,
+              doc.expiryDate,
+              doc.documentNumber
+            );
+          }
+        }
+      }
+
+      // 6. Dispatch Parent Welcome Email with Credentials & First-time instructions
+      await dispatchParentWelcomeEmail({
+        parentName: primaryParentName,
+        parentEmail: cleanParentEmail,
+        studentName: data.name.trim(),
+        studentGrade: `Grade ${data.grade.replace(/[^0-9]/g, '')}`,
+        studentSection: (data.classLetter && data.classLetter !== 'Unassigned') ? data.classLetter.trim().toUpperCase() : '',
+        admissionNumber: assignedAdmissionNo,
+        studentEmail: data.email.trim(),
+        defaultPassword: 'woodlem123',
+        primaryContactRole: (data.primaryContact as any) || 'Father',
+      });
+
+      // 7. Refresh all operational data
+      await loadAllData();
+
+      // 8. Close Onboarding Modal & Success Notification
+      setIsStudentOnboardingOpen(false);
+      alert(`🎉 Student Onboarding Completed!\n\n${data.name} has been registered for Grade ${data.grade}.\n\nParent portal credentials (Username: ${cleanParentEmail}, Password: woodlem123) and welcome confirmation email have been dispatched to ${cleanParentEmail}.`);
+    } catch (err: any) {
+      console.error('Student onboarding error:', err);
+      alert(`Error during onboarding: ${err?.message || 'Please check your connection and try again.'}`);
     }
   };
 
@@ -3837,12 +4085,19 @@ export default function WoodlemApp() {
     loadAllData();
   };
 
-  // 7. Parent Documents
-  const handleUploadParentDocument = async (docType: string, fileName: string, studentId?: string, fileDataUrl?: string) => {
+  // 7. Parent Documents with Expiry & Document Number Tracking
+  const handleUploadParentDocument = async (
+    docType: string,
+    fileName: string,
+    studentId?: string,
+    fileDataUrl?: string,
+    expiryDate?: string,
+    documentNumber?: string
+  ) => {
     if (!currentUser) return;
     const targetStudentId = studentId || currentUser.id;
     const today = new Date().toISOString().split('T')[0];
-    const generatedDocId = `doc_${Date.now()}`;
+    const generatedDocId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const fileRecordKey = `docfile_${targetStudentId}_${encodeURIComponent(docType)}`;
 
     // 1. Optimistic state update so UI updates immediately
@@ -3854,6 +4109,8 @@ export default function WoodlemApp() {
       file_name: fileName,
       file_url: fileDataUrl,
       uploaded_at: today,
+      expiry_date: expiryDate,
+      document_number: documentNumber,
     };
 
     setParentDocuments((prev) => {
@@ -3863,6 +4120,16 @@ export default function WoodlemApp() {
 
     try {
       // 2. Persist record in parent_documents table
+      const docPayload: any = {
+        student_id: targetStudentId,
+        doc_type: docType,
+        status: 'submitted',
+        file_name: fileName,
+        uploaded_at: today,
+      };
+      if (expiryDate) docPayload.expiry_date = expiryDate;
+      if (documentNumber) docPayload.document_number = documentNumber;
+
       const { data: existing } = await supabase
         .from('parent_documents')
         .select('id')
@@ -3873,11 +4140,7 @@ export default function WoodlemApp() {
       if (existing) {
         await supabase
           .from('parent_documents')
-          .update({
-            status: 'submitted',
-            file_name: fileName,
-            uploaded_at: today,
-          })
+          .update(docPayload)
           .eq('id', existing.id);
       } else {
         await supabase
@@ -3885,26 +4148,27 @@ export default function WoodlemApp() {
           .insert([
             {
               id: generatedDocId,
-              student_id: targetStudentId,
-              doc_type: docType,
-              status: 'submitted',
-              file_name: fileName,
-              uploaded_at: today,
+              ...docPayload,
             },
           ]);
       }
 
-      // 3. Persist file content/data URL in Supabase cloud achievements store
-      if (fileDataUrl) {
-        await supabase.from('achievements').upsert({
-          id: fileRecordKey,
-          student_id: targetStudentId,
-          title: '__PARENT_DOC__',
-          desc_text: docType,
-          file_name: fileName,
-          file_url: fileDataUrl,
-        });
-      }
+      // 3. Persist file content/data URL and JSON metadata in Supabase cloud achievements store
+      const metaPayload = JSON.stringify({
+        docType,
+        expiryDate: expiryDate || null,
+        documentNumber: documentNumber || null,
+        updatedAt: today,
+      });
+
+      await supabase.from('achievements').upsert({
+        id: fileRecordKey,
+        student_id: targetStudentId,
+        title: '__PARENT_DOC__',
+        desc_text: metaPayload,
+        file_name: fileName,
+        file_url: fileDataUrl || '',
+      });
 
       loadAllData();
     } catch (err) {
@@ -4474,6 +4738,8 @@ export default function WoodlemApp() {
           offlineMarks={offlineMarks}
           onOpenProvisionModal={() => setIsProvisionUserOpen(true)}
           onOpenBulkModal={() => setIsBulkImportOpen(true)}
+          onOpenStudentOnboardingModal={() => setIsStudentOnboardingOpen(true)}
+          onUploadDoc={handleUploadParentDocument}
           onOpenCreateSubjectClassModal={(preset) => {
             setCreateClassPreset(preset || null);
             setIsCreateClassOpen(true);
@@ -4603,7 +4869,16 @@ export default function WoodlemApp() {
         profiles={profiles}
         subjectClasses={subjectClasses}
         onClose={() => setIsProvisionUserOpen(false)}
+        onOpenStudentOnboarding={() => setIsStudentOnboardingOpen(true)}
         onSubmit={handleProvisionUser}
+      />
+
+      <StudentOnboardingModal
+        isOpen={isStudentOnboardingOpen}
+        profiles={profiles}
+        subjectClasses={subjectClasses}
+        onClose={() => setIsStudentOnboardingOpen(false)}
+        onSubmit={handleStudentOnboardSubmit}
       />
 
       <BulkImportModal

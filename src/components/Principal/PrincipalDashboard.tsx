@@ -66,6 +66,7 @@ import {
   UserCheck,
   UserX,
   Building,
+  UserPlus,
 } from 'lucide-react';
 
 interface PrincipalDashboardProps {
@@ -84,6 +85,7 @@ interface PrincipalDashboardProps {
   lateEntries?: LateEntryRecord[];
   onOpenProvisionModal?: () => void;
   onOpenBulkModal?: () => void;
+  onOpenStudentOnboardingModal?: () => void;
   onOpenCreateSubjectClassModal?: (preset?: { grade?: string; section?: string; lockSection?: boolean }) => void;
   onEditUser?: (user: UserProfile) => void;
   onUpdateUser?: (updatedUser: UserProfile) => Promise<void> | void;
@@ -122,6 +124,7 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
   lateEntries = [],
   onOpenProvisionModal,
   onOpenBulkModal,
+  onOpenStudentOnboardingModal,
   onOpenCreateSubjectClassModal,
   onEditUser,
   onUpdateUser,
@@ -1277,6 +1280,28 @@ export const PrincipalDashboard: React.FC<PrincipalDashboardProps> = ({
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {onOpenStudentOnboardingModal && (
+                      <button
+                        type="button"
+                        onClick={onOpenStudentOnboardingModal}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: 6,
+                          background: '#2C6E6A',
+                          color: '#FFFFFF',
+                          border: 'none',
+                          fontSize: 11.5,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          boxShadow: '0 2px 4px rgba(44, 110, 106, 0.25)',
+                        }}
+                      >
+                        <UserPlus size={13} /> + Onboard Student
+                      </button>
+                    )}
                     {onOpenProvisionModal && (
                       <button
                         onClick={onOpenProvisionModal}

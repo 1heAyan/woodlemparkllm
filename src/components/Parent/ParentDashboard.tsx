@@ -28,6 +28,7 @@ import {
   X,
   ShieldAlert,
   Download,
+  Upload,
 } from 'lucide-react';
 import { WoodlemLogo, WoodlemEmblemSVG } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
@@ -57,6 +58,13 @@ import { SettingsView } from '@/components/Shared/SettingsView';
 import { SupportView } from '@/components/Shared/SupportView';
 import { ApplyLeaveModal } from '@/components/Modals/ApplyLeaveModal';
 import { ExportAttendanceModal } from '@/components/Modals/ExportAttendanceModal';
+import { RenewDocumentModal } from '@/components/Modals/RenewDocumentModal';
+import {
+  ONBOARDING_DOC_DEFINITIONS,
+  getDocumentExpiryStatus,
+  getExpiringDocsForStudent,
+  formatShortDate,
+} from '@/lib/documentExpiryHelper';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 import { CustomSelect } from '@/components/UI/CustomSelect';
 
@@ -77,7 +85,14 @@ interface ParentDashboardProps {
   classBroadcasts?: ClassBroadcast[];
   subjectClasses?: SubjectClass[];
   behaviorIncidents?: BehaviorIncidentRecord[];
-  onUploadDoc: (docType: string, fileName: string, studentId: string, fileDataUrl?: string) => void;
+  onUploadDoc: (
+    docType: string,
+    fileName: string,
+    studentId: string,
+    fileDataUrl?: string,
+    expiryDate?: string,
+    documentNumber?: string
+  ) => void;
   onRemoveDoc: (docType: string, studentId: string) => void;
   onOpenVideoModal: (activity: HubActivity) => void;
   onApplyLeave?: (
@@ -98,14 +113,7 @@ interface ParentDashboardProps {
   onSignOut: () => void;
 }
 
-const REQUIRED_DOC_TYPES = [
-  { type: 'Student ID', iconKey: 'id_card', desc: "A clear photo of the student's ID card or government-issued photo ID." },
-  { type: 'Admission Form', iconKey: 'admission', desc: 'Completed and signed school admission form.' },
-  { type: 'Medical Form', iconKey: 'medical', desc: 'Student health declaration and immunization records.' },
-  { type: 'Consent Letter', iconKey: 'consent', desc: 'General parental consent letter for school activities.' },
-  { type: 'Permission Slip — Field Trip', iconKey: 'permission', desc: 'Signed permission slip for upcoming field trips.' },
-  { type: 'Emergency Contact Form', iconKey: 'emergency', desc: 'Emergency contact details and medical alerts.' },
-];
+const REQUIRED_DOC_TYPES = ONBOARDING_DOC_DEFINITIONS;
 
 export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   currentUser,
@@ -357,6 +365,34 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
     if (!activeChild) return [];
     return parentDocuments.filter((d) => d.student_id === activeChild.id);
   }, [parentDocuments, activeChild]);
+
+  // Modal state for renewing / replacing documents
+  const [renewModalDocType, setRenewModalDocType] = useState<string | null>(null);
+
+  // Expiring documents for active child (within 30 days or expired)
+  const expiringDocsForActiveChild = useMemo(() => {
+    if (!activeChild) return [];
+    return getExpiringDocsForStudent(activeChild.id, parentDocuments);
+  }, [activeChild, parentDocuments]);
+
+  // Combined regulatory and school clearance document definitions
+  const combinedDocDefinitions = useMemo(() => {
+    const list = [...ONBOARDING_DOC_DEFINITIONS];
+    REQUIRED_DOC_TYPES.forEach((legacy) => {
+      if (!list.some((d) => d.type === legacy.type || d.label === legacy.type)) {
+        list.push({
+          type: legacy.type,
+          category: 'student',
+          label: legacy.type,
+          iconKey: legacy.iconKey,
+          desc: legacy.desc,
+          requiresExpiry: false,
+          requiredForClearance: false,
+        });
+      }
+    });
+    return list;
+  }, []);
 
   // ─── Child-Class Filtering ───────────────────────────────────────────────
   // Build a class-key string like "12-c" from the child's grade + class_letter
@@ -1289,6 +1325,74 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
 
       {/* MAIN CONTENT AREA */}
       <main className="main-content">
+        {/* DOCUMENT EXPIRATION WARNING BANNER (30 DAYS / EXPIRED) */}
+        {expiringDocsForActiveChild.length > 0 && (
+          <div
+            className="parent-notification-banner"
+            style={{
+              background: expiringDocsForActiveChild.some((d) => d.expiryStatus.status === 'expired')
+                ? 'linear-gradient(90deg, #FEF2F2 0%, #FEE2E2 100%)'
+                : 'linear-gradient(90deg, #FFF7ED 0%, #FFEDD5 100%)',
+              borderBottom: expiringDocsForActiveChild.some((d) => d.expiryStatus.status === 'expired')
+                ? '1px solid #FECACA'
+                : '1px solid #FED7AA',
+              color: expiringDocsForActiveChild.some((d) => d.expiryStatus.status === 'expired')
+                ? '#991B1B'
+                : '#9A3412',
+              padding: '12px 28px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 260 }}>
+              <AlertTriangle
+                size={18}
+                color={
+                  expiringDocsForActiveChild.some((d) => d.expiryStatus.status === 'expired')
+                    ? '#DC2626'
+                    : '#EA580C'
+                }
+                style={{ flexShrink: 0 }}
+              />
+              <div style={{ fontSize: 13, lineHeight: 1.4 }}>
+                <strong>Regulatory Compliance Action Required:</strong>{' '}
+                {expiringDocsForActiveChild
+                  .map((d) => `${d.definition?.label || d.doc.doc_type} (${d.expiryStatus.label})`)
+                  .join(' • ')}{' '}
+                for <strong>{activeChild?.name}</strong>. Please upload the renewed document to maintain active school clearance.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('documents');
+                if (expiringDocsForActiveChild[0]) {
+                  setRenewModalDocType(expiringDocsForActiveChild[0].doc.doc_type);
+                }
+              }}
+              style={{
+                background: expiringDocsForActiveChild.some((d) => d.expiryStatus.status === 'expired')
+                  ? '#DC2626'
+                  : '#EA580C',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: 6,
+                padding: '6px 14px',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+              }}
+            >
+              Update Document Now &rarr;
+            </button>
+          </div>
+        )}
+
         {/* TOP CONTENT HEADER — STANDARD CONSISTENT WOODLEM HEADER */}
         <header className="content-header">
           <div className="header-top" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
@@ -3052,90 +3156,181 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             </div>
           )}
 
-          {/* VIEW 5: CLEARANCE DOCUMENTS */}
+          {/* VIEW 5: REGULATORY & CLEARANCE DOCUMENTS */}
           {activeChild && activeTab === 'documents' && (
             <div>
+              <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                <div>
+                  <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1C4D46', margin: '0 0 3px' }}>
+                    Mandatory Student &amp; Parent Regulatory Documents
+                  </h2>
+                  <p style={{ margin: 0, fontSize: 12.5, color: '#6E6D69' }}>
+                    Keep official Emirates IDs, Passports, and school transfer documents updated. Expiring files will alert you 30 days in advance.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, background: '#EEF8F6', color: '#1C4D46', border: '1px solid #C4E9E3', padding: '4px 10px', borderRadius: 6 }}>
+                    {childDocuments.filter((d) => d.status === 'submitted').length} of {REQUIRED_DOC_TYPES.length} Submitted
+                  </span>
+                </div>
+              </div>
+
               <div className="doc-grid">
                 {REQUIRED_DOC_TYPES.map((docDef) => {
                   const existing = childDocuments.find((d) => d.doc_type === docDef.type);
-                  const isSubmitted = existing && existing.status === 'submitted';
+                  const isSubmitted = Boolean(existing && existing.status === 'submitted');
                   const fileName = existing?.file_name || '';
+                  const expiryStatus = getDocumentExpiryStatus(existing?.expiry_date, isSubmitted);
 
                   return (
                     <div
                       className={`doc-card ${isSubmitted ? 'status-submitted' : 'status-pending'}`}
                       key={docDef.type}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        border: expiryStatus.isUrgent
+                          ? '1.5px solid #F97316'
+                          : isSubmitted
+                          ? '1.5px solid #A7F3D0'
+                          : '1px solid #E5E7EB',
+                        background: expiryStatus.isUrgent
+                          ? '#FFF7ED'
+                          : isSubmitted
+                          ? '#F9FDFB'
+                          : '#FFFFFF',
+                      }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div className="doc-card-icon">{getIcon(docDef.iconKey)}</div>
-                        <span
-                          className={`badge ${isSubmitted ? 'badge-submitted' : 'badge-pending'}`}
-                          style={{ margin: 0 }}
-                        >
-                          {isSubmitted ? 'Submitted' : 'Pending'}
-                        </span>
-                      </div>
                       <div>
-                        <div className="doc-card-title">{docDef.type}</div>
-                        <div className="doc-card-subtitle">{docDef.desc}</div>
-                      </div>
-                      {isSubmitted ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          <div
-                            className="doc-filename"
-                            title={fileName}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                          >
-                            {getIcon('attachment')} {formatShortFileName(fileName)}
+                        {/* CARD HEADER */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <div className="doc-card-icon" style={{ background: isSubmitted ? '#EEF8F6' : '#F3F4F6' }}>
+                            {getIcon(docDef.iconKey)}
                           </div>
-                          <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                openFileInNewTab({
-                                  fileName,
-                                  fileUrl: existing?.file_url,
-                                  studentName: activeChild.name,
-                                  title: docDef.type,
-                                });
-                              }}
-                              style={{
-                                flex: 1,
-                                padding: '5px 10px',
-                                fontSize: 11.5,
-                                fontWeight: 700,
-                                background: '#2D2C2A',
-                                color: '#FFFFFF',
-                                border: 'none',
-                                borderRadius: 4,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              View
-                            </button>
-                            <button
-                              type="button"
-                              className="action-btn"
-                              style={{ fontSize: 11.5, padding: '5px 10px' }}
-                              onClick={() => onRemoveDoc(docDef.type, activeChild.id)}
-                            >
-                              Replace
-                            </button>
+                          <span
+                            className="badge"
+                            style={{
+                              margin: 0,
+                              background: expiryStatus.badgeBg,
+                              color: expiryStatus.badgeColor,
+                              border: `1px solid ${expiryStatus.badgeBorder}`,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            {expiryStatus.isUrgent && <AlertTriangle size={12} />}
+                            {expiryStatus.label}
+                          </span>
+                        </div>
+
+                        {/* TITLE & DESCRIPTION */}
+                        <div>
+                          <div className="doc-card-title" style={{ fontSize: 13.5, fontWeight: 700, color: '#1F2937' }}>
+                            {docDef.label} {docDef.requiredForClearance && <span style={{ color: '#DC2626' }}>*</span>}
+                          </div>
+                          <div className="doc-card-subtitle" style={{ fontSize: 11.5, color: '#6B7280', margin: '3px 0 8px' }}>
+                            {docDef.desc}
                           </div>
                         </div>
-                      ) : (
-                        <label className="doc-upload-area">
-                          Click to upload file
-                          <br />
-                          <span style={{ fontSize: 11 }}>PDF, JPG, PNG accepted</span>
-                          <input
-                            type="file"
-                            className="doc-file-input"
-                            accept=".pdf,.jpg,.jpeg,.png"
-                            onChange={(e) => handleFileInputChange(docDef.type, e)}
-                          />
-                        </label>
-                      )}
+
+                        {/* METADATA: DOC NUMBER & EXPIRY */}
+                        {(existing?.document_number || existing?.expiry_date) && (
+                          <div style={{ background: '#FAF9F6', border: '1px solid #EAE8E3', borderRadius: 6, padding: '6px 10px', fontSize: 11.5, marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            {existing.document_number && (
+                              <div style={{ color: '#4B5563' }}>
+                                <strong>Number:</strong> {existing.document_number}
+                              </div>
+                            )}
+                            {existing.expiry_date && (
+                              <div style={{ color: expiryStatus.isUrgent ? '#C2410C' : '#15803D', fontWeight: 600 }}>
+                                <strong>Validity:</strong> {formatShortDate(existing.expiry_date)}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* CARD ACTIONS */}
+                      <div>
+                        {isSubmitted ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <div
+                              className="doc-filename"
+                              title={fileName}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5 }}
+                            >
+                              {getIcon('attachment')} {formatShortFileName(fileName)}
+                            </div>
+                            <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  openFileInNewTab({
+                                    fileName,
+                                    fileUrl: existing?.file_url,
+                                    studentName: activeChild.name,
+                                    title: docDef.label,
+                                  });
+                                }}
+                                style={{
+                                  flex: 1,
+                                  padding: '5px 10px',
+                                  fontSize: 11.5,
+                                  fontWeight: 700,
+                                  background: '#2D2C2A',
+                                  color: '#FFFFFF',
+                                  border: 'none',
+                                  borderRadius: 4,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                View
+                              </button>
+                              <button
+                                type="button"
+                                className="action-btn"
+                                style={{
+                                  fontSize: 11.5,
+                                  padding: '5px 10px',
+                                  background: expiryStatus.isUrgent ? '#EA580C' : '#FFFFFF',
+                                  color: expiryStatus.isUrgent ? '#FFFFFF' : '#2D2C2A',
+                                  border: expiryStatus.isUrgent ? '1px solid #EA580C' : '1px solid #CBD5E1',
+                                  fontWeight: 700,
+                                }}
+                                onClick={() => setRenewModalDocType(docDef.type)}
+                              >
+                                {expiryStatus.isUrgent ? 'Renew Now' : 'Replace / Update'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setRenewModalDocType(docDef.type)}
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              background: '#FAF9F6',
+                              border: '1.5px dashed #CBD5E1',
+                              borderRadius: 6,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: '#2C6E6A',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 6,
+                            }}
+                          >
+                            <Upload size={14} /> Upload {docDef.requiresExpiry ? '& Expiry Date' : 'Document'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -3322,6 +3517,20 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             classroomLabel={`Grade ${activeChild.grade || ''} — ${activeChild.name}`}
             teacherName="Parent Portal"
           />
+          {renewModalDocType && (
+            <RenewDocumentModal
+              isOpen={Boolean(renewModalDocType)}
+              docType={renewModalDocType}
+              studentId={activeChild.id}
+              studentName={activeChild.name}
+              existingDoc={childDocuments.find((d) => d.doc_type === renewModalDocType)}
+              onClose={() => setRenewModalDocType(null)}
+              onSave={(type, fName, fUrl, expDate, docNum) => {
+                onUploadDoc(type, fName, activeChild.id, fUrl, expDate, docNum);
+                setRenewModalDocType(null);
+              }}
+            />
+          )}
         </>
       )}
     </div>

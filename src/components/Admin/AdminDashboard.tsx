@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock, Download, Building, Trash2, Plus, Search, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock, Download, Building, Trash2, Plus, Search, AlertTriangle, UserPlus } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { DesktopRecommendedBanner } from '@/components/Shared/DesktopRecommendedBanner';
 import { useSidebarState } from '@/lib/useSidebarState';
@@ -47,6 +47,8 @@ interface AdminDashboardProps {
   lateEntries?: LateEntryRecord[];
   onOpenProvisionModal: () => void;
   onOpenBulkModal: () => void;
+  onOpenStudentOnboardingModal?: () => void;
+  onUploadDoc?: (docType: string, fileName: string, studentId: string, fileDataUrl?: string, expiryDate?: string, documentNumber?: string) => Promise<void> | void;
   onOpenCreateSubjectClassModal?: (preset?: { grade?: string; section?: string; lockSection?: boolean }) => void;
   onEditUser: (user: UserProfile) => void;
   onUpdateUser?: (updatedUser: UserProfile) => Promise<void> | void;
@@ -180,6 +182,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   lateEntries = [],
   onOpenProvisionModal,
   onOpenBulkModal,
+  onOpenStudentOnboardingModal,
+  onUploadDoc,
   onOpenCreateSubjectClassModal,
   onEditUser,
   onUpdateUser,
@@ -1178,6 +1182,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             textTransform="uppercase"
           />
 
+          {onOpenStudentOnboardingModal && (
+            <button
+              type="button"
+              onClick={onOpenStudentOnboardingModal}
+              style={{
+                padding: '6px 14px',
+                fontSize: 11.5,
+                fontWeight: 700,
+                color: '#FFFFFF',
+                background: '#2C6E6A',
+                border: '1px solid #2C6E6A',
+                borderRadius: 6,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                boxShadow: '0 2px 4px rgba(44, 110, 106, 0.25)',
+              }}
+            >
+              <UserPlus size={13} />
+              + Onboard Student
+            </button>
+          )}
+
           <button
             onClick={onOpenProvisionModal}
             style={{
@@ -1584,6 +1612,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           >
             Import Accounts
           </button>
+          {onOpenStudentOnboardingModal && (
+            <button
+              type="button"
+              onClick={onOpenStudentOnboardingModal}
+              style={{
+                height: 30,
+                padding: '0 13px',
+                fontSize: 11.5,
+                fontWeight: 700,
+                color: '#FFFFFF',
+                background: '#2C6E6A',
+                border: '1px solid #2C6E6A',
+                borderRadius: 6,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                boxShadow: '0 2px 4px rgba(44, 110, 106, 0.25)',
+              }}
+            >
+              <UserPlus size={13} />
+              + Onboard Student
+            </button>
+          )}
           <button
             onClick={onOpenProvisionModal}
             style={{
@@ -3517,6 +3571,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 profiles={profiles}
                 parentDocuments={parentDocuments}
                 subjectClasses={subjectClasses}
+                onUploadDoc={onUploadDoc}
                 onBack={() => setSelectedUserForEdit(null)}
                 onSave={async (updated) => {
                   setSelectedUserForEdit(updated);

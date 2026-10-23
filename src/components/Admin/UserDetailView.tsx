@@ -30,7 +30,12 @@ import {
   Search,
   Crown,
   BookOpen,
+  Mail,
+  Upload,
 } from 'lucide-react';
+import { getDocumentExpiryStatus, formatShortDate } from '@/lib/documentExpiryHelper';
+import { dispatchDocumentExpiryEmail } from '@/lib/emailNotificationHelper';
+import { RenewDocumentModal } from '@/components/Modals/RenewDocumentModal';
 
 const GRADES = ['9', '10', '11', '12'] as const;
 const SECTIONS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)); // A through Z
@@ -58,6 +63,14 @@ interface UserDetailViewProps {
   onBack: () => void;
   onSave: (updatedUser: UserProfile) => Promise<void> | void;
   onDelete?: (userId: string) => void;
+  onUploadDoc?: (
+    docType: string,
+    fileName: string,
+    studentId: string,
+    fileDataUrl?: string,
+    expiryDate?: string,
+    documentNumber?: string
+  ) => void;
 }
 
 export const UserDetailView: React.FC<UserDetailViewProps> = ({
@@ -68,6 +81,7 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
   onBack,
   onSave,
   onDelete,
+  onUploadDoc,
 }) => {
   const initialClassInfo = useMemo(() => extractUserClassInfo(user, subjectClasses), [user, subjectClasses]);
 
@@ -246,12 +260,46 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
     );
   }, [studentProfiles, selectedStudentIds, studentSearchTerm]);
 
-  // Scoped documents: ONLY for this parent's linked wards
+  // Scoped documents: For this parent's linked wards AND parent's own documents
   const parentDocs = useMemo(() => {
     if (role !== 'parent') return [];
     const linkedSet = new Set(selectedStudentIds);
-    return parentDocuments.filter((d) => linkedSet.has(d.student_id));
-  }, [role, selectedStudentIds, parentDocuments]);
+    return parentDocuments.filter((d) => 
+      linkedSet.has(d.student_id) || 
+      d.student_id === user.id || 
+      Boolean(user.email && d.student_id.toLowerCase() === user.email.toLowerCase())
+    );
+  }, [role, selectedStudentIds, parentDocuments, user.id, user.email]);
+
+  const [emailSendingDocId, setEmailSendingDocId] = useState<string | null>(null);
+  const [adminUploadDocType, setAdminUploadDocType] = useState<string | null>(null);
+  const [adminTargetStudentId, setAdminTargetStudentId] = useState<string>(user.id);
+
+  const handleSendExpiryReminder = async (doc: ParentDocument, wardName: string) => {
+    const parentEmailAddr = user.email || '';
+    if (!parentEmailAddr) {
+      alert('Parent email address is missing for this account.');
+      return;
+    }
+    const expiryStatus = getDocumentExpiryStatus(doc.expiry_date, true);
+    setEmailSendingDocId(doc.id || doc.doc_type);
+    try {
+      await dispatchDocumentExpiryEmail({
+        parentEmail: parentEmailAddr,
+        parentName: user.name,
+        studentName: wardName,
+        documentType: doc.doc_type,
+        expiryDate: doc.expiry_date || 'N/A',
+        daysRemaining: expiryStatus.daysRemaining || 0,
+        documentNumber: doc.document_number,
+      });
+      alert(`Automated document expiration reminder email dispatched to ${parentEmailAddr}!`);
+    } catch (err: any) {
+      alert('Failed to send reminder email: ' + (err?.message || 'Unexpected error'));
+    } finally {
+      setEmailSendingDocId(null);
+    }
+  };
 
   const lastLoadedIdRef = React.useRef<string>(user.id || user.email || '');
 
@@ -2089,18 +2137,44 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                         Scoped strictly to this parent&apos;s linked wards ({selectedStudentIds.length} wards)
                       </div>
                     </div>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: parentDocs.length > 0 ? '#2D6E5D' : '#6B6963',
-                        background: parentDocs.length > 0 ? '#EAF3EF' : '#F1F5F9',
-                        padding: '2px 8px',
-                        borderRadius: 12,
-                      }}
-                    >
-                      {parentDocs.length} Total
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: parentDocs.length > 0 ? '#2D6E5D' : '#6B6963',
+                          background: parentDocs.length > 0 ? '#EAF3EF' : '#F1F5F9',
+                          padding: '2px 8px',
+                          borderRadius: 12,
+                        }}
+                      >
+                        {parentDocs.length} Total
+                      </span>
+                      {selectedStudentIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAdminTargetStudentId(selectedStudentIds[0]);
+                            setAdminUploadDocType('Student Emirates ID');
+                          }}
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: 6,
+                            background: '#2C6E6A',
+                            color: '#FFFFFF',
+                            border: 'none',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          <Upload size={12} /> Add / Update Doc
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {parentDocs.length === 0 ? (
@@ -2119,28 +2193,29 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                         No clearance documents submitted yet
                       </div>
                       <div style={{ fontSize: 11, marginTop: 2 }}>
-                        When this parent uploads clearance documents in the Parent Portal, they will appear here for inspection.
+                        When this parent uploads clearance documents in the Parent Portal or during admissions, they will appear here.
                       </div>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {parentDocs.map((doc) => {
                         const ward = studentProfiles.find((s) => s.id === doc.student_id);
-                        const wardName = ward ? ward.name : 'Linked Ward';
+                        const wardName = ward ? ward.name : (doc.student_id === user.id ? `${user.name} (Parent)` : 'Linked Ward');
                         const wardGrade = ward?.grade
                           ? ` (Grade ${ward.grade.replace(/[^0-9]/g, '')}-${ward.class_letter || ''})`
                           : '';
+                        const expiryStatus = getDocumentExpiryStatus(doc.expiry_date, true);
 
                         return (
                           <div
-                            key={doc.id}
+                            key={doc.id || doc.doc_type}
                             style={{
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'space-between',
                               padding: '12px 14px',
-                              background: '#FAF9F6',
-                              border: '1px solid var(--border-color)',
+                              background: expiryStatus.isUrgent ? '#FFF7ED' : '#FAF9F6',
+                              border: expiryStatus.isUrgent ? '1.5px solid #FDBA74' : '1px solid var(--border-color)',
                               borderRadius: 8,
                               flexWrap: 'wrap',
                               gap: 12,
@@ -2152,8 +2227,8 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                                   width: 38,
                                   height: 38,
                                   borderRadius: 8,
-                                  background: '#EAF3EF',
-                                  color: '#2D6E5D',
+                                  background: expiryStatus.isUrgent ? '#FFEDD5' : '#EAF3EF',
+                                  color: expiryStatus.isUrgent ? '#C2410C' : '#2D6E5D',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
@@ -2163,31 +2238,70 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                                 <FileText size={20} />
                               </div>
                               <div style={{ minWidth: 0, flex: 1 }}>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)' }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--neutral-dark)', display: 'flex', alignItems: 'center', gap: 8 }}>
                                   {doc.doc_type}
+                                  {doc.document_number && (
+                                    <span style={{ fontSize: 11, fontFamily: 'monospace', background: '#F1F5F9', padding: '1px 6px', borderRadius: 4, color: '#475569' }}>
+                                      {doc.document_number}
+                                    </span>
+                                  )}
                                 </div>
                                 <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2 }}>
                                   Ward: <strong>{wardName}{wardGrade}</strong> • {doc.file_name}
-                                  {doc.uploaded_at ? ` • ${doc.uploaded_at}` : ''}
+                                  {doc.expiry_date && (
+                                    <span style={{ marginLeft: 6, fontWeight: 600, color: expiryStatus.isUrgent ? '#C2410C' : '#15803D' }}>
+                                      • Expiry: {formatShortDate(doc.expiry_date)}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
                               <span
                                 style={{
                                   fontSize: 11,
                                   fontWeight: 700,
                                   padding: '3px 8px',
                                   borderRadius: 4,
-                                  background: doc.status === 'submitted' ? '#EAF3EF' : '#FEF3C7',
-                                  color: doc.status === 'submitted' ? '#2D6E5D' : '#92400E',
-                                  border: doc.status === 'submitted' ? '1px solid #C7E4D8' : '1px solid #FDE68A',
-                                  textTransform: 'capitalize',
+                                  background: expiryStatus.badgeBg,
+                                  color: expiryStatus.badgeColor,
+                                  border: `1px solid ${expiryStatus.badgeBorder}`,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
                                 }}
                               >
-                                {doc.status || 'submitted'}
+                                {expiryStatus.isUrgent && <AlertTriangle size={12} />}
+                                {expiryStatus.label}
                               </span>
+
+                              {/* SEND EXPIRY REMINDER EMAIL BUTTON (IF EXPIRED OR EXPIRING SOON) */}
+                              {expiryStatus.isUrgent && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSendExpiryReminder(doc, wardName)}
+                                  disabled={emailSendingDocId === (doc.id || doc.doc_type)}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                    padding: '5px 10px',
+                                    fontSize: 11.5,
+                                    fontWeight: 700,
+                                    color: '#FFFFFF',
+                                    background: '#EA580C',
+                                    border: 'none',
+                                    borderRadius: 5,
+                                    cursor: 'pointer',
+                                    boxShadow: '0 2px 6px rgba(234, 88, 12, 0.25)',
+                                  }}
+                                  title="Send instant document expiration reminder email to parent"
+                                >
+                                  <Mail size={12} />
+                                  {emailSendingDocId === (doc.id || doc.doc_type) ? 'Sending...' : 'Send Expiry Reminder'}
+                                </button>
+                              )}
 
                               {/* View Document Button */}
                               <button
@@ -2205,19 +2319,18 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                                   display: 'flex',
                                   alignItems: 'center',
                                   gap: 5,
-                                  padding: '6px 12px',
-                                  fontSize: 12,
+                                  padding: '5px 10px',
+                                  fontSize: 11.5,
                                   fontWeight: 600,
                                   color: '#2C6E6A',
                                   background: '#EAF3EF',
                                   border: '1px solid #C7E4D8',
                                   borderRadius: 5,
                                   cursor: 'pointer',
-                                  transition: 'background 0.12s',
                                 }}
                                 title="View / Inspect Document"
                               >
-                                <ExternalLink size={13} />
+                                <ExternalLink size={12} />
                                 View
                               </button>
 
@@ -2236,20 +2349,44 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
                                   display: 'flex',
                                   alignItems: 'center',
                                   gap: 5,
-                                  padding: '6px 12px',
-                                  fontSize: 12,
+                                  padding: '5px 10px',
+                                  fontSize: 11.5,
                                   fontWeight: 600,
                                   color: 'var(--neutral-dark)',
                                   background: '#FFFFFF',
                                   border: '1px solid var(--border-color)',
                                   borderRadius: 5,
                                   cursor: 'pointer',
-                                  transition: 'background 0.12s',
                                 }}
                                 title="Download Document"
                               >
-                                <Download size={13} />
-                                Download
+                                <Download size={12} />
+                              </button>
+
+                              {/* Renew / Update Document Button */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAdminTargetStudentId(doc.student_id);
+                                  setAdminUploadDocType(doc.doc_type);
+                                }}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 5,
+                                  padding: '5px 10px',
+                                  fontSize: 11.5,
+                                  fontWeight: 600,
+                                  color: '#15803D',
+                                  background: '#F0FDF4',
+                                  border: '1px solid #BBF7D0',
+                                  borderRadius: 5,
+                                  cursor: 'pointer',
+                                }}
+                                title="Upload renewed version or change expiry date"
+                              >
+                                <Upload size={12} />
+                                Update
                               </button>
                             </div>
                           </div>
@@ -2390,6 +2527,24 @@ export const UserDetailView: React.FC<UserDetailViewProps> = ({
           )}
         </div>
       </form>
+
+      {/* RENEW / UPDATE DOCUMENT MODAL FOR ADMIN */}
+      {adminUploadDocType && (
+        <RenewDocumentModal
+          isOpen={Boolean(adminUploadDocType)}
+          docType={adminUploadDocType}
+          studentId={adminTargetStudentId || selectedStudentIds[0] || user.id}
+          studentName={studentProfiles.find((s) => s.id === (adminTargetStudentId || selectedStudentIds[0]))?.name || user.name}
+          existingDoc={parentDocs.find((d) => d.doc_type === adminUploadDocType)}
+          onClose={() => setAdminUploadDocType(null)}
+          onSave={async (type, fName, fUrl, expDate, docNum) => {
+            if (onUploadDoc) {
+              await onUploadDoc(type, fName, adminTargetStudentId || selectedStudentIds[0] || user.id, fUrl, expDate, docNum);
+            }
+            setAdminUploadDocType(null);
+          }}
+        />
+      )}
     </div>
   );
 };

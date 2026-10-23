@@ -331,6 +331,9 @@ export interface ParentDocument {
   file_name?: string;
   file_url?: string;
   uploaded_at?: string;
+  expiry_date?: string;
+  document_number?: string;
+  notes?: string;
 }
 
 export interface AuditLogItem {
