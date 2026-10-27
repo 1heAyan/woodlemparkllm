@@ -34,8 +34,13 @@ interface FeedbackWidgetProps {
 }
 
 export const FeedbackWidget: React.FC<FeedbackWidgetProps> = ({ currentUser }) => {
+  const [isMounted, setIsMounted] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'create' | 'history'>('create');
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Form State
   const [category, setCategory] = useState<FeedbackCategory>('ui_change');
@@ -296,6 +301,8 @@ export const FeedbackWidget: React.FC<FeedbackWidgetProps> = ({ currentUser }) =
     deleteStoredFeedback(id, currentUser);
     setHistoryList(getUserStoredFeedbacks(currentUser));
   };
+
+  if (!isMounted) return null;
 
   return (
     <>
@@ -590,6 +597,7 @@ export const FeedbackWidget: React.FC<FeedbackWidgetProps> = ({ currentUser }) =
                 <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                   {/* CONTEXT CHIP */}
                   <div
+                    suppressHydrationWarning
                     style={{
                       background: '#F8F7F4',
                       border: '1px solid var(--border-color)',
@@ -601,10 +609,23 @@ export const FeedbackWidget: React.FC<FeedbackWidgetProps> = ({ currentUser }) =
                       fontSize: 11.5,
                     }}
                   >
-                    <span style={{ color: 'var(--text-secondary)' }}>
-                      Active Portal: <strong style={{ color: '#2C6E6A' }}>{currentUser?.role ? `${currentUser.role.toUpperCase()} PORTAL` : 'WOODLEM LMS'}</strong>
+                    <span suppressHydrationWarning style={{ color: 'var(--text-secondary)' }}>
+                      Active Portal:{' '}
+                      <strong suppressHydrationWarning style={{ color: '#2C6E6A' }}>
+                        {currentUser?.role ? `${currentUser.role.toUpperCase()} PORTAL` : 'WOODLEM LMS'}
+                      </strong>
                     </span>
-                    <span style={{ color: currentUser?.name ? '#1E293B' : '#64748B', fontSize: 11, fontWeight: currentUser?.name ? 700 : 500, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span
+                      suppressHydrationWarning
+                      style={{
+                        color: currentUser?.name ? '#1E293B' : '#64748B',
+                        fontSize: 11,
+                        fontWeight: currentUser?.name ? 700 : 500,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
                       {currentUser?.name ? (
                         <>
                           <span>{currentUser.name}</span>
