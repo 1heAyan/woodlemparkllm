@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { supabase, UserProfile } from '@/lib/supabaseClient';
-import { saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
+import { saveUserPasswordToCloudAndLocal, isUserOnDefaultPassword, isDefaultPassword } from '@/lib/passwordHelper';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import { Camera, Lock } from 'lucide-react';
 
@@ -94,6 +94,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
     if (newPassword !== confirmPassword) {
       setPasswordFeedback({ type: 'error', text: 'Passwords do not match. Please re-enter.' });
+      return;
+    }
+    if (isDefaultPassword(newPassword.trim())) {
+      setPasswordFeedback({
+        type: 'error',
+        text: 'New password cannot be the school default password (woodlem123). Please choose a private personal password.',
+      });
       return;
     }
 
@@ -353,6 +360,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <h3 style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 800, color: 'var(--neutral-dark)' }}>Change Your Password</h3>
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '6px 0 0' }}>Enter your new password below. It will immediately secure your portal login.</p>
           </div>
+          {isUserOnDefaultPassword(currentUser) && (
+            <div
+              style={{
+                background: '#FEF2F2',
+                border: '1px solid #FECACA',
+                borderRadius: 10,
+                padding: '12px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                color: '#991B1B',
+              }}
+            >
+              <div
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: '#EF4444',
+                  flexShrink: 0,
+                  boxShadow: '0 0 6px #EF4444',
+                }}
+              />
+              <div style={{ fontSize: 12.5, lineHeight: 1.45 }}>
+                <strong>Security Alert: Default Password Active</strong>
+                <div>Your account is currently using the initial default password (<code>woodlem123</code>). Please choose a new personal password below to clear this alert and secure your account.</div>
+              </div>
+            </div>
+          )}
           {passwordFeedback && (
             <div style={{ padding: '10px 14px', borderRadius: 6, fontSize: 12.5, fontWeight: 600, background: passwordFeedback.type === 'success' ? '#EAF3EF' : '#FDF1F0', color: passwordFeedback.type === 'success' ? '#2D6E5D' : '#A83B38', border: passwordFeedback.type === 'success' ? '1px solid #C7E4D8' : '1px solid #F5C6CB' }}>
               {passwordFeedback.text}

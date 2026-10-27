@@ -262,6 +262,7 @@ export const ManageHubEnrollmentModal: React.FC<ManageHubEnrollmentModalProps> =
 
   return (
     <div
+      className="responsive-modal-overlay"
       style={{
         position: 'fixed',
         inset: 0,
@@ -276,6 +277,7 @@ export const ManageHubEnrollmentModal: React.FC<ManageHubEnrollmentModalProps> =
       onClick={onClose}
     >
       <div
+        className="responsive-modal-card"
         onClick={(e) => e.stopPropagation()}
         style={{
           background: '#FFFFFF',

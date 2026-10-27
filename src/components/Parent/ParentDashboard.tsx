@@ -29,6 +29,8 @@ import {
   ShieldAlert,
   Download,
   Upload,
+  Sparkles,
+  MessageSquare,
 } from 'lucide-react';
 import { WoodlemLogo, WoodlemEmblemSVG } from '@/components/Shared/WoodlemLogo';
 import { useSidebarState } from '@/lib/useSidebarState';
@@ -55,6 +57,7 @@ import {
 } from '@/lib/supabaseClient';
 import { getIcon } from '../Icons';
 import { SettingsView } from '@/components/Shared/SettingsView';
+import { isUserOnDefaultPassword } from '@/lib/passwordHelper';
 import { SupportView } from '@/components/Shared/SupportView';
 import { ApplyLeaveModal } from '@/components/Modals/ApplyLeaveModal';
 import { ExportAttendanceModal } from '@/components/Modals/ExportAttendanceModal';
@@ -142,6 +145,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   const [activeTab, setActiveTab] = useState<
     'progress' | 'attendance' | 'behavior' | 'broadcasts' | 'achievements' | 'documents' | 'hub' | 'settings' | 'support'
   >('progress');
+  const hasDefaultPassword = useMemo(() => isUserOnDefaultPassword(currentUser), [currentUser]);
 
   // Sidebar profile photo (synced with Supabase cloud & local cache)
   const [sidebarAvatarUrl, setSidebarAvatarUrl] = useState<string | null>(() => {
@@ -603,8 +607,24 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             className="mobile-icon-btn"
             onClick={() => setActiveTab('settings')}
             aria-label="Profile Settings"
-            style={{ width: 34, height: 34, padding: 0 }}
+            style={{ width: 34, height: 34, padding: 0, position: 'relative' }}
           >
+            {hasDefaultPassword && (
+              <span
+                title="Security Alert: Default password active. Please update your password."
+                style={{
+                  position: 'absolute',
+                  top: -1,
+                  right: -1,
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: '#EF4444',
+                  boxShadow: '0 0 0 2px #FFFFFF, 0 0 6px rgba(239, 68, 68, 0.9)',
+                  zIndex: 10,
+                }}
+              />
+            )}
             <div
               style={{
                 width: 28,
@@ -851,8 +871,36 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                   setIsMobileDrawerOpen(false);
                 }}
               >
-                <Settings size={16} />
+                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                  <Settings size={16} />
+                  {hasDefaultPassword && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: -3,
+                        right: -4,
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        background: '#EF4444',
+                        boxShadow: '0 0 0 1.5px #FFFFFF',
+                      }}
+                    />
+                  )}
+                </div>
                 <span>Settings &amp; Passwords</span>
+                {hasDefaultPassword && (
+                  <span
+                    style={{
+                      marginLeft: 'auto',
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      background: '#EF4444',
+                      boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)',
+                    }}
+                  />
+                )}
               </button>
               <button
                 type="button"
@@ -864,6 +912,17 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
               >
                 <LifeBuoy size={16} />
                 <span>Help &amp; Support</span>
+              </button>
+              <button
+                type="button"
+                className="mobile-drawer-item"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('woodlem:open_feedback'));
+                  setIsMobileDrawerOpen(false);
+                }}
+              >
+                <MessageSquare size={16} />
+                <span>Feedback &amp; Ideas</span>
               </button>
               <button
                 type="button"
@@ -1268,11 +1327,45 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                <Settings size={15} className="icon" style={{ flexShrink: 0 }} />
+                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                  <Settings size={15} className="icon" style={{ flexShrink: 0 }} />
+                  {hasDefaultPassword && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: -3,
+                        right: -3,
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        background: '#EF4444',
+                        boxShadow: '0 0 0 1.5px #FFFFFF',
+                      }}
+                    />
+                  )}
+                </div>
                 <span className="sidebar-text">Settings</span>
+                {hasDefaultPassword && (
+                  <span
+                    className="sidebar-text"
+                    style={{
+                      marginLeft: 'auto',
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: '#EF4444',
+                      boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)',
+                    }}
+                    title="Security Alert: Default password active. Please update your password."
+                  />
+                )}
               </div>
             </button>
-            {sidebar.isCollapsed && <div className="sidebar-tooltip">Settings &amp; Passwords</div>}
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">
+                Settings &amp; Passwords {hasDefaultPassword ? '(Default Password Active)' : ''}
+              </div>
+            )}
           </div>
 
           <div className="sidebar-tooltip-wrapper">
@@ -1289,6 +1382,20 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
               </div>
             </button>
             {sidebar.isCollapsed && <div className="sidebar-tooltip">Help &amp; Support</div>}
+          </div>
+
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className="logout-btn-clean"
+              onClick={() => window.dispatchEvent(new CustomEvent('woodlem:open_feedback'))}
+              title="Share feedback or suggest new features"
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <MessageSquare size={15} className="icon" style={{ flexShrink: 0 }} />
+                <span className="sidebar-text">Feedback &amp; Ideas</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && <div className="sidebar-tooltip">Feedback &amp; Ideas</div>}
           </div>
 
           <div className="sidebar-tooltip-wrapper">
@@ -1397,7 +1504,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
         <header className="content-header">
           <div className="header-top" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+              <div className="hide-mobile" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#EAF3EF', color: '#2D6E5D', border: '1px solid #C7E4D8', textTransform: 'uppercase' }}>
                   Parent Portal
                 </span>
@@ -1588,7 +1695,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
               {/* TOP STATS CARDS */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 12 }}>
+              <div className="parent-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 12 }}>
                 {/* Attendance Rate Card */}
                 <div
                   style={{
@@ -2367,34 +2474,13 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           {activeChild && activeTab === 'attendance' && (
             <div>
               <div className="panel-block">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
-                  <div>
-                    <h3 className="section-title" style={{ margin: 0 }}>
-                      Daily Roll Call Audit Log
-                    </h3>
-                    <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
-                      Real-time morning register &amp; lesson logs recorded by class teachers for {activeChild.name}.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setIsApplyLeaveModalOpen(true)}
-                    style={{
-                      padding: '6px 12px',
-                      background: '#2D2C2A',
-                      color: '#FFFFFF',
-                      border: 'none',
-                      borderRadius: 6,
-                      fontSize: 11.5,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 5,
-                    }}
-                  >
-                    <Calendar size={13} />
-                    <span>Submit Sick Note</span>
-                  </button>
+                <div style={{ marginBottom: 14 }}>
+                  <h3 className="section-title" style={{ margin: 0 }}>
+                    Daily Roll Call Audit Log
+                  </h3>
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
+                    Real-time morning register &amp; lesson logs recorded by class teachers for {activeChild.name}.
+                  </p>
                 </div>
                 {recentAttendanceDates.length === 0 ? (
                   <div className="empty-state">No attendance records logged in the database yet.</div>
@@ -2449,9 +2535,6 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                                   year: 'numeric',
                                 })}
                               </div>
-                              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                                Date Ref: {dateStr}
-                              </div>
                             </div>
                           </div>
 
@@ -2485,7 +2568,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                 className="parent-kpi-grid"
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
                   gap: 12,
                   marginBottom: 20,
                 }}
@@ -2495,117 +2578,81 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                   background: '#FFFFFF',
                   border: '1px solid var(--border-color)',
                   borderRadius: 10,
-                  padding: '18px 20px',
+                  padding: '16px 18px',
                   boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
                 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      Current Score
-                    </span>
-                    <span style={{
-                      fontSize: 10.5,
-                      fontWeight: 700,
-                      padding: '2px 8px',
-                      borderRadius: 10,
-                      background: childBehaviorTier.bg,
-                      color: childBehaviorTier.color,
-                      border: `1px solid ${childBehaviorTier.border}`,
-                    }}>
-                      {childBehaviorTier.label}
-                    </span>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Current Conduct Score
+                      </span>
+                      <span style={{
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: 10,
+                        background: childBehaviorTier.bg,
+                        color: childBehaviorTier.color,
+                        border: `1px solid ${childBehaviorTier.border}`,
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {childBehaviorTier.label}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 8 }}>
+                      <span style={{ fontSize: 32, fontWeight: 800, color: childBehaviorTier.color, lineHeight: 1 }}>
+                        {childBehaviorScore}
+                      </span>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        / 80 pts
+                      </span>
+                    </div>
+                    <div style={{ height: 6, width: '100%', background: '#F0EFEA', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${Math.min(100, Math.max(0, (childBehaviorScore / 80) * 100))}%`,
+                        background: childBehaviorTier.color,
+                        borderRadius: 3,
+                        transition: 'width 0.3s ease',
+                      }} />
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 10 }}>
-                    <span style={{ fontSize: 36, fontWeight: 800, color: childBehaviorTier.color, lineHeight: 1 }}>
-                      {childBehaviorScore}
-                    </span>
-                    <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)' }}>
-                      / 80 pts
-                    </span>
-                  </div>
-                  <div style={{ height: 6, width: '100%', background: '#F0EFEA', borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{
-                      height: '100%',
-                      width: `${Math.min(100, Math.max(0, (childBehaviorScore / 80) * 100))}%`,
-                      background: childBehaviorTier.color,
-                      borderRadius: 3,
-                      transition: 'width 0.3s ease',
-                    }} />
-                  </div>
-                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
-                    {childBehaviorScore >= 75 ? 'Exemplary discipline across all classes' : childBehaviorScore >= 60 ? 'Satisfactory conduct' : 'Needs attention; counseling recommended'}
+                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+                    {childBehaviorScore >= 75 ? 'Exemplary discipline across all classes.' : childBehaviorScore >= 60 ? 'Satisfactory conduct; in good standing.' : 'Disciplinary attention advised.'}
                   </div>
                 </div>
 
-                {/* CARD 2: STANDARD BASELINE */}
+                {/* CARD 2: TOTAL DEDUCTIONS */}
                 <div style={{
                   background: '#FFFFFF',
                   border: '1px solid var(--border-color)',
                   borderRadius: 10,
-                  padding: '18px 20px',
+                  padding: '16px 18px',
                   boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
                 }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                    Standard Baseline
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 8 }}>
-                    <span style={{ fontSize: 36, fontWeight: 800, color: 'var(--neutral-dark)', lineHeight: 1 }}>
-                      80
-                    </span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>
-                      points
-                    </span>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                      Total Deductions
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 8 }}>
+                      <span style={{ fontSize: 32, fontWeight: 800, color: childTotalDeductions > 0 ? '#A83B38' : '#2C6E6A', lineHeight: 1 }}>
+                        {childTotalDeductions > 0 ? `-${childTotalDeductions}` : '0'}
+                      </span>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        points
+                      </span>
+                    </div>
                   </div>
                   <p style={{ margin: 0, fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                    Standard school-wide baseline allocated at the start of the academic year.
-                  </p>
-                </div>
-
-                {/* CARD 3: TOTAL DEDUCTIONS */}
-                <div style={{
-                  background: '#FFFFFF',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 10,
-                  padding: '18px 20px',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                    Total Deductions
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 8 }}>
-                    <span style={{ fontSize: 36, fontWeight: 800, color: childTotalDeductions > 0 ? '#A83B38' : '#2C6E6A', lineHeight: 1 }}>
-                      {childTotalDeductions > 0 ? `-${childTotalDeductions}` : '0'}
-                    </span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>
-                      points
-                    </span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                    From {childBehaviorIncidents.length} recorded conduct observation{childBehaviorIncidents.length === 1 ? '' : 's'}.
-                  </p>
-                </div>
-
-                {/* CARD 4: CONDUCT STANDING */}
-                <div style={{
-                  background: '#FFFFFF',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 10,
-                  padding: '18px 20px',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                    Conduct Standing
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <span style={{ fontSize: 18, fontWeight: 700, color: childBehaviorTier.color }}>
-                      {childBehaviorTier.label}
-                    </span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                    {childBehaviorScore >= 75
-                      ? 'Complies with all Woodlem behavioral standards. In good standing.'
-                      : childBehaviorScore >= 60
-                      ? 'Minor infractions noted. Encouraged to improve classroom focus.'
-                      : 'Multiple disciplinary notes logged. Please contact the class teacher.'}
+                    {childBehaviorIncidents.length === 0
+                      ? 'No infractions logged this academic year.'
+                      : `${childBehaviorIncidents.length} recorded conduct observation${childBehaviorIncidents.length === 1 ? '' : 's'}.`}
                   </p>
                 </div>
               </div>
@@ -3342,7 +3389,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
           {activeTab === 'hub' && (
             <div>
               <div className="hub-grid">
-                {hubActivities.length === 0 ? (
+                {childHubActivities.length === 0 ? (
                   <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
                     No school activities published yet.
                   </div>
@@ -3420,83 +3467,6 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
         </div>
       </main>
 
-      {/* MOBILE BOTTOM NAVIGATION BAR (Screens <= 768px) */}
-      <nav className="mobile-bottom-nav">
-        <button
-          type="button"
-          className={`mobile-nav-tab ${activeTab === 'progress' ? 'active parent-theme' : ''}`}
-          onClick={() => setActiveTab('progress')}
-          aria-label="Academic Progress"
-        >
-          <div className="tab-icon-wrap">
-            <BookOpen size={18} />
-          </div>
-          <span>Progress</span>
-        </button>
-
-        <button
-          type="button"
-          className={`mobile-nav-tab ${activeTab === 'attendance' ? 'active parent-theme' : ''}`}
-          onClick={() => setActiveTab('attendance')}
-          aria-label="Attendance Record"
-        >
-          <div className="tab-icon-wrap">
-            <Calendar size={18} />
-            {absentCount > 0 && (
-              <span className="nav-badge" style={{ background: absentCount > 2 ? '#DC2626' : '#D97706' }}>
-                {absentCount}
-              </span>
-            )}
-          </div>
-          <span>Attendance</span>
-        </button>
-
-        <button
-          type="button"
-          className={`mobile-nav-tab ${activeTab === 'behavior' ? 'active parent-theme' : ''}`}
-          onClick={() => setActiveTab('behavior')}
-          aria-label="Behavior & Conduct"
-        >
-          <div className="tab-icon-wrap">
-            <ShieldAlert size={18} style={{ color: activeTab === 'behavior' ? '#265E5A' : childBehaviorTier.color }} />
-            {childBehaviorScore < 75 && (
-              <span className="nav-badge" style={{ background: childBehaviorTier.color }}>
-                !
-              </span>
-            )}
-          </div>
-          <span>Conduct</span>
-        </button>
-
-        <button
-          type="button"
-          className={`mobile-nav-tab ${activeTab === 'broadcasts' ? 'active parent-theme' : ''}`}
-          onClick={() => setActiveTab('broadcasts')}
-          aria-label="Classroom Notices"
-        >
-          <div className="tab-icon-wrap">
-            <Megaphone size={18} />
-            {childBroadcasts.length > 0 && (
-              <span className="nav-badge" style={{ background: '#2C6E6A' }}>
-                {childBroadcasts.length}
-              </span>
-            )}
-          </div>
-          <span>Notices</span>
-        </button>
-
-        <button
-          type="button"
-          className={`mobile-nav-tab ${['achievements', 'documents', 'hub', 'settings', 'support'].includes(activeTab) ? 'active parent-theme' : ''}`}
-          onClick={() => setIsMobileDrawerOpen(true)}
-          aria-label="More Features"
-        >
-          <div className="tab-icon-wrap">
-            <Menu size={18} />
-          </div>
-          <span>More</span>
-        </button>
-      </nav>
 
       {/* MODALS */}
 

@@ -328,25 +328,10 @@ export async function dispatchParentWelcomeEmail(data: ParentWelcomeEmailPayload
     console.warn('Supabase audit_logs insert soft fallback:', e);
   }
 
-  // 3. Persist hub activity cloud record
+  // 3. Clean up any accidental email logs in hub_activities
   try {
-    await supabase.from('hub_activities').upsert([
-      {
-        id: `email_log_${recordId}`,
-        title: `Parent Welcome Email: ${data.studentName}`,
-        type: 'email_log',
-        description: JSON.stringify({
-          recipient: data.parentEmail,
-          parentName: data.parentName,
-          studentName: data.studentName,
-          subject,
-          sentAt: now,
-        }),
-        date: now.split('T')[0],
-        created_by: 'admin',
-        created_at: now,
-      },
-    ]);
+    await supabase.from('hub_activities').delete().eq('type', 'email_log');
+    await supabase.from('hub_activities').delete().ilike('id', 'email_log_%');
   } catch (e) {}
 
   // 4. Save local record and trigger custom event

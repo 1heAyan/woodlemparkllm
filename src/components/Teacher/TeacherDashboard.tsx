@@ -62,6 +62,7 @@ import {
   exportBehaviorToCSV,
 } from '@/lib/behaviorHelper';
 import { RecordBehaviorIncidentModal } from '../Modals/RecordBehaviorIncidentModal';
+import { isUserOnDefaultPassword } from '@/lib/passwordHelper';
 
 interface TeacherDashboardProps {
   currentUser: UserProfile;
@@ -212,6 +213,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 }) => {
   const [isEditClassModalOpen, setIsEditClassModalOpen] = useState(false);
   const [managingEnrollmentActivity, setManagingEnrollmentActivity] = useState<HubActivity | null>(null);
+  const hasDefaultPassword = useMemo(() => isUserOnDefaultPassword(currentUser), [currentUser]);
   const sidebar = useSidebarState(currentUser?.id || currentUser?.email || 'teacher');
   const [selectedReviewTest, setSelectedReviewTest] = useState<TestItem | null>(null);
   const [selectedGradeAssignment, setSelectedGradeAssignment] = useState<AssignmentItem | null>(null);
@@ -2060,12 +2062,44 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                <Settings size={15} className="icon" style={{ flexShrink: 0 }} />
+                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                  <Settings size={15} className="icon" style={{ flexShrink: 0 }} />
+                  {hasDefaultPassword && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: -3,
+                        right: -3,
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        background: '#EF4444',
+                        boxShadow: '0 0 0 1.5px #FFFFFF',
+                      }}
+                    />
+                  )}
+                </div>
                 <span className="sidebar-text">Settings</span>
+                {hasDefaultPassword && (
+                  <span
+                    className="sidebar-text"
+                    style={{
+                      marginLeft: 'auto',
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: '#EF4444',
+                      boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)',
+                    }}
+                    title="Security Alert: Default password active. Please update your password."
+                  />
+                )}
               </div>
             </button>
             {sidebar.isCollapsed && (
-              <div className="sidebar-tooltip">Settings &amp; Passwords</div>
+              <div className="sidebar-tooltip">
+                Settings &amp; Passwords {hasDefaultPassword ? '(Default Password Active)' : ''}
+              </div>
             )}
           </div>
 
@@ -2085,6 +2119,22 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             </button>
             {sidebar.isCollapsed && (
               <div className="sidebar-tooltip">Help &amp; Support</div>
+            )}
+          </div>
+
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className="logout-btn-clean"
+              onClick={() => window.dispatchEvent(new CustomEvent('woodlem:open_feedback'))}
+              title="Share feedback or suggest new features"
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <MessageSquare size={15} className="icon" style={{ flexShrink: 0 }} />
+                <span className="sidebar-text">Feedback &amp; Ideas</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">Feedback &amp; Ideas</div>
             )}
           </div>
 

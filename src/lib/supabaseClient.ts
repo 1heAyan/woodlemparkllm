@@ -261,14 +261,17 @@ export interface HubActivity {
 export function isAuthenticHubActivity(act: any): boolean {
   if (!act || !act.title) return false;
   const title = String(act.title).trim();
+  const lowerTitle = title.toLowerCase();
   const type = String(act.type || '').trim().toLowerCase();
-  const id = String(act.id || '').trim();
+  const id = String(act.id || '').trim().toLowerCase();
   const desc = String(act.description || '').trim();
 
-  // 1. Exclude system internal titles
+  // 1. Exclude system internal and email log titles
   if (title.startsWith('__')) return false;
-  if (title.toLowerCase().startsWith('cs submission:')) return false;
-  if (title.toLowerCase().startsWith('late_entries_')) return false;
+  if (lowerTitle.startsWith('cs submission:')) return false;
+  if (lowerTitle.startsWith('late_entries_')) return false;
+  if (lowerTitle.includes('welcome email') || lowerTitle.startsWith('parent welcome') || lowerTitle.startsWith('email:')) return false;
+  if (lowerTitle.startsWith('email_log') || lowerTitle.startsWith('audit_log')) return false;
 
   // 2. Exclude system internal IDs
   if (
@@ -279,6 +282,12 @@ export function isAuthenticHubActivity(act: any): boolean {
     id.startsWith('late_') ||
     id.startsWith('st_info_') ||
     id.startsWith('beh_') ||
+    id.startsWith('email_') ||
+    id.startsWith('email_log_') ||
+    id.startsWith('log_') ||
+    id.startsWith('feedback_') ||
+    id.startsWith('audit_') ||
+    id.includes('_log') ||
     id === 'special_roles_master_v1' ||
     id === 'behavior_records_master_backup_v1' ||
     id === 'late_entries_master_backup_v1' ||
@@ -287,7 +296,7 @@ export function isAuthenticHubActivity(act: any): boolean {
     return false;
   }
 
-  // 3. Exclude internal system types
+  // 3. Exclude internal system types & email logs
   const internalTypes = [
     'system_config',
     'cs_question',
@@ -299,9 +308,17 @@ export function isAuthenticHubActivity(act: any): boolean {
     'student_additional_info',
     'student_info_bundle',
     'behavior_master_backup',
+    'email_log',
+    'email',
+    'system_log',
+    'audit_log',
+    'feedback',
+    'feedback_entry',
   ];
   if (internalTypes.includes(type)) return false;
   if (
+    type.includes('email') ||
+    type.includes('log') ||
     type.startsWith('cs_') ||
     type.startsWith('late_') ||
     type.startsWith('system_') ||
@@ -312,9 +329,18 @@ export function isAuthenticHubActivity(act: any): boolean {
     return false;
   }
 
-  // 4. Exclude raw serialized JSON data records
+  // 4. Exclude raw serialized JSON data records or email dispatch payloads
   if (
-    (desc.startsWith('{') && (desc.includes('"id"') || desc.includes('"question_id"') || desc.includes('"teacher_id"') || desc.includes('"user_id"'))) ||
+    (desc.startsWith('{') && (
+      desc.includes('"recipient"') ||
+      desc.includes('"sentAt"') ||
+      desc.includes('"parentName"') ||
+      desc.includes('"studentName"') ||
+      desc.includes('"id"') ||
+      desc.includes('"question_id"') ||
+      desc.includes('"teacher_id"') ||
+      desc.includes('"user_id"')
+    )) ||
     (desc.startsWith('[') && desc.includes('"id"'))
   ) {
     return false;

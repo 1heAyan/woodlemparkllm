@@ -43,6 +43,7 @@ import { sanitizeUserCode } from '@/lib/userCodeHelper';
 import { isCsStudent } from '@/lib/csLabHelper';
 import { ApplyLeaveModal } from '../Modals/ApplyLeaveModal';
 import { ExportAttendanceModal } from '../Modals/ExportAttendanceModal';
+import { isUserOnDefaultPassword } from '@/lib/passwordHelper';
 import { decodeMarkNote } from '../Admin/AdminAssessmentTermsView';
 import { ShieldAlert, ShieldCheck } from 'lucide-react';
 import {
@@ -272,6 +273,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const cleanSection = useMemo(() => (currentStudent.class_letter || 'A').toUpperCase().trim() || 'A', [currentStudent.class_letter]);
   const studentClass = `${cleanGrade}-${cleanSection}`;
   const studentAdmNo = useMemo(() => sanitizeUserCode(currentStudent.admission_number || currentStudent.user_code, currentStudent.email) || currentStudent.id.slice(0, 4).toUpperCase(), [currentStudent]);
+  const hasDefaultPassword = useMemo(() => isUserOnDefaultPassword(currentStudent), [currentStudent]);
 
   // Dynamic Subject Classrooms this student is enrolled in
   const myClasses = useMemo(() => {
@@ -912,8 +914,24 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             className="mobile-icon-btn"
             onClick={() => setActiveNavType('settings')}
             aria-label="Profile Settings"
-            style={{ width: 34, height: 34, padding: 0 }}
+            style={{ width: 34, height: 34, padding: 0, position: 'relative' }}
           >
+            {hasDefaultPassword && (
+              <span
+                title="Security Alert: Default password active. Please update your password."
+                style={{
+                  position: 'absolute',
+                  top: -1,
+                  right: -1,
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: '#EF4444',
+                  boxShadow: '0 0 0 2px #FFFFFF, 0 0 6px rgba(239, 68, 68, 0.9)',
+                  zIndex: 10,
+                }}
+              />
+            )}
             <div
               style={{
                 width: 28,
@@ -1138,8 +1156,36 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   setIsMobileDrawerOpen(false);
                 }}
               >
-                <Settings size={16} />
+                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                  <Settings size={16} />
+                  {hasDefaultPassword && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: -3,
+                        right: -4,
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        background: '#EF4444',
+                        boxShadow: '0 0 0 1.5px #FFFFFF',
+                      }}
+                    />
+                  )}
+                </div>
                 <span>Settings &amp; Passwords</span>
+                {hasDefaultPassword && (
+                  <span
+                    style={{
+                      marginLeft: 'auto',
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      background: '#EF4444',
+                      boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)',
+                    }}
+                  />
+                )}
               </button>
               <button
                 type="button"
@@ -1151,6 +1197,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               >
                 <LifeBuoy size={16} />
                 <span>Help &amp; Support</span>
+              </button>
+              <button
+                type="button"
+                className="mobile-drawer-item"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('woodlem:open_feedback'));
+                  setIsMobileDrawerOpen(false);
+                }}
+              >
+                <MessageSquare size={16} />
+                <span>Feedback &amp; Ideas</span>
               </button>
               <button
                 type="button"
@@ -1599,11 +1656,45 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               onClick={() => { setActiveNavType('settings'); sidebar.handleNavClick(); }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-                <Settings size={15} className="icon" style={{ flexShrink: 0 }} />
+                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                  <Settings size={15} className="icon" style={{ flexShrink: 0 }} />
+                  {hasDefaultPassword && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: -3,
+                        right: -3,
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        background: '#EF4444',
+                        boxShadow: '0 0 0 1.5px #FFFFFF',
+                      }}
+                    />
+                  )}
+                </div>
                 <span className="sidebar-text">Settings</span>
+                {hasDefaultPassword && (
+                  <span
+                    className="sidebar-text"
+                    style={{
+                      marginLeft: 'auto',
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: '#EF4444',
+                      boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)',
+                    }}
+                    title="Security Alert: Default password active. Please update your password."
+                  />
+                )}
               </div>
             </button>
-            {sidebar.isCollapsed && <div className="sidebar-tooltip">Settings &amp; Passwords</div>}
+            {sidebar.isCollapsed && (
+              <div className="sidebar-tooltip">
+                Settings &amp; Passwords {hasDefaultPassword ? '(Default Password Active)' : ''}
+              </div>
+            )}
           </div>
 
           {/* HELP & SUPPORT */}
@@ -1618,6 +1709,20 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               </div>
             </button>
             {sidebar.isCollapsed && <div className="sidebar-tooltip">Help &amp; Support</div>}
+          </div>
+
+          <div className="sidebar-tooltip-wrapper">
+            <button
+              className="logout-btn-clean"
+              onClick={() => window.dispatchEvent(new CustomEvent('woodlem:open_feedback'))}
+              title="Share feedback or suggest new features"
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                <MessageSquare size={15} className="icon" style={{ flexShrink: 0 }} />
+                <span className="sidebar-text">Feedback &amp; Ideas</span>
+              </div>
+            </button>
+            {sidebar.isCollapsed && <div className="sidebar-tooltip">Feedback &amp; Ideas</div>}
           </div>
 
           {/* TOGGLE COLLAPSE */}
@@ -2827,44 +2932,45 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#2C6E6A', letterSpacing: '0.06em' }}>
                     STUDENT PROFILE
                   </div>
-                  <h1 className="page-title" style={{ margin: '2px 0 0' }}>
-                    My Awards &amp; Certifications
-                  </h1>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 2, flexWrap: 'wrap' }}>
+                    <h1 className="page-title" style={{ margin: 0 }}>
+                      My Awards &amp; Certifications
+                    </h1>
+                    {myAchievements.length > 0 && (
+                      <span style={{ fontSize: 11.5, fontWeight: 700, padding: '2px 9px', borderRadius: 12, background: '#FEF7EC', color: '#9E6C1B', border: '1px solid #F5DEB3' }}>
+                        {myAchievements.length} {myAchievements.length === 1 ? 'Distinction' : 'Distinctions'}
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                    Certified achievements submitted to your official school profile and verified by your class teacher.
+                  </p>
                 </div>
 
-                <button className="btn-primary" onClick={onAddAchievementClick} style={{ padding: '7px 16px', fontSize: 12 }}>
-                  + Add Achievement
+                <button className="btn-primary" onClick={onAddAchievementClick} style={{ padding: '7px 16px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Award size={14} />
+                  <span>+ Add Achievement</span>
                 </button>
               </div>
             </header>
 
             <div className="content-body">
-              <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-                <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#FDFCFB' }}>
-                  <div>
-                    <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0 }}>
-                      My Awards &amp; Certifications Record ({myAchievements.length} Uploaded)
-                    </h4>
-                    <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
-                      Certified achievements submitted to your official school profile and verified by your class teacher.
-                    </p>
+              {myAchievements.length === 0 ? (
+                <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 10, padding: '54px 20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                  <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#FEF7EC', color: '#9E6C1B', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+                    <Award size={24} />
                   </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 4, background: '#FEF7EC', color: '#9E6C1B', border: '1px solid #F5DEB3' }}>
-                    {myAchievements.length} Distinctions
-                  </span>
+                  <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px', color: 'var(--neutral-dark)' }}>No Achievements Recorded Yet</h3>
+                  <p style={{ fontSize: 12.5, maxWidth: 380, margin: '0 auto 18px', lineHeight: 1.5 }}>
+                    Add your academic prizes, olympiad medals, and sports certificates to your verified school record.
+                  </p>
+                  <button className="btn-primary" onClick={onAddAchievementClick} style={{ padding: '8px 18px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, margin: '0 auto' }}>
+                    <Award size={14} />
+                    <span>Add First Achievement</span>
+                  </button>
                 </div>
-
-                {myAchievements.length === 0 ? (
-                  <div style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                    <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#FEF7EC', color: '#9E6C1B', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-                      <Award size={22} />
-                    </div>
-                    <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 4px', color: 'var(--neutral-dark)' }}>No Achievements Recorded Yet</h3>
-                    <p style={{ fontSize: 12.5, maxWidth: 360, margin: '0 auto' }}>
-                      Add your academic prizes, olympiad medals, and sports certificates.
-                    </p>
-                  </div>
-                ) : (
+              ) : (
+                <div style={{ background: '#FFFFFF', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
                   <>
                     {/* Desktop Table View */}
                     <div className="hide-mobile" style={{ overflowX: 'auto', width: '100%' }}>
@@ -3119,8 +3225,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                       ))}
                     </div>
                   </>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </>
         )}
@@ -3298,24 +3404,28 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 <SegmentedControl
                   value={attendanceSubTab}
                   onChange={(tab) => setAttendanceSubTab(tab as any)}
+                  fullWidth={true}
                   options={[
                     {
                       value: 'audit',
                       label: 'Daily Attendance Log',
+                      mobileLabel: 'Daily Log',
                       count: attendanceStats.history.length,
                     },
                     {
                       value: 'leaves',
-                      label: 'My Uploaded Leaves & Sick Notes',
+                      label: 'Leave & Sick Notes',
+                      mobileLabel: 'Leaves',
                       count: myLeaves.length,
                     },
                     {
                       value: 'late_notices',
                       label: 'Late Arrival Records',
+                      mobileLabel: 'Late Entries',
                       count: myLateRecords.length,
                     },
                   ]}
-                  height={34}
+                  height={36}
                   textTransform="none"
                 />
               </div>
@@ -3675,9 +3785,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 className="student-kpi-grid"
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                  gap: 16,
-                  marginBottom: 24,
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
+                  gap: 12,
+                  marginBottom: 20,
                 }}
               >
                 {/* CARD 1: CURRENT SCORE */}
@@ -3685,118 +3795,82 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   background: '#FFFFFF',
                   border: '1px solid var(--border-color)',
                   borderRadius: 10,
-                  padding: '18px 20px',
+                  padding: '16px 18px',
                   boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
                 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      Current Score
-                    </span>
-                    <span style={{
-                      fontSize: 10.5,
-                      fontWeight: 700,
-                      padding: '2px 8px',
-                      borderRadius: 10,
-                      background: myBehaviorTier.bg,
-                      color: myBehaviorTier.color,
-                      border: `1px solid ${myBehaviorTier.border}`,
-                    }}>
-                      {myBehaviorTier.label}
-                    </span>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Current Conduct Score
+                      </span>
+                      <span style={{
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: 10,
+                        background: myBehaviorTier.bg,
+                        color: myBehaviorTier.color,
+                        border: `1px solid ${myBehaviorTier.border}`,
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {myBehaviorTier.label}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 8 }}>
+                      <span style={{ fontSize: 32, fontWeight: 800, color: myBehaviorTier.color, lineHeight: 1 }}>
+                        {myBehaviorScore}
+                      </span>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        / 80 pts
+                      </span>
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{ height: 6, width: '100%', background: '#F0EFEA', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${Math.min(100, Math.max(0, (myBehaviorScore / 80) * 100))}%`,
+                        background: myBehaviorTier.color,
+                        borderRadius: 3,
+                        transition: 'width 0.3s ease',
+                      }} />
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 10 }}>
-                    <span style={{ fontSize: 36, fontWeight: 800, color: myBehaviorTier.color, lineHeight: 1 }}>
-                      {myBehaviorScore}
-                    </span>
-                    <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)' }}>
-                      / 80 pts
-                    </span>
-                  </div>
-                  {/* Progress bar */}
-                  <div style={{ height: 6, width: '100%', background: '#F0EFEA', borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{
-                      height: '100%',
-                      width: `${Math.min(100, Math.max(0, (myBehaviorScore / 80) * 100))}%`,
-                      background: myBehaviorTier.color,
-                      borderRadius: 3,
-                      transition: 'width 0.3s ease',
-                    }} />
-                  </div>
-                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
-                    {myBehaviorScore >= 75 ? 'Excellent standing across all classes' : myBehaviorScore >= 60 ? 'Good standing; avoid further deductions' : 'Needs attention; speak with your class teacher'}
+                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+                    {myBehaviorScore >= 75 ? 'Excellent standing across all classes.' : myBehaviorScore >= 60 ? 'Good standing; maintain classroom focus.' : 'Needs attention; speak with your class teacher.'}
                   </div>
                 </div>
 
-                {/* CARD 2: STARTING BASELINE */}
+                {/* CARD 2: TOTAL DEDUCTIONS */}
                 <div style={{
                   background: '#FFFFFF',
                   border: '1px solid var(--border-color)',
                   borderRadius: 10,
-                  padding: '18px 20px',
+                  padding: '16px 18px',
                   boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
                 }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                    Standard Baseline
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 8 }}>
-                    <span style={{ fontSize: 36, fontWeight: 800, color: 'var(--neutral-dark)', lineHeight: 1 }}>
-                      80
-                    </span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>
-                      points
-                    </span>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                      Total Deductions
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 8 }}>
+                      <span style={{ fontSize: 32, fontWeight: 800, color: myTotalDeductions > 0 ? '#A83B38' : '#2C6E6A', lineHeight: 1 }}>
+                        {myTotalDeductions > 0 ? `-${myTotalDeductions}` : '0'}
+                      </span>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        points
+                      </span>
+                    </div>
                   </div>
                   <p style={{ margin: 0, fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                    Standard score awarded to all students at start of academic term.
-                  </p>
-                </div>
-
-                {/* CARD 3: TOTAL DEDUCTIONS */}
-                <div style={{
-                  background: '#FFFFFF',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 10,
-                  padding: '18px 20px',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                    Total Deductions
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 8 }}>
-                    <span style={{ fontSize: 36, fontWeight: 800, color: myTotalDeductions > 0 ? '#A83B38' : '#2C6E6A', lineHeight: 1 }}>
-                      {myTotalDeductions > 0 ? `-${myTotalDeductions}` : '0'}
-                    </span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>
-                      points
-                    </span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                    From {myBehaviorIncidents.length} recorded conduct observation{myBehaviorIncidents.length === 1 ? '' : 's'}.
-                  </p>
-                </div>
-
-                {/* CARD 4: CONDUCT GUIDANCE */}
-                <div style={{
-                  background: '#FFFFFF',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 10,
-                  padding: '18px 20px',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
-                    Conduct Standing
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <span style={{ fontSize: 18, fontWeight: 700, color: myBehaviorTier.color }}>
-                      {myBehaviorTier.label}
-                    </span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                    {myBehaviorScore >= 75
-                      ? 'Role model discipline. Eligible for student council and term honors.'
-                      : myBehaviorScore >= 60
-                      ? 'Acceptable conduct. Maintain vigilance with homework and punctuality.'
-                      : 'Requires immediate behavior turnaround. Regular counseling may be scheduled.'}
+                    {myBehaviorIncidents.length === 0
+                      ? 'No infractions logged this term.'
+                      : `${myBehaviorIncidents.length} recorded conduct observation${myBehaviorIncidents.length === 1 ? '' : 's'}.`}
                   </p>
                 </div>
               </div>
@@ -4227,6 +4301,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   onClick={() => setSelectedHubActivity(null)}
                 >
                   <div
+                    className="hub-detail-panel"
                     onClick={e => e.stopPropagation()}
                     style={{
                       width: '100%', maxWidth: 520,
@@ -4406,12 +4481,12 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                       value={hrPriorityFilter}
                       onChange={(pri) => setHrPriorityFilter(pri as any)}
                       options={[
-                        { value: 'all', label: 'All Notices' },
-                        { value: 'pinned', label: 'Pinned' },
-                        { value: 'urgent', label: 'Urgent' },
-                        { value: 'important', label: 'Important' },
+                        { value: 'all', label: 'All Notices', mobileLabel: 'All' },
+                        { value: 'pinned', label: 'Pinned', mobileLabel: 'Pinned' },
+                        { value: 'urgent', label: 'Urgent', mobileLabel: 'Urgent' },
+                        { value: 'important', label: 'Important', mobileLabel: 'Imp' },
                       ]}
-                      height={30}
+                      height={32}
                       textTransform="none"
                     />
                   </div>
@@ -4809,88 +4884,6 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         )}
       </main>
 
-      {/* MOBILE BOTTOM NAVIGATION BAR (Screens <= 768px) */}
-      <nav className="mobile-bottom-nav">
-        <button
-          type="button"
-          className={`mobile-nav-tab ${activeNavType === 'class' ? 'active' : ''}`}
-          onClick={() => {
-            setActiveNavType('class');
-            if (!selectedClassId && subjectClasses.length > 0) {
-              setSelectedClassId(subjectClasses[0].id);
-            }
-          }}
-          aria-label="Classrooms & Subjects"
-        >
-          <div className="tab-icon-wrap">
-            <BookOpen size={18} />
-          </div>
-          <span>Classes</span>
-        </button>
-
-        <button
-          type="button"
-          className={`mobile-nav-tab ${activeNavType === 'attendance' ? 'active' : ''}`}
-          onClick={() => setActiveNavType('attendance')}
-          aria-label="Attendance Records"
-        >
-          <div className="tab-icon-wrap">
-            <Calendar size={18} />
-            {attendanceStats.authAbsentCount > 0 && (
-              <span className="nav-badge" style={{ background: '#D97706' }}>
-                {attendanceStats.authAbsentCount}
-              </span>
-            )}
-          </div>
-          <span>Attendance</span>
-        </button>
-
-        <button
-          type="button"
-          className={`mobile-nav-tab ${activeNavType === 'behavior' ? 'active' : ''}`}
-          onClick={() => setActiveNavType('behavior')}
-          aria-label="Behavior & Conduct"
-        >
-          <div className="tab-icon-wrap">
-            <ShieldAlert size={18} style={{ color: activeNavType === 'behavior' ? '#2C6E6A' : myBehaviorTier.color }} />
-            {myBehaviorScore < 75 && (
-              <span className="nav-badge" style={{ background: myBehaviorTier.color }}>
-                !
-              </span>
-            )}
-          </div>
-          <span>Conduct</span>
-        </button>
-
-        <button
-          type="button"
-          className={`mobile-nav-tab ${activeNavType === 'homeroom_circulars' ? 'active' : ''}`}
-          onClick={() => setActiveNavType('homeroom_circulars')}
-          aria-label="Class Circulars & Notices"
-        >
-          <div className="tab-icon-wrap">
-            <Megaphone size={18} />
-            {myHomeroomBroadcasts.length > 0 && (
-              <span className="nav-badge" style={{ background: '#2C6E6A' }}>
-                {myHomeroomBroadcasts.length}
-              </span>
-            )}
-          </div>
-          <span>Notices</span>
-        </button>
-
-        <button
-          type="button"
-          className={`mobile-nav-tab ${['awards', 'hub', 'cslab', 'settings', 'support'].includes(activeNavType) ? 'active' : ''}`}
-          onClick={() => setIsMobileDrawerOpen(true)}
-          aria-label="More Features & Menu"
-        >
-          <div className="tab-icon-wrap">
-            <Menu size={18} />
-          </div>
-          <span>More</span>
-        </button>
-      </nav>
 
       {/* Full-Page High-Security Online Examination Portal */}
       {activeTestModal && (

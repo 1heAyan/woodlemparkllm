@@ -78,8 +78,10 @@ import { CreateSubjectClassModal } from '@/components/Modals/CreateSubjectClassM
 import { TestResultRecord } from '@/components/Modals/ReviewTestResultsModal';
 import { AssignmentSubmissionRecord } from '@/components/Modals/GradeAssignmentModal';
 import { AiChatbot } from '@/components/Shared/AiChatbot';
+import { FeedbackWidget } from '@/components/Shared/FeedbackWidget';
 import { PortalNavigationProvider } from '@/lib/PortalNavigationContext';
-import { getCachedPassword, resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
+import { ChangeDefaultPasswordModal } from '@/components/Modals/ChangeDefaultPasswordModal';
+import { getCachedPassword, resolveUserPassword, saveUserPasswordToCloudAndLocal, isUserOnDefaultPassword } from '@/lib/passwordHelper';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import {
   extractStudentAdditionalInfoFromHub,
@@ -157,6 +159,7 @@ export default function WoodlemApp() {
   const [isProvisionUserOpen, setIsProvisionUserOpen] = useState(false);
   const [isStudentOnboardingOpen, setIsStudentOnboardingOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
+  const [isChangeDefaultPasswordModalOpen, setIsChangeDefaultPasswordModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
   const [csQuestions, setCsQuestions] = useState<CsQuestion[]>(() => getLocalCachedCsQuestions());
@@ -1074,6 +1077,24 @@ export default function WoodlemApp() {
     }
     setCurrentUser(enriched);
     loadAllData();
+    if (isUserOnDefaultPassword(enriched)) {
+      setIsChangeDefaultPasswordModalOpen(true);
+    }
+  };
+
+  // Check if active user is on default password and prompt them on login
+  useEffect(() => {
+    if (currentUser && isUserOnDefaultPassword(currentUser)) {
+      setIsChangeDefaultPasswordModalOpen(true);
+    }
+  }, [currentUser?.id, currentUser?.email]);
+
+  const handleDefaultPasswordSuccess = (newPassword: string) => {
+    if (currentUser) {
+      const updated = { ...currentUser, temp_password: newPassword };
+      handleUpdateCurrentUser(updated);
+    }
+    setIsChangeDefaultPasswordModalOpen(false);
   };
 
   const handleUpdateCurrentUser = useCallback((updated: UserProfile) => {
@@ -4798,6 +4819,9 @@ export default function WoodlemApp() {
         testResults={testResults}
         assignmentSubmissions={assignmentSubmissions}
       />
+
+      {/* User Feedback & Feature Suggestions Widget — available across all dashboards */}
+      <FeedbackWidget currentUser={currentUser} />
       </div>
 
       {/* Modals */}
@@ -4915,6 +4939,16 @@ export default function WoodlemApp() {
           presetGrade={createClassPreset?.grade}
           presetSection={createClassPreset?.section}
           lockSection={!!createClassPreset?.lockSection}
+        />
+      )}
+
+      {/* Change Default Password Modal — shown automatically whenever user is on default password */}
+      {currentUser && (
+        <ChangeDefaultPasswordModal
+          isOpen={isChangeDefaultPasswordModalOpen}
+          currentUser={currentUser}
+          onClose={() => setIsChangeDefaultPasswordModalOpen(false)}
+          onSuccess={handleDefaultPasswordSuccess}
         />
       )}
 

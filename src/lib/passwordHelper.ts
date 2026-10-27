@@ -174,3 +174,25 @@ export async function saveUserPasswordToCloudAndLocal(
     // Non-fatal backup
   }
 }
+
+/**
+ * Checks if a given password string matches a known school default password.
+ */
+export function isDefaultPassword(password?: string): boolean {
+  if (!password) return true;
+  const p = password.trim().toLowerCase();
+  return p === 'woodlem123' || p === 'admin123';
+}
+
+/**
+ * Determines whether a user account is currently still using the initial default password.
+ */
+export function isUserOnDefaultPassword(
+  user?: UserProfile | null,
+  cloudPasswordMap?: Record<string, string>
+): boolean {
+  if (!user) return false;
+  const effective = resolveUserPassword(user, cloudPasswordMap);
+  return isDefaultPassword(effective);
+}
+

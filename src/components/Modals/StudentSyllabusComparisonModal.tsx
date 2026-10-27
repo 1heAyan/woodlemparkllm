@@ -178,6 +178,7 @@ export const StudentSyllabusComparisonModal: React.FC<StudentSyllabusComparisonM
   return (
     <div
       onClick={onClose}
+      className="responsive-modal-overlay"
       style={{
         position: 'fixed',
         inset: 0,
@@ -190,6 +191,7 @@ export const StudentSyllabusComparisonModal: React.FC<StudentSyllabusComparisonM
       }}
     >
       <div
+        className="responsive-modal-card"
         onClick={(e) => e.stopPropagation()}
         style={{
           maxWidth: 820,

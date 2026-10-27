@@ -5,6 +5,7 @@ import React from 'react';
 export interface SegmentedOption<T extends string = string> {
   value: T;
   label: string;
+  mobileLabel?: string;
   count?: number | string;
   icon?: React.ReactNode;
   disabled?: boolean;
@@ -108,7 +109,8 @@ export function SegmentedControl<T extends string = string>({
             }}
           >
             {opt.icon && <span>{opt.icon}</span>}
-            <span>{opt.label}</span>
+            <span className="seg-label-desktop">{opt.label}</span>
+            <span className="seg-label-mobile">{opt.mobileLabel || opt.label}</span>
             {opt.count !== undefined && opt.count !== null && (
               <span
                 style={{

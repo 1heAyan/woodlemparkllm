@@ -660,6 +660,7 @@ export const ExportAttendanceModal: React.FC<ExportAttendanceModalProps> = ({
 
   return (
     <div
+      className="responsive-modal-overlay"
       style={{
         position: 'fixed',
         top: 0,
@@ -677,6 +678,7 @@ export const ExportAttendanceModal: React.FC<ExportAttendanceModalProps> = ({
       onClick={onClose}
     >
       <div
+        className="responsive-modal-card"
         style={{
           background: '#FFFFFF',
           borderRadius: 12,

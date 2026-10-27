@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock, Download, Building, Trash2, Plus, Search, AlertTriangle, UserPlus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LayoutDashboard, Users, BookOpen, FileText, Settings, LifeBuoy, Server, LogOut, Pin, PinOff, Check, UserCheck, Clock, CheckCircle2, XCircle, Zap, X, FileSpreadsheet, ShieldCheck, Crown, Lock, Download, Building, Trash2, Plus, Search, AlertTriangle, UserPlus, MessageSquarePlus } from 'lucide-react';
 import { WoodlemLogo } from '@/components/Shared/WoodlemLogo';
 import { DesktopRecommendedBanner } from '@/components/Shared/DesktopRecommendedBanner';
 import { useSidebarState } from '@/lib/useSidebarState';
@@ -15,10 +15,12 @@ import { SpecialAccessView } from '@/components/Admin/SpecialAccessView';
 import { UserDetailView } from '@/components/Admin/UserDetailView';
 import { AdminAssessmentTermsView } from '@/components/Admin/AdminAssessmentTermsView';
 import { LateEntryView } from '@/components/Shared/LateEntryView';
+import { AdminFeedbackView } from '@/components/Admin/AdminFeedbackView';
 import { formatShortFileName, openFileInNewTab, downloadFile } from '@/lib/fileHelper';
 import { usePortalNavigation } from '@/lib/PortalNavigationContext';
 import { extractClassTeacherInfo } from '@/lib/classTeacherHelper';
 import { isPrincipalUser, isSltUser, loadSpecialRoleAssignments } from '@/lib/specialRolesHelper';
+import { isUserOnDefaultPassword } from '@/lib/passwordHelper';
 import { sanitizeUserCode, normalizeAdmissionNumber, normalizeStudentName, isMatchingStudent } from '@/lib/userCodeHelper';
 import { computeExecutiveAnalytics, isSubjectClassInGrade } from '@/lib/analyticsHelper';
 import {
@@ -60,7 +62,7 @@ interface AdminDashboardProps {
   onRefreshData?: () => void;
 }
 
-type AdminTab = 'overview' | 'delegation' | 'directory' | 'classes' | 'assessments' | 'late_entry' | 'settings' | 'support';
+type AdminTab = 'overview' | 'delegation' | 'directory' | 'classes' | 'assessments' | 'late_entry' | 'feedback' | 'settings' | 'support';
 
 type DirectorySortOption = 'adm_asc' | 'adm_desc' | 'roll_wise' | 'name_asc';
 
@@ -198,6 +200,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const isSlt = !isPrincipal && isSltUser(currentUser);
   const isAdmin = !isPrincipal && !isSlt && (currentUser.role === 'admin' || (currentUser.email || '').toLowerCase().startsWith('admin@'));
   const canManageSpecialRoles = isPrincipal || isAdmin;
+  const hasDefaultPassword = useMemo(() => isUserOnDefaultPassword(currentUser), [currentUser]);
 
   const [sltAssignment, setSltAssignment] = useState<SpecialRoleAssignment | null>(null);
   const [sltPermissions, setSltPermissions] = useState<{
@@ -304,6 +307,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [deletingSubjectClass, setDeletingSubjectClass] = useState<SubjectClass | null>(null);
   const [isDeletingClassLoading, setIsDeletingClassLoading] = useState(false);
   const [classTeacherUpdateStatus, setClassTeacherUpdateStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleNavFeedback = () => setActiveTab('feedback');
+    window.addEventListener('woodlem:navigate_admin_feedback', handleNavFeedback);
+    return () => window.removeEventListener('woodlem:navigate_admin_feedback', handleNavFeedback);
+  }, []);
 
   const handleConfirmDeleteSubjectClass = async () => {
     if (!deletingSubjectClass) return;
@@ -3109,6 +3118,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (sltPermissions.canManageLateEntries !== false) {
         sltTabs.push({ id: 'late_entry', label: 'Late Entry Desk & Audit', count: lateEntries.length });
       }
+      sltTabs.push({ id: 'feedback', label: 'User Feedback & Ideas' });
       if (sltPermissions.canManageSettings === true) {
         sltTabs.push({ id: 'settings', label: 'Settings & Passwords' });
       }
@@ -3122,6 +3132,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       { id: 'classes', label: 'Classes & Sections', count: activeClassList.length },
       { id: 'assessments', label: 'Exam Terms & Marks' },
       { id: 'late_entry', label: 'Late Entry Desk & Audit', count: lateEntries.length },
+      { id: 'feedback', label: 'User Feedback & Ideas' },
       { id: 'settings', label: 'Settings & Passwords' },
       { id: 'support', label: 'Help & Support' },
     ];
@@ -3311,6 +3322,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 case 'classes': return <BookOpen size={16} />;
                 case 'assessments': return <FileSpreadsheet size={16} />;
                 case 'late_entry': return <Clock size={16} />;
+                case 'feedback': return <MessageSquarePlus size={16} />;
                 case 'settings': return <Settings size={16} />;
                 case 'support': return <LifeBuoy size={16} />;
 
@@ -3350,6 +3362,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       }}>
                         {getIcon()}
                       </span>
+                      {tab.id === 'settings' && hasDefaultPassword && (
+                        <span
+                          style={{
+                            position: 'absolute',
+                            top: -3,
+                            right: -3,
+                            width: 7,
+                            height: 7,
+                            borderRadius: '50%',
+                            background: '#EF4444',
+                            boxShadow: '0 0 0 1.5px #FFFFFF',
+                          }}
+                        />
+                      )}
                     </div>
                   ) : (
                     <>
@@ -3376,6 +3402,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           {tab.label}
                         </span>
                       </div>
+                      {tab.id === 'settings' && hasDefaultPassword && (
+                        <span
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: '50%',
+                            background: '#EF4444',
+                            boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)',
+                            flexShrink: 0,
+                          }}
+                          title="Security Alert: Default password active. Please update your password."
+                        />
+                      )}
                     </>
                   )}
                 </button>
@@ -3424,6 +3463,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           >
             {sidebar.isCollapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
             {!sidebar.isCollapsed && <span>Collapse Sidebar</span>}
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveTab('feedback');
+              sidebar.handleNavClick();
+            }}
+            title="Review user feedback & feature suggestions"
+            style={{
+              width: sidebar.isCollapsed ? 40 : '100%',
+              height: sidebar.isCollapsed ? 36 : 'auto',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: sidebar.isCollapsed ? 'center' : 'flex-start',
+              gap: 8,
+              background: 'transparent',
+              border: 'none',
+              borderRadius: 7,
+              padding: sidebar.isCollapsed ? 0 : '7px 8px',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: 600,
+              color: '#6B6963',
+              transition: 'background 0.15s ease',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = '#F3F2EF')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          >
+            <MessageSquarePlus size={15} style={{ flexShrink: 0 }} />
+            {!sidebar.isCollapsed && <span>Feedback &amp; Ideas</span>}
           </button>
 
           <div style={{ position: 'relative', width: sidebar.isCollapsed ? 'auto' : '100%' }}>
@@ -3619,6 +3688,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   lateEntries={lateEntries}
                   onRefreshData={onRefreshData}
                 />
+              )}
+              {activeTab === 'feedback' && (
+                <AdminFeedbackView currentUser={currentUser} profiles={profiles} />
               )}
               {activeTab === 'settings' && (
                 <SettingsView currentUser={currentUser} profiles={profiles} onRefreshData={onRefreshData} />

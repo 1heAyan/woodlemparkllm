@@ -271,6 +271,7 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({
 
   return (
     <div
+      className="responsive-modal-overlay"
       style={{
         position: 'fixed',
         inset: 0,
@@ -285,6 +286,7 @@ export const CreateHubActivityModal: React.FC<CreateHubActivityModalProps> = ({
       onClick={onClose}
     >
       <div
+        className="responsive-modal-card"
         onClick={(e) => e.stopPropagation()}
         style={{
           background: '#FFFFFF',
