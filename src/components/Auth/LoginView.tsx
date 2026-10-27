@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { supabase, UserProfile } from '@/lib/supabaseClient';
-import { resolveUserPassword, saveUserPasswordToCloudAndLocal } from '@/lib/passwordHelper';
+import { resolveUserPassword, saveUserPasswordToCloudAndLocal, getCachedPassword } from '@/lib/passwordHelper';
 import { isPrincipalUser, isSltUser, DEFAULT_PRINCIPAL_RECORD } from '@/lib/specialRolesHelper';
 import { ArrowRight } from 'lucide-react';
 
@@ -125,8 +125,29 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
 
       // Root Admin special shortcut
       if (resolvedEmail === 'admin@woodlempark.ae' || resolvedEmail === 'admin@woodlem.com' || resolvedEmail.startsWith('admin@')) {
-        const expectedPwd = resolveUserPassword(matchedProfile);
-        if (password === expectedPwd || password === 'woodlem123' || password === 'admin123') {
+        let expectedPwd = matchedProfile?.temp_password?.trim() || getCachedPassword(matchedProfile?.id, resolvedEmail);
+        if (!expectedPwd || expectedPwd === 'woodlem123' || expectedPwd === 'admin123') {
+          try {
+            const { data: pwdRecord } = await supabase
+              .from('achievements')
+              .select('desc_text, description, file_url')
+              .eq('title', '__USER_PASSWORD__')
+              .eq('file_name', resolvedEmail)
+              .maybeSingle();
+            if (pwdRecord) {
+              const cloudPwd = (pwdRecord.desc_text || pwdRecord.description || pwdRecord.file_url || '').trim();
+              if (cloudPwd) expectedPwd = cloudPwd;
+            }
+          } catch (e) {}
+        }
+        if (!expectedPwd) expectedPwd = 'admin123';
+
+        const isCustomSet = Boolean(expectedPwd && expectedPwd !== 'woodlem123' && expectedPwd !== 'admin123');
+        const isMatch = isCustomSet
+          ? password === expectedPwd
+          : (password === expectedPwd || password === 'admin123' || password === 'woodlem123');
+
+        if (isMatch) {
           const adminProfile: UserProfile = {
             ...(matchedProfile || {}),
             id: matchedProfile?.id || 'admin-1',
@@ -135,25 +156,48 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
             role: 'admin',
             user_code: matchedProfile?.user_code || 'ADM-001',
           };
-          saveUserPasswordToCloudAndLocal(adminProfile.id, resolvedEmail, password);
-          onLoginSuccess({ ...adminProfile, role: 'admin', temp_password: password });
+          onLoginSuccess({ ...adminProfile, role: 'admin', temp_password: expectedPwd });
           return;
+        } else if (isCustomSet && (password === 'woodlem123' || password === 'admin123')) {
+          throw new Error('Default password has been changed. Please sign in with your updated personal password.');
         }
       }
 
       // Principal shortcut
       if (resolvedEmail === 'principal@woodlempark.ae' || resolvedEmail === 'principal@woodlem.com' || (matchedProfile && isPrincipalUser(matchedProfile))) {
-        const expectedPwd = resolveUserPassword(matchedProfile);
-        if (password === expectedPwd || password === 'woodlem123' || password === 'principal123' || password === 'admin123') {
+        let expectedPwd = matchedProfile?.temp_password?.trim() || getCachedPassword(matchedProfile?.id, resolvedEmail);
+        if (!expectedPwd || expectedPwd === 'woodlem123' || expectedPwd === 'principal123' || expectedPwd === 'admin123') {
+          try {
+            const { data: pwdRecord } = await supabase
+              .from('achievements')
+              .select('desc_text, description, file_url')
+              .eq('title', '__USER_PASSWORD__')
+              .eq('file_name', resolvedEmail)
+              .maybeSingle();
+            if (pwdRecord) {
+              const cloudPwd = (pwdRecord.desc_text || pwdRecord.description || pwdRecord.file_url || '').trim();
+              if (cloudPwd) expectedPwd = cloudPwd;
+            }
+          } catch (e) {}
+        }
+        if (!expectedPwd) expectedPwd = 'principal123';
+
+        const isCustomSet = Boolean(expectedPwd && expectedPwd !== 'woodlem123' && expectedPwd !== 'principal123' && expectedPwd !== 'admin123');
+        const isMatch = isCustomSet
+          ? password === expectedPwd
+          : (password === expectedPwd || password === 'principal123' || password === 'woodlem123');
+
+        if (isMatch) {
           const principalProfile: UserProfile = {
             ...DEFAULT_PRINCIPAL_RECORD,
             ...(matchedProfile || {}),
             email: resolvedEmail,
             role: 'principal',
           };
-          saveUserPasswordToCloudAndLocal(principalProfile.id, resolvedEmail, password);
-          onLoginSuccess({ ...principalProfile, role: 'principal', temp_password: password });
+          onLoginSuccess({ ...principalProfile, role: 'principal', temp_password: expectedPwd });
           return;
+        } else if (isCustomSet && (password === 'woodlem123' || password === 'principal123')) {
+          throw new Error('Default password has been changed. Please sign in with your updated personal password.');
         }
       }
 
@@ -163,28 +207,53 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
           (p) => p.role === 'student' && p.parent_email && p.parent_email.trim().toLowerCase() === resolvedEmail
         );
         if (matchingStudents.length > 0) {
-          const parentId = 'parent_' + resolvedEmail.replace(/[^a-zA-Z0-9]/g, '_');
-          const studentNames = matchingStudents.map((s) => s.name).join(', ');
-          const autoParent: UserProfile = {
-            id: parentId,
-            name: `Parent of ${studentNames}`,
-            email: resolvedEmail,
-            role: 'parent',
-            linked_student_ids: matchingStudents.map((s) => s.id),
-            temp_password: password || 'woodlem123',
-          };
-          supabase.from('profiles').upsert([
-            {
+          let parentExpectedPwd = getCachedPassword(undefined, resolvedEmail);
+          if (!parentExpectedPwd || parentExpectedPwd === 'woodlem123') {
+            try {
+              const { data: pwdRecord } = await supabase
+                .from('achievements')
+                .select('desc_text, description, file_url')
+                .eq('title', '__USER_PASSWORD__')
+                .eq('file_name', resolvedEmail)
+                .maybeSingle();
+              if (pwdRecord) {
+                const cloudPwd = (pwdRecord.desc_text || pwdRecord.description || pwdRecord.file_url || '').trim();
+                if (cloudPwd) parentExpectedPwd = cloudPwd;
+              }
+            } catch (e) {}
+          }
+          if (!parentExpectedPwd) parentExpectedPwd = 'woodlem123';
+
+          const isParentCustom = parentExpectedPwd !== 'woodlem123';
+          if (password === parentExpectedPwd) {
+            const parentId = 'parent_' + resolvedEmail.replace(/[^a-zA-Z0-9]/g, '_');
+            const studentNames = matchingStudents.map((s) => s.name).join(', ');
+            const autoParent: UserProfile = {
               id: parentId,
-              name: autoParent.name,
+              name: `Parent of ${studentNames}`,
               email: resolvedEmail,
               role: 'parent',
-              linked_student_ids: autoParent.linked_student_ids,
-            },
-          ], { onConflict: 'email' }).then(() => {});
-          saveUserPasswordToCloudAndLocal(parentId, resolvedEmail, password || 'woodlem123');
-          onLoginSuccess(autoParent);
-          return;
+              linked_student_ids: matchingStudents.map((s) => s.id),
+              temp_password: parentExpectedPwd,
+            };
+            supabase.from('profiles').upsert([
+              {
+                id: parentId,
+                name: autoParent.name,
+                email: resolvedEmail,
+                role: 'parent',
+                linked_student_ids: autoParent.linked_student_ids,
+                temp_password: parentExpectedPwd,
+              },
+            ], { onConflict: 'email' }).then(() => {});
+            onLoginSuccess(autoParent);
+            return;
+          } else {
+            if (isParentCustom && password === 'woodlem123') {
+              throw new Error('Default password has been changed. Please sign in with your updated personal password.');
+            }
+            throw new Error('Incorrect password. Please enter the correct password for your parent account.');
+          }
         }
       }
 
@@ -206,8 +275,37 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
 
       // 3. Validation with stored profile password fallback
       if (!authUser) {
-        const expectedPassword = resolveUserPassword(matchedProfile);
-        const isPasswordMatch = password === expectedPassword || password === 'woodlem123';
+        let expectedPassword = matchedProfile?.temp_password?.trim() || getCachedPassword(matchedProfile?.id, resolvedEmail);
+
+        // Check achievements table for cloud custom password if not already set or default
+        if (!expectedPassword || expectedPassword === 'woodlem123') {
+          try {
+            const { data: pwdRecord } = await supabase
+              .from('achievements')
+              .select('desc_text, description, file_url')
+              .eq('title', '__USER_PASSWORD__')
+              .eq('file_name', resolvedEmail)
+              .maybeSingle();
+
+            if (pwdRecord) {
+              const cloudPwd = (pwdRecord.desc_text || pwdRecord.description || pwdRecord.file_url || '').trim();
+              if (cloudPwd) {
+                expectedPassword = cloudPwd;
+              }
+            }
+          } catch (e) {}
+        }
+
+        if (!expectedPassword) {
+          expectedPassword = 'woodlem123';
+        }
+
+        const isUserCustomSet = expectedPassword !== 'woodlem123';
+
+        // STRICT MATCH:
+        // Once a custom password is set, ONLY password === expectedPassword is valid.
+        // The default password 'woodlem123' is STRICTLY REJECTED.
+        const isPasswordMatch = password === expectedPassword;
 
         if (isPasswordMatch && matchedProfile) {
           let resolvedRole = matchedProfile.role;
@@ -216,40 +314,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, profiles =
           } else if (resolvedEmail === 'principal@woodlempark.ae' || resolvedEmail === 'principal@woodlem.com' || isPrincipalUser(matchedProfile) || isSltUser(matchedProfile) || matchedProfile.special_role === 'slt') {
             resolvedRole = 'principal';
           }
-          saveUserPasswordToCloudAndLocal(matchedProfile.id, resolvedEmail, password);
-          onLoginSuccess({ ...matchedProfile, role: resolvedRole, temp_password: password });
+          onLoginSuccess({ ...matchedProfile, role: resolvedRole, temp_password: expectedPassword });
           return;
         }
 
-        // Second check for parent whose profile might not have been matched yet
-        if (resolvedEmail.includes('@')) {
-          const matchingStudents = (profiles || []).filter(
-            (p) => p.role === 'student' && p.parent_email && p.parent_email.trim().toLowerCase() === resolvedEmail
-          );
-          if (matchingStudents.length > 0) {
-            const parentId = 'parent_' + resolvedEmail.replace(/[^a-zA-Z0-9]/g, '_');
-            const studentNames = matchingStudents.map((s) => s.name).join(', ');
-            const autoParent: UserProfile = {
-              id: parentId,
-              name: `Parent of ${studentNames}`,
-              email: resolvedEmail,
-              role: 'parent',
-              linked_student_ids: matchingStudents.map((s) => s.id),
-              temp_password: password || 'woodlem123',
-            };
-            supabase.from('profiles').upsert([
-              {
-                id: parentId,
-                name: autoParent.name,
-                email: resolvedEmail,
-                role: 'parent',
-                linked_student_ids: autoParent.linked_student_ids,
-              },
-            ], { onConflict: 'email' }).then(() => {});
-            saveUserPasswordToCloudAndLocal(parentId, resolvedEmail, password || 'woodlem123');
-            onLoginSuccess(autoParent);
-            return;
-          }
+        if (isUserCustomSet && password === 'woodlem123') {
+          throw new Error('Default password has been changed. Please sign in with your updated personal password.');
         }
 
         throw new Error('Incorrect email/ID or password. Please check your credentials.');
